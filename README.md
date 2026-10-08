@@ -165,42 +165,6 @@
 
 ساختار پروژه عمداً ساده نگه داشته شده تا بتوانی سریع آن را اجرا، بررسی و توسعه بدهی.
 
----
-
-# 🚀 اجرا در چند قدم
-
-### 1️⃣ نصب وابستگی‌ها
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2️⃣ تنظیم Environment Variables
-
-```env
-BOT_TOKEN=your_bot_token
-ADMIN_IDS=123456789
-DB_PATH=bot.db
-PORT=8080
-```
-
-> 🔒 توکن ربات را هیچ‌وقت داخل GitHub قرار نده.
-
-### 3️⃣ اجرا
-
-```bash
-python bot.py
-```
-
----
-
-# 🚂 آماده برای Railway
-
-این پروژه برای اجرای **Long Polling** روی Railway آماده شده است.
-
-کافی است Repository را متصل کرده و متغیرهای محیطی را تنظیم کنی.
-
----
 
 # 🧱 ساختار پروژه
 
@@ -263,10 +227,3 @@ Repository را ببین، کد را بررسی کن و ببین این ربات
     <img src="https://img.shields.io/badge/⭐%20Explore%20the%20Project-000000?style=for-the-badge" alt="Explore the project">
   </a>
 </p>
-
----
-
-### 👨‍💻 ساخته‌شده با Python و Aiogram
-
-**Telegram All-in-One Bot**  
-از یک ربات ساده شروع شد؛ هدفش تبدیل‌شدن به یک ابزار کامل برای مدیریت کامیونیتی است.
