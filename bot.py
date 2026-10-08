@@ -10,7 +10,9 @@ if not TOKEN: raise RuntimeError("BOT_TOKEN is required")
 logging.basicConfig(level=logging.INFO); db=sqlite3.connect(os.getenv("DB_PATH","bot.db"),check_same_thread=False)
 db.executescript("""CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT,name TEXT,joined TEXT);
 CREATE TABLE IF NOT EXISTS filters(chat INTEGER,word TEXT,PRIMARY KEY(chat,word));
-CREATE TABLE IF NOT EXISTS settings(chat INTEGER PRIMARY KEY,welcome INTEGER DEFAULT 1)"""); db.commit()
+CREATE TABLE IF NOT EXISTS settings(chat INTEGER PRIMARY KEY,welcome INTEGER DEFAULT 1,antilink INTEGER DEFAULT 0,antispam INTEGER DEFAULT 0)
+CREATE TABLE IF NOT EXISTS warnings(chat INTEGER,user INTEGER,count INTEGER,PRIMARY KEY(chat,user))
+CREATE TABLE IF NOT EXISTS spam(chat INTEGER,user INTEGER,last TEXT,count INTEGER,PRIMARY KEY(chat,user))"""); db.commit()
 bot=Bot(TOKEN); dp=Dispatcher(); pending=set()
 def save(m):
  u=m.from_user; db.execute("INSERT OR IGNORE INTO users VALUES(?,?,?,?)",(u.id,u.username,u.full_name,datetime.utcnow().isoformat())); db.execute("UPDATE users SET username=?,name=? WHERE id=?",(u.username,u.full_name,u.id)); db.commit()
@@ -123,6 +125,54 @@ async def demote(m):
   await bot.promote_chat_member(m.chat.id,u.id,can_manage_chat=False,can_delete_messages=False,can_restrict_members=False,can_pin_messages=False)
   await m.answer("✅ دسترسی‌های مدیریتی حذف شد.")
  except Exception as e: await m.answer(f"❌ {e}")
+
+@dp.message(Command("antilink"))
+async def antilink(m):
+ if not await group_admin(m): return
+ p=m.text.split(maxsplit=1); v=p[1].lower() if len(p)>1 else ""
+ if v not in ("on","off"): return await m.answer("/antilink on یا /antilink off")
+ db.execute("INSERT OR IGNORE INTO settings(chat) VALUES(?)",(m.chat.id,))
+ db.execute("UPDATE settings SET antilink=? WHERE chat=?",(1 if v=="on" else 0,m.chat.id)); db.commit()
+ await m.answer("🔗 ضدلینک "+("فعال شد." if v=="on" else "خاموش شد."))
+
+@dp.message(Command("antispam"))
+async def antispam(m):
+ if not await group_admin(m): return
+ p=m.text.split(maxsplit=1); v=p[1].lower() if len(p)>1 else ""
+ if v not in ("on","off"): return await m.answer("/antispam on یا /antispam off")
+ db.execute("INSERT OR IGNORE INTO settings(chat) VALUES(?)",(m.chat.id,))
+ db.execute("UPDATE settings SET antispam=? WHERE chat=?",(1 if v=="on" else 0,m.chat.id)); db.commit()
+ await m.answer("🛡 ضداسپم "+("فعال شد." if v=="on" else "خاموش شد."))
+
+@dp.message(Command("warn"))
+async def warn(m):
+ if not await group_admin(m): return
+ u=target(m)
+ if not u: return await m.answer("کاربر را ریپلای کن.")
+ row=db.execute("SELECT count FROM warnings WHERE chat=? AND user=?",(m.chat.id,u.id)).fetchone()
+ n=(row[0] if row else 0)+1
+ db.execute("INSERT OR REPLACE INTO warnings VALUES(?,?,?)",(m.chat.id,u.id,n)); db.commit()
+ if n>=3:
+  try:
+   await bot.restrict_chat_member(m.chat.id,u.id,permissions=ChatPermissions(can_send_messages=False),until_date=datetime.utcnow()+timedelta(hours=1))
+  except: pass
+  await m.answer(f"🔴 اخطار {n}/3 — {u.full_name} یک ساعت محدود شد.")
+ else: await m.answer(f"⚠️ اخطار {n}/3 برای {u.full_name}")
+
+@dp.message(Command("warnings"))
+async def warnings(m):
+ u=target(m) or m.from_user
+ row=db.execute("SELECT count FROM warnings WHERE chat=? AND user=?",(m.chat.id,u.id)).fetchone()
+ await m.answer(f"⚠️ اخطارهای {u.full_name}: {row[0] if row else 0}/3")
+
+@dp.message(Command("clearwarn"))
+async def clearwarn(m):
+ if not await group_admin(m): return
+ u=target(m)
+ if not u: return await m.answer("کاربر را ریپلای کن.")
+ db.execute("DELETE FROM warnings WHERE chat=? AND user=?",(m.chat.id,u.id)); db.commit()
+ await m.answer("✅ اخطارهای کاربر پاک شد.")
+
 @dp.message(Command("welcome"))
 async def welcome(m):
  if not await group_admin(m):return
@@ -163,10 +213,24 @@ async def allmsg(m):
    await asyncio.sleep(.04)
   return await m.answer(f"📢 تمام شد\n✅ {ok}\n❌ {bad}")
  if m.chat.type!="private" and m.text:
+  row=db.execute("SELECT antilink,antispam FROM settings WHERE chat=?",(m.chat.id,)).fetchone() or (0,0)
   words=[x[0] for x in db.execute("SELECT word FROM filters WHERE chat=?",(m.chat.id,))]
-  if any(w in m.text.lower() for w in words):
-   try:await m.delete()
-   except:pass
+  link=("http://" in m.text.lower() or "https://" in m.text.lower() or "t.me/" in m.text.lower())
+  blocked=any(w in m.text.lower() for w in words) or (row[0] and link)
+  if row[1]:
+   now=datetime.utcnow()
+   s=db.execute("SELECT last,count FROM spam WHERE chat=? AND user=?",(m.chat.id,m.from_user.id)).fetchone()
+   if s:
+    try: recent=(now-datetime.fromisoformat(s[0])).total_seconds()<8
+    except: recent=False
+    count=s[1]+1 if recent else 1
+   else: count=1
+   db.execute("INSERT OR REPLACE INTO spam VALUES(?,?,?,?)",(m.chat.id,m.from_user.id,now.isoformat(),count)); db.commit()
+   if count>=5: blocked=True
+  if blocked:
+   try: await m.delete()
+   except: pass
+   return
 async def health(_):return web.Response(text="OK")
 async def main():
  app=web.Application();app.router.add_get("/",health);app.router.add_get("/health",health);r=web.AppRunner(app);await r.setup();await web.TCPSite(r,"0.0.0.0",int(os.getenv("PORT","8080"))).start();await dp.start_polling(bot)
