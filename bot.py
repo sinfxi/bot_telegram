@@ -93,6 +93,36 @@ async def rem_filter(m):
 @dp.message(Command("filters"))
 async def filters(m):
  r=db.execute("SELECT word FROM filters WHERE chat=?",(m.chat.id,)).fetchall();await m.answer("🔎 فیلترها:\n"+("\n".join("• "+x[0] for x in r) or "خالی"))
+@dp.message(Command("rules"))
+async def rules(m):
+ await m.answer("📜 قوانین:\n1) احترام\n2) بدون اسپم\n3) بدون تبلیغ و لینک غیرمجاز")
+
+@dp.message(Command("warn"))
+async def warn(m):
+ if not await group_admin(m): return
+ u=target(m)
+ if not u: return await m.answer("کاربر را ریپلای کن.")
+ await m.answer(f"⚠️ اخطار برای {u.full_name} ثبت شد.")
+
+@dp.message(Command("promote"))
+async def promote(m):
+ if not await group_admin(m): return
+ u=target(m)
+ if not u: return await m.answer("کاربر را ریپلای کن.")
+ try:
+  await bot.promote_chat_member(m.chat.id,u.id,can_manage_chat=True,can_delete_messages=True,can_restrict_members=True,can_pin_messages=True)
+  await m.answer("👑 کاربر ادمین شد.")
+ except Exception as e: await m.answer(f"❌ {e}")
+
+@dp.message(Command("demote"))
+async def demote(m):
+ if not await group_admin(m): return
+ u=target(m)
+ if not u: return await m.answer("کاربر را ریپلای کن.")
+ try:
+  await bot.promote_chat_member(m.chat.id,u.id,can_manage_chat=False,can_delete_messages=False,can_restrict_members=False,can_pin_messages=False)
+  await m.answer("✅ دسترسی‌های مدیریتی حذف شد.")
+ except Exception as e: await m.answer(f"❌ {e}")
 @dp.message(Command("welcome"))
 async def welcome(m):
  if not await group_admin(m):return
