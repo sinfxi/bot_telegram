@@ -1,21 +1,21 @@
 # Commands
 
 ## 👑 Global admin
-- `/admin` — admin panel
-- `/broadcast` — broadcast a message
-- `/cancel` — cancel broadcast mode
+- `/admin` — پنل مدیریت
+- `/broadcast` — ارسال پیام همگانی
+- `/cancel` — لغو Broadcast
 
 ## 🛡 Moderation
-- `/ban` `/unban`
-- `/mute` `/unmute`
-- `/warn` `/warnings` `/clearwarn`
-- `/promote` `/demote`
-- `/del` `/pin`
+- `/ban` `/unban` — مسدود/رفع مسدودی
+- `/mute [minutes]` `/unmute` — سکوت زمان‌دار/رفع سکوت
+- `/warn` `/warnings` `/clearwarn` — سیستم اخطار
+- `/promote` `/demote` — مدیریت ادمین‌ها
+- `/del` `/pin` — حذف/سنجاق پیام
 
 ## 🔐 Security
 - `/antilink on|off`
-- `/antispam on|off`
-- `/captcha on|off`
+- `/antispam on|off` — ضداسپم + محدودسازی خودکار
+- `/captcha on|off` — CAPTCHA با اعتبار ۵ دقیقه
 - `/filter <word>`
 - `/unfilter <word>`
 - `/filters`
