@@ -10,7 +10,6 @@
     <img src="https://img.shields.io/badge/GitHub-View%20Project-181717?style=for-the-badge&logo=github" alt="GitHub">
   </a>
   <img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/Aiogram-3.x-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Aiogram">
   <img src="https://img.shields.io/github/actions/workflow/status/sinfxi/bot_telegram/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI">
 </p>
 
