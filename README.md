@@ -234,33 +234,6 @@ User
 
 ---
 
-# 🚀 راه‌اندازی
-
-### 1. نصب
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. تنظیم متغیرها
-
-```env
-BOT_TOKEN=your_bot_token
-ADMIN_IDS=123456789
-DB_PATH=bot.db
-PORT=8080
-```
-
-### 3. اجرا
-
-```bash
-python bot.py
-```
-
-> 🔒 توکن ربات را داخل GitHub قرار نده. از Environment Variables استفاده کن.
-
----
-
 # 🚂 Railway
 
 پروژه برای اجرای Long Polling روی Railway آماده شده است.
