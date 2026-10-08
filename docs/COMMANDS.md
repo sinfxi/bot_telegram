@@ -1,33 +1,56 @@
 # Commands
 
-## 👑 Global admin
-- `/admin` — پنل مدیریت
-- `/broadcast` — ارسال پیام همگانی
-- `/cancel` — لغو Broadcast
+## 👑 شروع و منوی اصلی
+- `/start` — شروع ربات
+- `/help` — نمایش کامل امکانات و دستورات
+- `/admin` — پنل مدیریتی ادمین اصلی
+- `/id` — نمایش شناسه کاربر و گروه
 
-## 🛡 Moderation
-- `/ban` `/unban` — مسدود/رفع مسدودی
-- `/mute [minutes]` `/unmute` — سکوت زمان‌دار/رفع سکوت
-- `/warn` `/warnings` `/clearwarn` — سیستم اخطار
-- `/promote` `/demote` — مدیریت ادمین‌ها
-- `/del` `/pin` — حذف/سنجاق پیام
+## 🛡 مدیریت اعضا
+- `/ban` — مسدود کردن کاربر (با Reply)
+- `/unban` — رفع مسدودی
+- `/kick` — اخراج کاربر بدون بن دائمی
+- `/mute [minutes]` — محدودسازی زمان‌دار؛ پیش‌فرض ۶۰ دقیقه
+- `/unmute` — رفع محدودیت
+- `/warn` — ثبت اخطار
+- `/warnings` — مشاهده اخطارها
+- `/clearwarn` — پاک کردن اخطارها
+- `/promote` — ارتقای کاربر به ادمین
+- `/demote` — حذف دسترسی‌های مدیریتی
+- `/del` — حذف پیام ریپلای‌شده
+- `/pin` — سنجاق پیام ریپلای‌شده
+- `/unpin` — برداشتن سنجاق
+- `/userinfo` — اطلاعات کاربر ریپلای‌شده یا خود کاربر
+- `/admins` — نمایش ادمین‌های گروه
 
-## 🔐 Security
-- `/antilink on|off`
-- `/antispam on|off` — ضداسپم + محدودسازی خودکار
-- `/captcha on|off` — CAPTCHA با اعتبار ۵ دقیقه
-- `/filter <word>`
-- `/unfilter <word>`
-- `/filters`
+## 🔐 امنیت و ضداسپم
+- `/antilink on|off` — فعال/غیرفعال کردن Anti-Link
+- `/antispam on|off` — فعال/غیرفعال کردن Anti-Spam
+- `/captcha on|off` — فعال/غیرفعال کردن CAPTCHA اعضای جدید
+- `/filter <word>` — افزودن کلمه فیلتر
+- `/unfilter <word>` — حذف کلمه فیلتر
+- `/filters` — نمایش فیلترها
+- `/lock` — قفل ارسال پیام برای اعضای عادی
+- `/unlock` — باز کردن قفل گروه
 
-## 👋 Community
-- `/welcome on|off`
-- `/rules`
+## 👋 مدیریت گروه
+- `/welcome on|off` — فعال/غیرفعال کردن Welcome
+- `/setwelcome <text>` — تنظیم متن خوشامد؛ پشتیبانی از `{name}` و `{username}`
+- `/rules` — نمایش قوانین
+- `/setrules <text>` — تنظیم قوانین سفارشی
+- `/chatinfo` — نمایش اطلاعات گروه
+- `/stats` — نمایش آمار گروه
 
 ## 📝 Notes
-- `/note <name> <text>`
-- `/getnote <name>`
-- `/notes`
-- `/id`
+- `/note <name> <text>` — ساخت یا جایگزینی Note
+- `/getnote <name>` — دریافت Note
+- `/notes` — نمایش Noteها
 
-> Commands that change group settings require group-admin permissions.
+## 🚨 گزارش
+- `/report [reason]` — گزارش کاربر با Reply؛ گزارش در دیتابیس ذخیره می‌شود
+
+## 📢 مدیریت همگانی
+- `/broadcast` — شروع ارسال پیام همگانی برای کاربران ثبت‌شده
+- `/cancel` — لغو Broadcast
+
+> بیشتر دستورات مدیریتی گروه نیاز به دسترسی ادمین دارند و باید روی پیام کاربر Reply شوند.
