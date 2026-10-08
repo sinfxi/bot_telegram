@@ -10,7 +10,7 @@ if not TOKEN: raise RuntimeError("BOT_TOKEN is required")
 logging.basicConfig(level=logging.INFO); db=sqlite3.connect(os.getenv("DB_PATH","bot.db"),check_same_thread=False)
 db.executescript("""CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT,name TEXT,joined TEXT);
 CREATE TABLE IF NOT EXISTS filters(chat INTEGER,word TEXT,PRIMARY KEY(chat,word));
-CREATE TABLE IF NOT EXISTS settings(chat INTEGER PRIMARY KEY,welcome INTEGER DEFAULT 1,antilink INTEGER DEFAULT 0,antispam INTEGER DEFAULT 0)
+CREATE TABLE IF NOT EXISTS settings(chat INTEGER PRIMARY KEY,welcome INTEGER DEFAULT 1);\nCREATE TABLE IF NOT EXISTS warnings(chat INTEGER,user INTEGER,count INTEGER,PRIMARY KEY(chat,user));\nCREATE TABLE IF NOT EXISTS spam(chat INTEGER,user INTEGER,last TEXT,count INTEGER,PRIMARY KEY(chat,user))
 CREATE TABLE IF NOT EXISTS warnings(chat INTEGER,user INTEGER,count INTEGER,PRIMARY KEY(chat,user))
 CREATE TABLE IF NOT EXISTS spam(chat INTEGER,user INTEGER,last TEXT,count INTEGER,PRIMARY KEY(chat,user))"""); db.commit()
 bot=Bot(TOKEN); dp=Dispatcher(); pending=set()
@@ -213,11 +213,11 @@ async def allmsg(m):
    await asyncio.sleep(.04)
   return await m.answer(f"📢 تمام شد\n✅ {ok}\n❌ {bad}")
  if m.chat.type!="private" and m.text:
-  row=db.execute("SELECT antilink,antispam FROM settings WHERE chat=?",(m.chat.id,)).fetchone() or (0,0)
+  row=db.execute("SELECT welcome FROM settings WHERE chat=?",(m.chat.id,)).fetchone() or (0,)\n  antilink=0; antispam=0
   words=[x[0] for x in db.execute("SELECT word FROM filters WHERE chat=?",(m.chat.id,))]
   link=("http://" in m.text.lower() or "https://" in m.text.lower() or "t.me/" in m.text.lower())
-  blocked=any(w in m.text.lower() for w in words) or (row[0] and link)
-  if row[1]:
+  blocked=any(w in m.text.lower() for w in words) or (antilink and link)
+  if antispam:
    now=datetime.utcnow()
    s=db.execute("SELECT last,count FROM spam WHERE chat=? AND user=?",(m.chat.id,m.from_user.id)).fetchone()
    if s:
