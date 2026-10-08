@@ -14,7 +14,6 @@
     <img src="https://img.shields.io/badge/مشاهده%20پروژه-GitHub-181717?style=for-the-badge&logo=github" alt="GitHub">
   </a>
   <img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/Aiogram-3.x-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Aiogram">
   <img src="https://img.shields.io/github/actions/workflow/status/sinfxi/bot_telegram/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI">
 </p>
 
@@ -224,7 +223,6 @@ User
 # ⚙️ با چی ساخته شده؟
 
 - 🐍 Python
-- 🤖 Aiogram 3
 - 🗄️ SQLite
 - 🌐 aiohttp
 - 🚂 Railway
@@ -232,15 +230,7 @@ User
 
 ساختار پروژه فعلاً عمداً ساده است؛ هدف این بوده که بتوانم سریع قابلیت اضافه کنم و رفتار ربات را راحت تست کنم.
 
----
 
-# 🚂 Railway
-
-پروژه برای اجرای Long Polling روی Railway آماده شده است.
-
-بعد از اتصال Repository، متغیرهای محیطی را تنظیم کن و سرویس را اجرا کن.
-
----
 
 # 🧱 ساختار پروژه
 
@@ -296,7 +286,6 @@ bot_telegram/
 
 # ⭐ اگر می‌خواهی کدش را ببینی
 
-بهترین راه این است که خود Repository را باز کنی و کد را ببینی.
 
 <p align="center">
   <a href="https://github.com/sinfxi/bot_telegram">
