@@ -288,7 +288,8 @@ async def admins(m):
 async def chatinfo(m):
     try:
         chat = await bot.get_chat(m.chat.id)
-        await m.answer(f"💬 اطلاعات گروه\nنام: {chat.title or '-'}\nID: {chat.id}\nنوع: {chat.type}\nUsername: @{chat.username or '-'}\nاعضای قابل نمایش: {chat.member_count or '-'}")
+        count = await bot.get_chat_member_count(m.chat.id)
+        await m.answer(f"💬 اطلاعات گروه\nنام: {chat.title or '-'}\nID: {chat.id}\nنوع: {chat.type}\nUsername: @{chat.username or '-'}\nتعداد اعضا: {count}")
     except Exception as e:
         await m.answer(f"❌ {e}")
 
