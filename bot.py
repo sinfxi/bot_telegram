@@ -5,7 +5,8 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton,
-    CallbackQuery, ChatPermissions
+    CallbackQuery, ChatPermissions, BotCommand, BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats
 )
 from aiogram.enums import ChatMemberStatus
 from aiohttp import web
@@ -34,6 +35,8 @@ CREATE TABLE IF NOT EXISTS notes(chat INTEGER, name TEXT, text TEXT, PRIMARY KEY
 CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, admin INTEGER, action TEXT, target INTEGER, created TEXT);
 CREATE TABLE IF NOT EXISTS pending_captcha(chat INTEGER, user INTEGER, created REAL, PRIMARY KEY(chat,user));
 CREATE TABLE IF NOT EXISTS mutes(chat INTEGER, user INTEGER, until REAL, PRIMARY KEY(chat,user));
+CREATE TABLE IF NOT EXISTS chat_texts(chat INTEGER, key TEXT, text TEXT, PRIMARY KEY(chat,key));
+CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, reporter INTEGER, target INTEGER, reason TEXT, created TEXT);
 """)
 for col, typ in [("welcome","INTEGER DEFAULT 1"),("antilink","INTEGER DEFAULT 0"),("antispam","INTEGER DEFAULT 0"),("captcha","INTEGER DEFAULT 0")]:
     try:
@@ -65,19 +68,16 @@ def is_global_admin(uid):
 
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="📊 آمار", callback_data="stats"),
-            InlineKeyboardButton(text="👥 کاربران", callback_data="users")
-        ],
-        [
-            InlineKeyboardButton(text="🛡 امنیت", callback_data="security"),
-            InlineKeyboardButton(text="📝 امکانات", callback_data="features")
-        ],
-        [
-            InlineKeyboardButton(text="📜 لاگ‌ها", callback_data="logs"),
-            InlineKeyboardButton(text="📢 همگانی", callback_data="bc")
-        ]
+        [InlineKeyboardButton(text="🛡️ مدیریت اعضا", callback_data="mod"),
+         InlineKeyboardButton(text="🔐 امنیت", callback_data="security")],
+        [InlineKeyboardButton(text="👋 مدیریت گروه", callback_data="group"),
+         InlineKeyboardButton(text="🧰 ابزارها", callback_data="tools")],
+        [InlineKeyboardButton(text="📊 آمار", callback_data="stats"),
+         InlineKeyboardButton(text="👥 کاربران", callback_data="users")],
+        [InlineKeyboardButton(text="📜 لاگ‌ها", callback_data="logs"),
+         InlineKeyboardButton(text="📢 همگانی", callback_data="bc")],
     ])
+
 
 async def group_admin(m):
     if m.chat.type == "private":
@@ -126,6 +126,74 @@ async def mute_user(chat_id, user_id, minutes=60):
     )
     db.commit()
 
+
+def get_chat_text(chat_id, key, default=""):
+    row = db.execute("SELECT text FROM chat_texts WHERE chat=? AND key=?", (chat_id, key)).fetchone()
+    return row[0] if row else default
+
+def set_chat_text(chat_id, key, text):
+    db.execute("INSERT OR REPLACE INTO chat_texts VALUES(?,?,?)", (chat_id, key, text))
+    db.commit()
+
+async def is_admin_user(chat_id, user_id):
+    if is_global_admin(user_id):
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        return member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}
+    except Exception:
+        return False
+
+async def set_bot_commands():
+    group_commands = [
+        BotCommand(command="start", description="شروع ربات"),
+        BotCommand(command="help", description="نمایش همه قابلیت‌ها"),
+        BotCommand(command="admin", description="پنل مدیریت"),
+        BotCommand(command="ban", description="مسدود کردن کاربر"),
+        BotCommand(command="unban", description="رفع مسدودی"),
+        BotCommand(command="kick", description="اخراج کاربر"),
+        BotCommand(command="mute", description="محدودسازی زمان‌دار"),
+        BotCommand(command="unmute", description="رفع محدودیت"),
+        BotCommand(command="warn", description="ثبت اخطار"),
+        BotCommand(command="warnings", description="مشاهده اخطارها"),
+        BotCommand(command="clearwarn", description="پاک کردن اخطارها"),
+        BotCommand(command="promote", description="ارتقای کاربر به ادمین"),
+        BotCommand(command="demote", description="حذف دسترسی ادمینی"),
+        BotCommand(command="del", description="حذف پیام"),
+        BotCommand(command="pin", description="سنجاق پیام"),
+        BotCommand(command="unpin", description="برداشتن سنجاق"),
+        BotCommand(command="userinfo", description="اطلاعات کاربر"),
+        BotCommand(command="admins", description="لیست ادمین‌ها"),
+        BotCommand(command="stats", description="آمار گروه"),
+        BotCommand(command="chatinfo", description="اطلاعات گروه"),
+        BotCommand(command="lock", description="قفل کردن ارسال پیام"),
+        BotCommand(command="unlock", description="باز کردن قفل گروه"),
+        BotCommand(command="antilink", description="کنترل لینک"),
+        BotCommand(command="antispam", description="کنترل اسپم"),
+        BotCommand(command="captcha", description="CAPTCHA اعضای جدید"),
+        BotCommand(command="filter", description="افزودن کلمه فیلتر"),
+        BotCommand(command="unfilter", description="حذف کلمه فیلتر"),
+        BotCommand(command="filters", description="لیست فیلترها"),
+        BotCommand(command="welcome", description="فعال/غیرفعال کردن خوشامد"),
+        BotCommand(command="setwelcome", description="تنظیم متن خوشامد"),
+        BotCommand(command="rules", description="نمایش قوانین"),
+        BotCommand(command="setrules", description="تنظیم قوانین"),
+        BotCommand(command="note", description="ذخیره یادداشت"),
+        BotCommand(command="getnote", description="دریافت یادداشت"),
+        BotCommand(command="notes", description="لیست یادداشت‌ها"),
+        BotCommand(command="report", description="گزارش کاربر"),
+        BotCommand(command="id", description="نمایش شناسه‌ها"),
+    ]
+    private_commands = [
+        BotCommand(command="start", description="شروع ربات"),
+        BotCommand(command="help", description="نمایش همه قابلیت‌ها"),
+        BotCommand(command="admin", description="پنل مدیریت"),
+        BotCommand(command="stats", description="آمار ربات"),
+        BotCommand(command="id", description="نمایش شناسه"),
+    ]
+    await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+    await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
+
 @dp.message(CommandStart())
 async def start(m):
     save(m)
@@ -134,32 +202,43 @@ async def start(m):
 
 @dp.message(Command("help"))
 async def help_cmd(m):
-    await m.answer("""🤖 ربات همه‌کاره V2
+    await m.answer("""🤖 ربات مدیریت جامع گروه
 
-🛡 مدیریت:
- /ban /unban /mute /unmute /promote /demote
- /del /pin /warn /warnings /clearwarn
+🛡️ مدیریت اعضا
+/ban /unban /kick
+/mute [minutes] /unmute
+/warn /warnings /clearwarn
+/promote /demote
+/del /pin /unpin
+/userinfo /admins
 
-🔐 امنیت:
- /antilink on|off
- /antispam on|off
- /captcha on|off
- /filter کلمه
- /unfilter کلمه
- /filters
+🔐 امنیت
+/antilink on|off
+/antispam on|off
+/captcha on|off
+/filter کلمه
+/unfilter کلمه
+/filters
+/lock /unlock
 
-👋 گروه:
- /welcome on|off
- /rules
+👋 مدیریت گروه
+/welcome on|off
+/setwelcome متن
+/rules
+/setrules متن
+/chatinfo /stats
 
-📝 ابزار:
- /note نام متن
- /getnote نام
- /notes
- /id
+🧰 ابزارها
+/note نام متن
+/getnote نام
+/notes
+/report
+/id
 
-👑 ادمین:
- /admin /broadcast /cancel""")
+👑 مدیریت اصلی
+/admin /broadcast /cancel
+
+💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -170,6 +249,127 @@ async def admin_cmd(m):
     if not is_global_admin(m.from_user.id):
         return await m.answer("⛔ دسترسی ندارید.")
     await m.answer("🛠 پنل مدیریت V2", reply_markup=menu())
+
+
+@dp.message(Command("stats"))
+async def stats_cmd(m):
+    users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    filters_n = db.execute("SELECT COUNT(*) FROM filters WHERE chat=?", (m.chat.id,)).fetchone()[0]
+    warnings_n = db.execute("SELECT COALESCE(SUM(count),0) FROM warnings WHERE chat=?", (m.chat.id,)).fetchone()[0]
+    notes_n = db.execute("SELECT COUNT(*) FROM notes WHERE chat=?", (m.chat.id,)).fetchone()[0]
+    logs_n = db.execute("SELECT COUNT(*) FROM logs WHERE chat=?", (m.chat.id,)).fetchone()[0]
+    await m.answer(f"📊 آمار گروه\n👥 کاربران ثبت‌شده: {users}\n⚠️ اخطارها: {warnings_n}\n🚫 فیلترها: {filters_n}\n📝 یادداشت‌ها: {notes_n}\n📜 لاگ‌ها: {logs_n}")
+
+@dp.message(Command("userinfo"))
+async def userinfo(m):
+    u = target(m) or m.from_user
+    member = None
+    try:
+        member = await bot.get_chat_member(m.chat.id, u.id)
+    except Exception:
+        pass
+    status = member.status.value if member else "unknown"
+    warns = db.execute("SELECT count FROM warnings WHERE chat=? AND user=?", (m.chat.id, u.id)).fetchone()
+    await m.answer(f"👤 اطلاعات کاربر\nنام: {u.full_name}\nUsername: @{u.username or '-'}\nID: {u.id}\nوضعیت: {status}\n⚠️ اخطار: {warns[0] if warns else 0}/3")
+
+@dp.message(Command("admins"))
+async def admins(m):
+    try:
+        members = await bot.get_chat_administrators(m.chat.id)
+        lines = []
+        for x in members:
+            user = x.user
+            lines.append(f"• {user.full_name} — @{user.username or '-'}")
+        await m.answer("👑 ادمین‌های گروه:\n" + "\n".join(lines))
+    except Exception as e:
+        await m.answer(f"❌ دریافت ادمین‌ها ممکن نشد: {e}")
+
+@dp.message(Command("chatinfo"))
+async def chatinfo(m):
+    try:
+        chat = await bot.get_chat(m.chat.id)
+        await m.answer(f"💬 اطلاعات گروه\nنام: {chat.title or '-'}\nID: {chat.id}\nنوع: {chat.type}\nUsername: @{chat.username or '-'}\nاعضای قابل نمایش: {chat.member_count or '-'}")
+    except Exception as e:
+        await m.answer(f"❌ {e}")
+
+@dp.message(Command("kick"))
+async def kick(m):
+    if not await group_admin(m): return
+    u = target(m)
+    if not u: return await m.answer("کاربر را ریپلای کن.")
+    try:
+        await bot.ban_chat_member(m.chat.id, u.id)
+        await bot.unban_chat_member(m.chat.id, u.id, only_if_banned=True)
+        log_action(m.chat.id, m.from_user.id, "kick", u.id)
+        await m.answer(f"👢 {u.full_name} از گروه اخراج شد.")
+    except Exception as e:
+        await m.answer(f"❌ {e}")
+
+@dp.message(Command("unpin"))
+async def unpin(m):
+    if not await group_admin(m): return
+    try:
+        if m.reply_to_message:
+            await bot.unpin_chat_message(m.chat.id, m.reply_to_message.message_id)
+        else:
+            await bot.unpin_chat_message(m.chat.id)
+        await m.answer("📌 سنجاق برداشته شد.")
+    except Exception as e:
+        await m.answer(f"❌ {e}")
+
+@dp.message(Command("lock"))
+async def lock_group(m):
+    if not await group_admin(m): return
+    try:
+        await bot.set_chat_permissions(m.chat.id, ChatPermissions(can_send_messages=False))
+        set_chat_text(m.chat.id, "locked", "1")
+        log_action(m.chat.id, m.from_user.id, "lock")
+        await m.answer("🔒 گروه قفل شد؛ اعضای عادی نمی‌توانند پیام ارسال کنند.")
+    except Exception as e:
+        await m.answer(f"❌ {e}")
+
+@dp.message(Command("unlock"))
+async def unlock_group(m):
+    if not await group_admin(m): return
+    try:
+        await bot.set_chat_permissions(m.chat.id, ChatPermissions(
+            can_send_messages=True,
+            can_send_audios=True, can_send_documents=True, can_send_photos=True,
+            can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True,
+            can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True
+        ))
+        set_chat_text(m.chat.id, "locked", "0")
+        log_action(m.chat.id, m.from_user.id, "unlock")
+        await m.answer("🔓 گروه باز شد.")
+    except Exception as e:
+        await m.answer(f"❌ {e}")
+
+@dp.message(Command("setwelcome"))
+async def setwelcome(m):
+    if not await group_admin(m): return
+    p = (m.text or "").split(maxsplit=1)
+    if len(p) < 2: return await m.answer("مثال: /setwelcome سلام {name}، خوش آمدی!")
+    set_chat_text(m.chat.id, "welcome_text", p[1])
+    await m.answer("✅ متن خوش‌آمدگویی ذخیره شد.")
+
+@dp.message(Command("setrules"))
+async def setrules(m):
+    if not await group_admin(m): return
+    p = (m.text or "").split(maxsplit=1)
+    if len(p) < 2: return await m.answer("مثال: /setrules قوانین گروه...")
+    set_chat_text(m.chat.id, "rules", p[1])
+    await m.answer("✅ قوانین گروه ذخیره شد.")
+
+@dp.message(Command("report"))
+async def report(m):
+    u = target(m)
+    if not u: return await m.answer("برای گزارش، پیام کاربر را ریپلای کن.")
+    p = (m.text or "").split(maxsplit=1)
+    reason = p[1] if len(p) > 1 else "بدون توضیح"
+    db.execute("INSERT INTO reports(chat,reporter,target,reason,created) VALUES(?,?,?,?,?)",
+               (m.chat.id, m.from_user.id, u.id, reason, datetime.utcnow().isoformat()))
+    db.commit()
+    await m.answer("🚨 گزارش ثبت شد و برای بررسی ادمین‌ها ذخیره شد.")
 
 @dp.message(Command("ban"))
 async def ban(m):
@@ -372,7 +572,8 @@ async def welcome(m):
 
 @dp.message(Command("rules"))
 async def rules(m):
-    await m.answer("📜 قوانین گروه:\n1) احترام متقابل\n2) بدون اسپم و فلود\n3) تبلیغ بدون اجازه ممنوع\n4) لینک مشکوک ممنوع")
+    rules_text = get_chat_text(m.chat.id, "rules", "1) احترام متقابل\n2) بدون اسپم و فلود\n3) تبلیغ بدون اجازه ممنوع\n4) لینک مشکوک ممنوع")
+    await m.answer("📜 قوانین گروه:\n" + rules_text)
 
 @dp.message(Command("note"))
 async def note(m):
@@ -421,7 +622,8 @@ async def new_members(m):
             except Exception:
                 pass
         elif welcome_on:
-            await m.answer(f"👋 خوش آمدی {u.full_name}!")
+            welcome_text = get_chat_text(m.chat.id, "welcome_text", "👋 خوش آمدی {name}!")
+            await m.answer(welcome_text.replace("{name}", u.full_name).replace("{username}", "@" + (u.username or "")))
     db.commit()
 
 @dp.callback_query(F.data.startswith("cap:"))
@@ -455,7 +657,7 @@ async def captcha_callback(c):
     except Exception:
         await c.answer("❌ تأیید انجام نشد.", show_alert=True)
 
-@dp.callback_query(F.data.in_({"stats","users","security","features","logs"}))
+@dp.callback_query(F.data.in_({"stats","users","security","mod","group","tools","features","logs"}))
 async def panel(c):
     if not is_global_admin(c.from_user.id):
         return await c.answer("⛔", show_alert=True)
@@ -491,12 +693,27 @@ async def panel(c):
         )
     elif c.data == "security":
         t = (
-            "🛡 امنیت V2\n"
-            "/antilink on|off\n"
-            "/antispam on|off\n"
-            "/captcha on|off\n"
-            "/filter کلمه\n"
-            "/unfilter کلمه"
+            "🛡️ امنیت\n"
+            "• Anti-Link\n• Anti-Spam + Auto-Mute\n• CAPTCHA\n"
+            "• Word Filter\n• Lock / Unlock\n\n"
+            "/antilink on|off\n/antispam on|off\n/captcha on|off\n/filter کلمه\n/unfilter کلمه\n/filters\n/lock\n/unlock"
+        )
+    elif c.data == "mod":
+        t = (
+            "🛡️ مدیریت اعضا\n"
+            "/ban /unban /kick\n/mute [minutes] /unmute\n/warn /warnings /clearwarn\n"
+            "/promote /demote\n/del /pin /unpin\n/userinfo /admins"
+        )
+    elif c.data == "group":
+        t = (
+            "👋 مدیریت گروه\n"
+            "/welcome on|off\n/setwelcome متن\n/rules\n/setrules متن\n"
+            "/chatinfo /stats"
+        )
+    elif c.data == "tools":
+        t = (
+            "🧰 ابزارها\n"
+            "/note نام متن\n/getnote نام\n/notes\n/report\n/id"
         )
     else:
         t = (
@@ -612,6 +829,7 @@ async def main():
         runner, "0.0.0.0", int(os.getenv("PORT", "8080"))
     ).start()
 
+    await set_bot_commands()
     maintenance_task = asyncio.create_task(maintenance())
     try:
         await dp.start_polling(bot)
