@@ -64,10 +64,24 @@ class XrayPanel:
         return obj
 
     async def add_client(self, inbound_id, client):
+        # Current 3x-ui API. Fall back to the legacy endpoint for older installs.
+        try:
+            return await self.call(
+                "POST", "/panel/api/clients/add",
+                json={"client": client, "inboundIds": [int(inbound_id)]},
+            )
+        except PanelError as exc:
+            if "HTTP 404" not in str(exc):
+                raise
         payload = {"id": int(inbound_id), "settings": json.dumps({"clients": [client]}, separators=(",", ":"))}
-        return await self.call("POST", f"/panel/api/inbounds/addClient/{int(inbound_id)}", json=payload)
+        return await self.call("POST", "/panel/api/inbounds/addClient", json=payload)
 
-    async def delete_client(self, inbound_id, client_id):
+    async def delete_client(self, inbound_id, client_id, email):
+        try:
+            return await self.call("POST", f"/panel/api/clients/del/{quote(str(email), safe='')}")
+        except PanelError as exc:
+            if "HTTP 404" not in str(exc):
+                raise
         return await self.call("POST", f"/panel/api/inbounds/{int(inbound_id)}/delClient/{quote(str(client_id), safe='')}")
 
 def _json(value):
@@ -213,7 +227,9 @@ def register_config_handlers(dp, bot, admin_ids):
             email = f"tg-{message.from_user.id}-{int(time.time())}"
             client = {"id":client_id,"email":email,"enable":True,"totalGB":int(gb*1024**3),
                 "expiryTime":int((time.time()+days*86400)*1000),"limitIp":0,
-                "tgId":int(message.from_user.id),"subId":uuid.uuid4().hex[:16],"flow":""}
+                "tgId":int(message.from_user.id),"subId":uuid.uuid4().hex[:16],"flow":"",
+                "comment":"Created by Telegram bot","reset":0,"resetDay":0,"resetMax":0,
+                "resetWeekday":0,"security":"none"}
             await api.add_client(inbound_id, client)
             link = _link(inbound, client_id, email)
             await message.answer_photo(BufferedInputFile(_qr(link), filename=f"{email}.png"),
@@ -259,7 +275,7 @@ def register_config_handlers(dp, bot, admin_ids):
             if not inbound: return await message.answer("ورودی پیدا نشد.")
             client = next((x for x in _clients(inbound) if str(x.get("id","")) == parts[2]), None)
             if not client: return await message.answer("این کاربر در ورودی پیدا نشد.")
-            await api.delete_client(int(parts[1]), parts[2])
+            await api.delete_client(int(parts[1]), parts[2], str(client.get("email", parts[2])))
             await message.answer(f"✅ دسترسی {client.get('email',parts[2])} حذف شد.")
         except Exception as exc:
             log.exception("Xray client revoke failed")
