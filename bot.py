@@ -1,4 +1,5 @@
 import os, asyncio, sqlite3, logging, time, ast, operator, random, secrets, string, re
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta
 from collections import defaultdict
 from openai import AsyncOpenAI
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, chat IN
 CREATE TABLE IF NOT EXISTS ai_settings(chat INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 1, style TEXT DEFAULT 'khaki');
 CREATE TABLE IF NOT EXISTS ai_history(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, user INTEGER, role TEXT, content TEXT, created REAL);
 CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER NOT NULL, user INTEGER NOT NULL, text TEXT NOT NULL, due REAL NOT NULL, created REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS faq(chat INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, PRIMARY KEY(chat, question));
 """)
 for col, typ in [("welcome","INTEGER DEFAULT 1"),("antilink","INTEGER DEFAULT 0"),("antispam","INTEGER DEFAULT 0"),("captcha","INTEGER DEFAULT 0")]:
     try:
@@ -259,6 +261,10 @@ async def set_bot_commands():
         BotCommand(command="reminders", description="فهرست یادآوری‌ها"),
         BotCommand(command="calc", description="ماشین‌حساب"),
         BotCommand(command="poll", description="ساخت نظرسنجی"),
+        BotCommand(command="ask", description="پرسش از پاسخ‌های ذخیره‌شده"),
+        BotCommand(command="faq", description="افزودن پاسخ آماده"),
+        BotCommand(command="faqs", description="فهرست پرسش‌های آماده"),
+        BotCommand(command="delfaq", description="حذف پرسش آماده"),
     ]
     private_commands = [
         BotCommand(command="start", description="شروع ربات"),
@@ -277,6 +283,8 @@ async def set_bot_commands():
         BotCommand(command="reminders", description="فهرست یادآوری‌ها"),
         BotCommand(command="calc", description="ماشین‌حساب"),
         BotCommand(command="poll", description="ساخت نظرسنجی"),
+        BotCommand(command="ask", description="پرسش از پاسخ‌های ذخیره‌شده"),
+        BotCommand(command="faqs", description="فهرست پرسش‌های آماده"),
     ]
     await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
     await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
@@ -331,7 +339,7 @@ async def help_cmd(m):
 👑 مدیریت اصلی
 /admin /broadcast /cancel
 
-⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n/dice تاس /coin شیر یا خط /joke جوک /password رمز /profile پروفایل /reminders یادآوری‌ها /calc عبارت /poll سؤال | گزینه۱ | گزینه۲\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
+⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n/dice تاس /coin شیر یا خط /joke جوک /password رمز /profile پروفایل /reminders یادآوری‌ها /calc عبارت /poll سؤال | گزینه۱ | گزینه۲\n\n📚 پاسخ‌گویی بدون هوش مصنوعی\n/ask سؤال — جست‌وجو در پاسخ‌های ذخیره‌شده\n/faq سؤال | پاسخ — ثبت پاسخ (ادمین گروه)\n/faqs — فهرست سؤال‌ها\n/delfaq سؤال — حذف پاسخ (ادمین گروه)\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -899,6 +907,75 @@ async def cancel(m):
     pending.discard(m.from_user.id)
     await m.answer("لغو شد.")
 
+
+def find_faq(chat_id, question):
+    """Find a stored answer without calling any AI service."""
+    query = normalize_text(question)
+    if not query:
+        return None
+    rows = db.execute("SELECT question,answer FROM faq WHERE chat=?", (chat_id,)).fetchall()
+    best_answer, best_score = None, 0.0
+    query_words = set(query.split())
+    for saved_question, answer in rows:
+        saved = normalize_text(saved_question)
+        if query == saved or query in saved or saved in query:
+            return answer
+        words = set(saved.split())
+        overlap = len(query_words & words) / max(1, len(query_words | words))
+        score = max(SequenceMatcher(None, query, saved).ratio(), overlap)
+        if score > best_score:
+            best_answer, best_score = answer, score
+    return best_answer if best_score >= 0.72 else None
+
+
+@dp.message(Command("ask"))
+async def ask_faq_cmd(m):
+    parts = (m.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await m.answer("📚 سؤال را این‌طور بفرست: /ask ساعت کاری چطوره؟\nاین بخش فقط پاسخ‌های ذخیره‌شده را می‌گردد و از هوش مصنوعی استفاده نمی‌کند.")
+    answer = find_faq(m.chat.id, parts[1])
+    await m.answer("📚 پاسخ ذخیره‌شده:\n" + answer if answer else "🔎 پاسخ آماده‌ای برای این سؤال پیدا نکردم. از ادمین بخواه با دستور /faq سؤال | پاسخ آن را اضافه کند.")
+
+
+@dp.message(Command("faq"))
+async def add_faq_cmd(m):
+    if m.chat.type != "private" and not await group_admin(m):
+        return
+    if m.chat.type == "private" and not is_global_admin(m.from_user.id):
+        return await m.answer("⛔ افزودن پاسخ آماده فقط برای ادمین ربات مجاز است.")
+    payload = (m.text or "").split(maxsplit=1)
+    parts = [x.strip() for x in payload[1].split("|", 1)] if len(payload) > 1 else []
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return await m.answer("قالب: /faq سؤال | پاسخ\nمثال: /faq ساعت کاری چیه؟ | هر روز از ۹ تا ۵")
+    question, answer = parts
+    if len(question) > 200 or len(answer) > 3000:
+        return await m.answer("سؤال حداکثر ۲۰۰ و پاسخ حداکثر ۳۰۰۰ کاراکتر باشد.")
+    db.execute("INSERT OR REPLACE INTO faq(chat,question,answer) VALUES(?,?,?)", (m.chat.id, question, answer))
+    db.commit()
+    await m.answer("✅ پاسخ ذخیره شد. از این به بعد بدون هوش مصنوعی هم به سؤال‌های مشابه جواب می‌دهم.")
+
+
+@dp.message(Command("faqs"))
+async def list_faq_cmd(m):
+    rows = db.execute("SELECT question FROM faq WHERE chat=? ORDER BY question LIMIT 50", (m.chat.id,)).fetchall()
+    await m.answer("📚 سؤال‌های آماده:\n" + ("\n".join(f"• {q}" for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده. ادمین می‌تواند با /faq سؤال | پاسخ اضافه کند."))
+
+
+@dp.message(Command("delfaq"))
+async def delete_faq_cmd(m):
+    if m.chat.type != "private" and not await group_admin(m):
+        return
+    if m.chat.type == "private" and not is_global_admin(m.from_user.id):
+        return await m.answer("⛔ حذف پاسخ آماده فقط برای ادمین ربات مجاز است.")
+    parts = (m.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await m.answer("قالب: /delfaq متن سؤال")
+    db.execute("DELETE FROM faq WHERE chat=? AND question=?", (m.chat.id, parts[1].strip()))
+    deleted = db.execute("SELECT changes()").fetchone()[0]
+    db.commit()
+    await m.answer("🗑 پاسخ حذف شد." if deleted else "این سؤال دقیقاً در فهرست پیدا نشد. /faqs را ببین.")
+
+
 @dp.message(Command("dice"))
 async def dice_cmd(m):
     await m.answer(f"🎲 نتیجه تاس: {random.randint(1, 6)}")
@@ -999,6 +1076,13 @@ async def natural_command(m):
     """Run common Persian natural-language aliases for the bot's slash commands."""
     if not m.text or m.text.startswith("/"):
         return False
+    # Explicit non-AI FAQ lookup; runs before any conversational AI fallback.
+    if t_for_faq := normalize_text(m.text):
+        if t_for_faq.startswith(("سوال ", "سؤال ", "بپرس ", "جواب سوال ", "جواب سؤال ")):
+            question = re.sub(r"^(?:سوال|سؤال|بپرس|جواب سوال|جواب سؤال)\s+", "", m.text.strip(), flags=re.IGNORECASE)
+            answer = find_faq(m.chat.id, question)
+            await m.answer("📚 پاسخ ذخیره‌شده:\n" + answer if answer else "🔎 جواب این سؤال در پاسخ‌های ذخیره‌شده نیست. ادمین می‌تواند با /faq سؤال | پاسخ آن را اضافه کند.")
+            return True
     raw = m.text.strip()
     t = normalize_text(raw)
     is_private = m.chat.type == "private"
@@ -1386,7 +1470,7 @@ async def natural_command(m):
 
     # Help is always available.
     if any(x in t for x in ("راهنمای ربات", "چه کارهایی بلدی", "چطور باهات کار کنم", "کمک میخوام")):
-        await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! مثلاً بگو:\n• ربات روشن / ربات خاموش\n• ضدلینک رو روشن کن\n• ضداسپم رو خاموش کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• پنل مدیریت رو باز کن\n• روی پیام کاربر Reply کن و بگو «این کاربر رو اخراج کن» یا «بهش اخطار بده»\n\nبرای بقیه گفتگوها هم عادی باهام حرف بزن.")
+        await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! مثلاً بگو:\n• ربات روشن / ربات خاموش\n• ضدلینک رو روشن کن\n• ضداسپم رو خاموش کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• «سؤال ساعت کاری چیه؟» برای پاسخ آماده (بدون AI)\n• پنل مدیریت رو باز کن\n• روی پیام کاربر Reply کن و بگو «این کاربر رو اخراج کن» یا «بهش اخطار بده»\n\nبرای بقیه گفتگوها هم عادی باهام حرف بزن.")
         return True
     return False
 
