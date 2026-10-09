@@ -58,6 +58,9 @@ pending = set()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 AI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
 ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+QNA_API_KEY = os.getenv("QNA_OPENAI_API_KEY", "").strip() or OPENAI_API_KEY
+QNA_MODEL = os.getenv("QNA_MODEL", AI_MODEL)
+qna_client = AsyncOpenAI(api_key=QNA_API_KEY) if QNA_API_KEY else None
 AI_STYLES = {
     "khaki": ("خاکی و خودمونی", "مثل یک رفیق باحال و محترم، فارسی محاوره‌ای و طبیعی حرف بزن؛ نه رسمی و نه مصنوعی. کوتاه و صمیمی باش، شوخی ملایم اشکالی ندارد."),
     "funny": ("شوخ و بامزه", "فارسی محاوره‌ای، بانمک و پرانرژی حرف بزن. شوخی کن ولی توهین یا تحقیر نکن."),
@@ -261,7 +264,8 @@ async def set_bot_commands():
         BotCommand(command="reminders", description="فهرست یادآوری‌ها"),
         BotCommand(command="calc", description="ماشین‌حساب"),
         BotCommand(command="poll", description="ساخت نظرسنجی"),
-        BotCommand(command="ask", description="پرسش از پاسخ‌های ذخیره‌شده"),
+        BotCommand(command="ask", description="پرسش از هوش مصنوعی پاسخ‌گو"),
+        BotCommand(command="question", description="پاسخ دقیق به سؤال"),
         BotCommand(command="faq", description="افزودن پاسخ آماده"),
         BotCommand(command="faqs", description="فهرست پرسش‌های آماده"),
         BotCommand(command="delfaq", description="حذف پرسش آماده"),
@@ -790,7 +794,7 @@ async def panel(c):
         return await c.answer()
     if c.data == "ai_panel":
         enabled, style = ai_settings(c.message.chat.id)
-        t = ("🤖 پنل هوش مصنوعی\n" + f"وضعیت: {'روشن 🟢' if enabled else 'خاموش 🔴'}\n" + f"اتصال API: {'آماده' if ai_client else 'کلید API تنظیم نشده'}\n" + f"مدل: {AI_MODEL}\n" + f"لحن: {AI_STYLES[style][0]}\n\n" + "در گفتگوی خصوصی، ربات به پیام‌ها پاسخ می‌دهد. در گروه، به پیام ریپلای کن یا نام ربات را صدا بزن.")
+        t = ("🤖 پنل هوش مصنوعی\n" + f"وضعیت: {'روشن 🟢' if enabled else 'خاموش 🔴'}\n" + f"اتصال API: {'آماده' if ai_client else 'کلید API تنظیم نشده'}\n" + f"مدل: {AI_MODEL}\n" + f"لحن: {AI_STYLES[style][0]}\n\n" + "چت معمولی: در گفتگوی خصوصی پیام بده یا در گروه ربات را صدا بزن.\nپاسخ مستقل به سؤال: /question متن سؤال")
         await c.message.edit_text(t, reply_markup=ai_keyboard())
         return await c.answer()
     if c.data == "aitoggle":
@@ -928,14 +932,31 @@ def find_faq(chat_id, question):
     return best_answer if best_score >= 0.72 else None
 
 
-@dp.message(Command("ask"))
+async def answer_question(chat_id, question, user_name="دوست"):
+    """Dedicated Q&A mode, separate from conversational chat."""
+    if not qna_client:
+        return "❌ بخش پاسخ‌گویی به سؤال وصل نیست؛ ادمین باید QNA_OPENAI_API_KEY یا OPENAI_API_KEY را تنظیم کند."
+    try:
+        response = await qna_client.responses.create(
+            model=QNA_MODEL,
+            instructions=("تو موتور پاسخ‌گویی به سؤال‌ها هستی، نه چت دوستانه. مستقیم، دقیق و ساختارمند جواب بده؛ در صورت نیاز مثال بزن. به فارسی روان پاسخ بده مگر کاربر زبان دیگری بخواهد. اگر پاسخ را نمی‌دانی یا اطلاعات به‌روز لازم است، صادقانه محدودیت را بگو و چیزی نساز. از تاریخچه چت معمولی استفاده نکن."),
+            input=question[:5000], max_output_tokens=700,
+        )
+        return (response.output_text or "نتونستم پاسخ مناسبی تولید کنم؛ سؤال رو واضح‌تر بپرس.").strip()[:5000]
+    except Exception:
+        logging.exception("Question answering failed")
+        return "❌ موقع پاسخ دادن به سؤال مشکلی پیش اومد. کمی بعد دوباره امتحان کن."
+
+@dp.message(Command("ask", "question"))
 async def ask_faq_cmd(m):
     parts = (m.text or "").split(maxsplit=1)
     if len(parts) < 2:
-        return await m.answer("📚 سؤال را این‌طور بفرست: /ask ساعت کاری چطوره؟\nاین بخش فقط پاسخ‌های ذخیره‌شده را می‌گردد و از هوش مصنوعی استفاده نمی‌کند.")
-    answer = find_faq(m.chat.id, parts[1])
-    await m.answer("📚 پاسخ ذخیره‌شده:\n" + answer if answer else "🔎 پاسخ آماده‌ای برای این سؤال پیدا نکردم. از ادمین بخواه با دستور /faq سؤال | پاسخ آن را اضافه کند.")
-
+        return await m.answer("❓ سؤال را این‌طور بفرست: /question چرا آسمان آبی است؟\nاین بخش برای پاسخ دقیق به سؤال‌هاست و از حالت چت معمولی جداست.")
+    stored = find_faq(m.chat.id, parts[1])
+    if stored:
+        return await m.answer("📚 پاسخ ذخیره‌شده:\n" + stored)
+    answer = await answer_question(m.chat.id, parts[1], m.from_user.full_name)
+    await m.answer("❓ پاسخ به سؤال:\n" + answer)
 
 @dp.message(Command("faq"))
 async def add_faq_cmd(m):
