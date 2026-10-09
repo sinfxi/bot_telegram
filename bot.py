@@ -1847,5 +1847,8 @@ async def main():
         await bot.session.close()
         db.close()
 
+from config_manager import register_config_handlers
+register_config_handlers(dp, bot, ADM)
+
 if __name__ == "__main__":
     asyncio.run(main())
