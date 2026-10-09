@@ -1,4 +1,4 @@
-import os, asyncio, sqlite3, logging, time
+import os, asyncio, sqlite3, logging, time, ast, operator, random, secrets, string, re
 from datetime import datetime, timedelta
 from collections import defaultdict
 from openai import AsyncOpenAI
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS chat_texts(chat INTEGER, key TEXT, text TEXT, PRIMARY
 CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, reporter INTEGER, target INTEGER, reason TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS ai_settings(chat INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 1, style TEXT DEFAULT 'khaki');
 CREATE TABLE IF NOT EXISTS ai_history(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, user INTEGER, role TEXT, content TEXT, created REAL);
+CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER NOT NULL, user INTEGER NOT NULL, text TEXT NOT NULL, due REAL NOT NULL, created REAL NOT NULL);
 """)
 for col, typ in [("welcome","INTEGER DEFAULT 1"),("antilink","INTEGER DEFAULT 0"),("antispam","INTEGER DEFAULT 0"),("captcha","INTEGER DEFAULT 0")]:
     try:
@@ -314,7 +315,7 @@ async def help_cmd(m):
 👑 مدیریت اصلی
 /admin /broadcast /cancel
 
-💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
+⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\nتاس بنداز / شیر یا خط / جوک بگو / رمز بساز / پروفایل من\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -878,6 +879,33 @@ async def cancel(m):
     pending.discard(m.from_user.id)
     await m.answer("لغو شد.")
 
+def safe_calculate(expression):
+    """Evaluate basic arithmetic without eval or arbitrary Python execution."""
+    tree = ast.parse(expression, mode="eval")
+    binary = {
+        ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod, ast.Pow: operator.pow,
+    }
+    unary = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+    def visit(node):
+        if isinstance(node, ast.Expression):
+            return visit(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in binary:
+            left, right = visit(node.left), visit(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 8:
+                raise ValueError("توان خیلی بزرگه")
+            result = binary[type(node.op)](left, right)
+            if abs(result) > 10**15:
+                raise ValueError("عدد خیلی بزرگه")
+            return result
+        if isinstance(node, ast.UnaryOp) and type(node.op) in unary:
+            return unary[type(node.op)](visit(node.operand))
+        raise ValueError("فقط محاسبات ساده مجازه")
+    return visit(tree)
+
 def normalize_text(text):
     import re
     text = (text or "").lower().replace("ي", "ی").replace("ك", "ک")
@@ -1181,6 +1209,99 @@ async def natural_command(m):
         await m.answer("🚨 گزارشت ثبت شد؛ ادمین‌ها می‌تونن بررسیش کنن.")
         return True
 
+    # Personal utilities — independent of group moderation.
+    if any(x in t for x in ("تاس بنداز", "یه تاس بنداز", "تاس بریز")):
+        await m.answer(f"🎲 نتیجه تاس: {random.randint(1, 6)}")
+        return True
+    if any(x in t for x in ("شیر یا خط", "سکه بنداز", "شیرخط")):
+        await m.answer("🪙 " + random.choice(["شیر", "خط"]))
+        return True
+    if any(x in t for x in ("جوک بگو", "یه جوک بگو", "جوک تعریف کن")):
+        jokes = [
+            "به کامپیوتر گفتم یه کم استراحت کن؛ گفت اول همه پنجره‌هامو ببند! 😄",
+            "برنامه‌نویس چرا دیر خوابید؟ چون داشت باگ‌های خوابش رو دیباگ می‌کرد! 🐛",
+            "گفتم اینترنت چرا کندی؟ گفت دارم با زندگی سینک می‌شم! 😂",
+        ]
+        await m.answer(random.choice(jokes))
+        return True
+    if any(x in t for x in ("رمز بساز", "یه رمز بساز", "رمز تصادفی")):
+        alphabet = string.ascii_letters + string.digits + "!@#$%_-+"
+        password = "".join(secrets.choice(alphabet) for _ in range(16))
+        await m.answer("🔐 رمز تصادفی ۱۶ کاراکتری:
+<code>" + password + "</code>", parse_mode="HTML")
+        return True
+    if any(x in t for x in ("پروفایل من", "اطلاعات من", "حساب کاربری من")):
+        row = db.execute("SELECT joined FROM users WHERE id=?", (m.from_user.id,)).fetchone()
+        reminders_n = db.execute("SELECT COUNT(*) FROM reminders WHERE user=?", (m.from_user.id,)).fetchone()[0]
+        ai_n = db.execute("SELECT COUNT(*) FROM ai_history WHERE user=? AND role='user'", (m.from_user.id,)).fetchone()[0]
+        await m.answer(
+            f"👤 پروفایل تو\nنام: {m.from_user.full_name}\n"
+            f"شناسه: <code>{m.from_user.id}</code>\n"
+            f"نام کاربری: @{m.from_user.username or 'ندارد'}\n"
+            f"یادآوری‌های فعال: {reminders_n}\nپیام‌های گفتگوی AI ذخیره‌شده: {ai_n}",
+            parse_mode="HTML"
+        )
+        return True
+    if any(x in t for x in ("یادآوری‌هام", "یادآوری های من", "یادآوری‌های من", "یادآوری هام رو نشون بده")):
+        rows = db.execute("SELECT id,text,due FROM reminders WHERE user=? ORDER BY due LIMIT 10", (m.from_user.id,)).fetchall()
+        if not rows:
+            answer = "⏰ یادآوری فعالی نداری."
+        else:
+            answer = "⏰ یادآوری‌های بعدی تو:\n" + "\n".join(
+                f"#{rid} — {txt} (حدود {max(0, int((due-time.time())/60))} دقیقه دیگه)"
+                for rid, txt, due in rows
+            )
+        await m.answer(answer)
+        return True
+    if any(x in t for x in ("آخرین یادآوری رو حذف کن", "آخرین یادآوری رو پاک کن", "یادآوری آخر رو حذف کن")):
+        row = db.execute("SELECT id FROM reminders WHERE user=? ORDER BY due DESC LIMIT 1", (m.from_user.id,)).fetchone()
+        if row:
+            db.execute("DELETE FROM reminders WHERE id=?", (row[0],))
+            db.commit()
+            await m.answer("🗑 آخرین یادآوری‌ات حذف شد.")
+        else:
+            await m.answer("یادآوری‌ای برای حذف نداری.")
+        return True
+    if t.startswith("یادآوری ") or t.startswith("یادم بنداز "):
+        match = re.match(r"^(?:یادآوری|یادم بنداز)\s+(\d+)\s*(دقیقه|ساعت)\s*(?:بعد|دیگه)?\s+(.+)$", raw.strip())
+        if not match:
+            await m.answer("⏰ این‌طوری بگو: «یادآوری 10 دقیقه بعد آب بخور» یا «یادم بنداز 2 ساعت دیگه درس بخون»")
+            return True
+        amount, unit, reminder_text = match.groups()
+        amount = int(amount)
+        if amount < 1 or amount > 10080:
+            await m.answer("⏰ زمان باید بین ۱ دقیقه تا ۷ روز باشه.")
+            return True
+        delay = amount * (3600 if unit == "ساعت" else 60)
+        due = time.time() + delay
+        db.execute("INSERT INTO reminders(chat,user,text,due,created) VALUES(?,?,?,?,?)",
+                   (m.chat.id, m.from_user.id, reminder_text[:500], due, time.time()))
+        db.commit()
+        await m.answer(f"⏰ یادآوری ثبت شد؛ حدود {amount} {unit} دیگه بهت پیام می‌دم.\nمتن: {reminder_text[:300]}")
+        return True
+    if any(x in t for x in ("نظرسنجی بساز", "نظرسنجی ایجاد کن")):
+        payload = raw.split(maxsplit=1)[1] if len(raw.split(maxsplit=1)) > 1 else ""
+        parts = [x.strip() for x in payload.split("|") if x.strip()]
+        if len(parts) < 3 or len(parts) > 11:
+            await m.answer("📊 قالب: «نظرسنجی بساز | سؤال | گزینه اول | گزینه دوم» (حداقل دو گزینه، حداکثر ده گزینه)")
+            return True
+        question, options = parts[0], parts[1:]
+        try:
+            await bot.send_poll(m.chat.id, question=question[:300], options=[x[:100] for x in options[:10]], is_anonymous=True)
+        except Exception:
+            await m.answer("❌ ساخت نظرسنجی انجام نشد؛ دوباره با قالب نمونه امتحان کن.")
+        return True
+    if t.startswith("حساب کن ") or t.startswith("محاسبه کن ") or t.startswith("حسابش کن "):
+        expression = raw.split(maxsplit=1)[1].replace(",", ".").replace("×", "*").replace("÷", "/").replace("^", "**")
+        try:
+            result = safe_calculate(expression)
+            await m.answer(f"🧮 نتیجه: <code>{result}</code>", parse_mode="HTML")
+        except ZeroDivisionError:
+            await m.answer("🧮 تقسیم بر صفر ممکن نیست.")
+        except Exception:
+            await m.answer("🧮 عبارت رو ساده و عددی بنویس؛ مثلاً «حساب کن 12 * (4 + 3)».")
+        return True
+
     # Help is always available.
     if any(x in t for x in ("راهنمای ربات", "چه کارهایی بلدی", "چطور باهات کار کنم", "کمک میخوام")):
         await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! مثلاً بگو:\n• ربات روشن / ربات خاموش\n• ضدلینک رو روشن کن\n• ضداسپم رو خاموش کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• پنل مدیریت رو باز کن\n• روی پیام کاربر Reply کن و بگو «این کاربر رو اخراج کن» یا «بهش اخطار بده»\n\nبرای بقیه گفتگوها هم عادی باهام حرف بزن.")
@@ -1273,6 +1394,17 @@ async def maintenance():
     while True:
         try:
             now = time.time()
+            due_reminders = db.execute("SELECT id,chat,user,text FROM reminders WHERE due<=? ORDER BY due LIMIT 50", (now,)).fetchall()
+            for reminder_id, chat_id, user_id, reminder_text in due_reminders:
+                try:
+                    await bot.send_message(chat_id, f"⏰ یادآوری تو:\\n{reminder_text}")
+                except Exception:
+                    # If the original chat is unavailable, try sending privately.
+                    try:
+                        await bot.send_message(user_id, f"⏰ یادآوری تو:\\n{reminder_text}")
+                    except Exception:
+                        pass
+                db.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
             db.execute("DELETE FROM pending_captcha WHERE created < ?", (now - 300,))
             db.execute("DELETE FROM spam WHERE last < ?", (now - 30,))
             db.execute("DELETE FROM mutes WHERE until < ?", (now,))
