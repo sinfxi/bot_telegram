@@ -1142,7 +1142,7 @@ async def natural_command(m):
         rows = db.execute("SELECT name FROM notes WHERE chat=? ORDER BY name", (m.chat.id,)).fetchall()
         await m.answer("📝 یادداشت‌های ذخیره‌شده:\n" + ("\n".join("• " + row[0] for row in rows) or "هنوز یادداشتی ذخیره نشده."))
         return True
-    if t.startswith("یادداشت ") or t.startswith("یه یادداشت ذخیره کن "):
+    if (t.startswith("یادداشت ") and not any(x in t for x in (" رو بیار ", " رو نشون بده "))) or t.startswith("یه یادداشت ذخیره کن "):
         if not await group_admin(m):
             return True
         parts = raw.split(maxsplit=2)
