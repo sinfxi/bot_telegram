@@ -1227,8 +1227,7 @@ async def natural_command(m):
     if any(x in t for x in ("رمز بساز", "یه رمز بساز", "رمز تصادفی")):
         alphabet = string.ascii_letters + string.digits + "!@#$%_-+"
         password = "".join(secrets.choice(alphabet) for _ in range(16))
-        await m.answer("🔐 رمز تصادفی ۱۶ کاراکتری:
-<code>" + password + "</code>", parse_mode="HTML")
+        await m.answer("🔐 رمز تصادفی ۱۶ کاراکتری:\n<code>" + password + "</code>", parse_mode="HTML")
         return True
     if any(x in t for x in ("پروفایل من", "اطلاعات من", "حساب کاربری من")):
         row = db.execute("SELECT joined FROM users WHERE id=?", (m.from_user.id,)).fetchone()
