@@ -269,6 +269,14 @@ async def set_bot_commands():
         BotCommand(command="ai", description="روشن/خاموش کردن هوش مصنوعی"),
         BotCommand(command="style", description="انتخاب لحن هوش مصنوعی"),
         BotCommand(command="clearchat", description="پاک کردن حافظه گفتگو"),
+        BotCommand(command="dice", description="تاس انداختن"),
+        BotCommand(command="coin", description="شیر یا خط"),
+        BotCommand(command="joke", description="گفتن جوک"),
+        BotCommand(command="password", description="ساخت رمز تصادفی"),
+        BotCommand(command="profile", description="نمایش پروفایل"),
+        BotCommand(command="reminders", description="فهرست یادآوری‌ها"),
+        BotCommand(command="calc", description="ماشین‌حساب"),
+        BotCommand(command="poll", description="ساخت نظرسنجی"),
     ]
     await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
     await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
@@ -276,7 +284,7 @@ async def set_bot_commands():
 @dp.message(CommandStart())
 async def start(m):
     save(m)
-    text = ("🛠 پنل مدیریت آماده است.\\n🧰 ابزارهای جدید: /dice /coin /joke /password /profile /reminders /calc /poll\\nبرای راهنما /help را بزن.") if is_global_admin(m.from_user.id) else "🤖 ربات به‌روزرسانی شد!\\n🧰 ابزارها: /dice /coin /joke /password /profile /reminders /calc /poll\\n⏰ یادآوری: «یادآوری 10 دقیقه بعد آب بخور»\\nبرای راهنمای کامل /help را بزن."
+    text = ("🛠 پنل مدیریت آماده است.\n🧰 ابزارهای جدید: /dice /coin /joke /password /profile /reminders /calc /poll\nبرای راهنما /help را بزن.") if is_global_admin(m.from_user.id) else "🤖 ربات به‌روزرسانی شد!\n🧰 ابزارها: /dice /coin /joke /password /profile /reminders /calc /poll\n⏰ یادآوری: «یادآوری 10 دقیقه بعد آب بخور»\nبرای راهنمای کامل /help را بزن."
     await m.answer(text, reply_markup=menu() if is_global_admin(m.from_user.id) else None)
 
 @dp.message(Command("help"))
@@ -796,8 +804,12 @@ async def panel(c):
         enabled, _ = ai_settings(c.message.chat.id)
         db.execute("INSERT INTO ai_settings(chat,enabled,style) VALUES(?,?,?) ON CONFLICT(chat) DO UPDATE SET style=excluded.style", (c.message.chat.id,int(enabled),style))
         db.commit()
-        await c.message.edit_text(f"🎭 لحن انتخاب شد: {AI_STYLES[style][0]}", reply_markup=ai_keyboard())
-        return await c.answer("ذخیره شد")
+        try:
+            await c.message.edit_text(f"🎭 لحن انتخاب شد: {AI_STYLES[style][0]}", reply_markup=ai_keyboard())
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                raise
+        return await c.answer("این لحن همین الان فعاله.")
     if c.data == "reports":
         r = db.execute("SELECT chat,reporter,target,reason,created FROM reports ORDER BY id DESC LIMIT 10").fetchall()
         t = "🚨 آخرین گزارش‌ها:\n" + ("\n".join(f"گروه {ch} | گزارش‌دهنده {rep} | کاربر {target}\n{reason[:100]} | {created[:16]}" for ch,rep,target,reason,created in r) or "گزارشی ثبت نشده.")
@@ -906,14 +918,14 @@ async def joke_cmd(m):
 @dp.message(Command("password"))
 async def password_cmd(m):
     password = "".join(secrets.choice(string.ascii_letters + string.digits + "!@#$%_-+") for _ in range(16))
-    await m.answer("🔐 رمز تصادفی ۱۶ کاراکتری:\\n<code>" + password + "</code>", parse_mode="HTML")
+    await m.answer("🔐 رمز تصادفی ۱۶ کاراکتری:\n<code>" + password + "</code>", parse_mode="HTML")
 
 @dp.message(Command("profile"))
 async def profile_cmd(m):
     reminders_n = db.execute("SELECT COUNT(*) FROM reminders WHERE user=?", (m.from_user.id,)).fetchone()[0]
     await m.answer(
-        f"👤 پروفایل تو\\nنام: {m.from_user.full_name}\\nشناسه: <code>{m.from_user.id}</code>\\n"
-        f"نام کاربری: @{m.from_user.username or 'ندارد'}\\nیادآوری‌های فعال: {reminders_n}",
+        f"👤 پروفایل تو\nنام: {m.from_user.full_name}\nشناسه: <code>{m.from_user.id}</code>\n"
+        f"نام کاربری: @{m.from_user.username or 'ندارد'}\nیادآوری‌های فعال: {reminders_n}",
         parse_mode="HTML"
     )
 
@@ -922,7 +934,7 @@ async def reminders_cmd(m):
     rows = db.execute("SELECT id,text,due FROM reminders WHERE user=? ORDER BY due LIMIT 10", (m.from_user.id,)).fetchall()
     if not rows:
         return await m.answer("⏰ یادآوری فعالی نداری.")
-    await m.answer("⏰ یادآوری‌های تو:\\n" + "\\n".join(
+    await m.answer("⏰ یادآوری‌های تو:\n" + "\n".join(
         f"#{rid} — {txt} (حدود {max(0, int((due-time.time())/60))} دقیقه دیگه)" for rid,txt,due in rows
     ))
 
@@ -1041,14 +1053,14 @@ async def natural_command(m):
 
     # Group settings: only admins can change these.
     toggles = [
-        (("ضدلینک روشن", "ضد لینک روشن", "لینک ممنوع رو روشن", "جلوگیری از لینک رو روشن"), "antilink", "🔗 ضدلینک"),
-        (("ضدلینک خاموش", "ضد لینک خاموش", "لینک ممنوع رو خاموش", "جلوگیری از لینک رو خاموش"), "antilink", "🔗 ضدلینک"),
-        (("ضداسپم روشن", "ضد اسپم روشن", "اسپم رو روشن", "جلوگیری از اسپم رو روشن"), "antispam", "🛡 ضداسپم"),
-        (("ضداسپم خاموش", "ضد اسپم خاموش", "اسپم رو خاموش", "جلوگیری از اسپم رو خاموش"), "antispam", "🛡 ضداسپم"),
-        (("کپچا روشن", "تایید اعضای جدید روشن", "تأیید اعضای جدید روشن"), "captcha", "🧩 کپچا"),
-        (("کپچا خاموش", "تایید اعضای جدید خاموش", "تأیید اعضای جدید خاموش"), "captcha", "🧩 کپچا"),
-        (("خوشامد روشن", "خوشامدگویی روشن", "پیام خوشامد روشن"), "welcome", "👋 خوشامدگویی"),
-        (("خوشامد خاموش", "خوشامدگویی خاموش", "پیام خوشامد خاموش"), "welcome", "👋 خوشامدگویی"),
+        (("ضدلینک روشن", "ضدلینک رو روشن", "ضد لینک روشن", "ضد لینک رو روشن", "لینک ممنوع رو روشن", "جلوگیری از لینک رو روشن"), "antilink", "🔗 ضدلینک"),
+        (("ضدلینک خاموش", "ضدلینک رو خاموش", "ضد لینک خاموش", "ضد لینک رو خاموش", "لینک ممنوع رو خاموش", "جلوگیری از لینک رو خاموش"), "antilink", "🔗 ضدلینک"),
+        (("ضداسپم روشن", "ضداسپم رو روشن", "ضد اسپم روشن", "ضد اسپم رو روشن", "اسپم رو روشن", "جلوگیری از اسپم رو روشن"), "antispam", "🛡 ضداسپم"),
+        (("ضداسپم خاموش", "ضداسپم رو خاموش", "ضد اسپم خاموش", "ضد اسپم رو خاموش", "اسپم رو خاموش", "جلوگیری از اسپم رو خاموش"), "antispam", "🛡 ضداسپم"),
+        (("کپچا روشن", "کپچا رو روشن کن", "تایید اعضای جدید روشن", "تأیید اعضای جدید روشن"), "captcha", "🧩 کپچا"),
+        (("کپچا خاموش", "کپچا رو خاموش کن", "تایید اعضای جدید خاموش", "تأیید اعضای جدید خاموش"), "captcha", "🧩 کپچا"),
+        (("خوشامد روشن", "خوشامدگویی روشن", "خوشامدگویی رو روشن کن", "پیام خوشامد روشن"), "welcome", "👋 خوشامدگویی"),
+        (("خوشامد خاموش", "خوشامدگویی خاموش", "خوشامدگویی رو خاموش کن", "پیام خوشامد خاموش"), "welcome", "👋 خوشامدگویی"),
     ]
     for phrases, field, title in toggles:
         matched = next((p for p in phrases if p in t), None)
@@ -1467,11 +1479,11 @@ async def maintenance():
             due_reminders = db.execute("SELECT id,chat,user,text FROM reminders WHERE due<=? ORDER BY due LIMIT 50", (now,)).fetchall()
             for reminder_id, chat_id, user_id, reminder_text in due_reminders:
                 try:
-                    await bot.send_message(chat_id, f"⏰ یادآوری تو:\\n{reminder_text}")
+                    await bot.send_message(chat_id, f"⏰ یادآوری تو:\n{reminder_text}")
                 except Exception:
                     # If the original chat is unavailable, try sending privately.
                     try:
-                        await bot.send_message(user_id, f"⏰ یادآوری تو:\\n{reminder_text}")
+                        await bot.send_message(user_id, f"⏰ یادآوری تو:\n{reminder_text}")
                     except Exception:
                         pass
                 db.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
