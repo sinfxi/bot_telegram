@@ -257,6 +257,7 @@ async def set_bot_commands():
         BotCommand(command="admin", description="پنل مدیریت"),
         BotCommand(command="stats", description="آمار ربات"),
         BotCommand(command="id", description="نمایش شناسه"),
+        BotCommand(command="ai", description="روشن/خاموش کردن هوش مصنوعی"),
         BotCommand(command="style", description="انتخاب لحن هوش مصنوعی"),
         BotCommand(command="clearchat", description="پاک کردن حافظه گفتگو"),
     ]
