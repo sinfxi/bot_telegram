@@ -343,7 +343,7 @@ async def help_cmd(m):
 👑 مدیریت اصلی
 /admin /broadcast /cancel
 
-⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n/dice تاس /coin شیر یا خط /joke جوک /password رمز /profile پروفایل /reminders یادآوری‌ها /calc عبارت /poll سؤال | گزینه۱ | گزینه۲\n\n📚 پاسخ‌گویی بدون هوش مصنوعی\n/ask سؤال — جست‌وجو در پاسخ‌های ذخیره‌شده\n/faq سؤال | پاسخ — ثبت پاسخ (ادمین گروه)\n/faqs — فهرست سؤال‌ها\n/delfaq سؤال — حذف پاسخ (ادمین گروه)\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
+⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n/dice تاس /coin شیر یا خط /joke جوک /password رمز /profile پروفایل /reminders یادآوری‌ها /calc عبارت /poll سؤال | گزینه۱ | گزینه۲\n\n🤖 پاسخ‌گویی مستقل به سؤال‌ها\n/question متن سؤال یا /ask متن سؤال\n/faq سؤال | پاسخ — ثبت پاسخ (ادمین گروه)\n/faqs — فهرست سؤال‌ها\n/delfaq سؤال — حذف پاسخ (ادمین گروه)\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -1102,7 +1102,11 @@ async def natural_command(m):
         if t_for_faq.startswith(("سوال ", "سؤال ", "بپرس ", "جواب سوال ", "جواب سؤال ")):
             question = re.sub(r"^(?:سوال|سؤال|بپرس|جواب سوال|جواب سؤال)\s+", "", m.text.strip(), flags=re.IGNORECASE)
             answer = find_faq(m.chat.id, question)
-            await m.answer("📚 پاسخ ذخیره‌شده:\n" + answer if answer else "🔎 جواب این سؤال در پاسخ‌های ذخیره‌شده نیست. ادمین می‌تواند با /faq سؤال | پاسخ آن را اضافه کند.")
+            if answer:
+                await m.answer("📚 پاسخ ذخیره‌شده:\n" + answer)
+            else:
+                answer = await answer_question(m.chat.id, question, m.from_user.full_name)
+                await m.answer("❓ پاسخ به سؤال:\n" + answer)
             return True
     raw = m.text.strip()
     t = normalize_text(raw)
