@@ -1,5 +1,7 @@
 import os, asyncio, sqlite3, logging, time
 from datetime import datetime, timedelta
+from collections import defaultdict
+from openai import AsyncOpenAI
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
@@ -37,6 +39,8 @@ CREATE TABLE IF NOT EXISTS pending_captcha(chat INTEGER, user INTEGER, created R
 CREATE TABLE IF NOT EXISTS mutes(chat INTEGER, user INTEGER, until REAL, PRIMARY KEY(chat,user));
 CREATE TABLE IF NOT EXISTS chat_texts(chat INTEGER, key TEXT, text TEXT, PRIMARY KEY(chat,key));
 CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, reporter INTEGER, target INTEGER, reason TEXT, created TEXT);
+CREATE TABLE IF NOT EXISTS ai_settings(chat INTEGER PRIMARY KEY, enabled INTEGER DEFAULT 1, style TEXT DEFAULT 'khaki');
+CREATE TABLE IF NOT EXISTS ai_history(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, user INTEGER, role TEXT, content TEXT, created REAL);
 """)
 for col, typ in [("welcome","INTEGER DEFAULT 1"),("antilink","INTEGER DEFAULT 0"),("antispam","INTEGER DEFAULT 0"),("captcha","INTEGER DEFAULT 0")]:
     try:
@@ -48,6 +52,19 @@ db.commit()
 bot = Bot(TOKEN)
 dp = Dispatcher()
 pending = set()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+AI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
+ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+AI_STYLES = {
+    "khaki": ("خاکی و خودمونی", "مثل یک رفیق باحال و محترم، فارسی محاوره‌ای و طبیعی حرف بزن؛ نه رسمی و نه مصنوعی. کوتاه و صمیمی باش، شوخی ملایم اشکالی ندارد."),
+    "funny": ("شوخ و بامزه", "فارسی محاوره‌ای، بانمک و پرانرژی حرف بزن. شوخی کن ولی توهین یا تحقیر نکن."),
+    "chill": ("آروم و ریلکس", "خیلی راحت، آرام و بی‌تکلف به فارسی محاوره‌ای جواب بده؛ فشار نیاور و زیاده‌گویی نکن."),
+    "pro": ("حرفه‌ای و دقیق", "فارسی روشن و حرفه‌ای، منظم و دقیق جواب بده؛ همچنان گرم و قابل‌فهم باش."),
+    "coach": ("رفیق انگیزشی", "مثل رفیقی که حواسش هست، صمیمی و تشویق‌کننده جواب بده؛ واقع‌بین باش و شعار توخالی نده."),
+    "gamer": ("گیمر و اینترنتی", "فارسی محاوره‌ای با حال‌وهوای گیمرها و اینترنت حرف بزن؛ اصطلاحات را طبیعی و به‌اندازه استفاده کن."),
+    "short": ("کوتاه و مستقیم", "فارسی خودمانی و خیلی مختصر جواب بده؛ مستقیم برو سر اصل مطلب."),
+}
+ai_locks = defaultdict(asyncio.Lock)
 
 def save(m):
     u = m.from_user
@@ -68,15 +85,62 @@ def is_global_admin(uid):
 
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛡️ مدیریت اعضا", callback_data="mod"),
-         InlineKeyboardButton(text="🔐 امنیت", callback_data="security")],
-        [InlineKeyboardButton(text="👋 مدیریت گروه", callback_data="group"),
-         InlineKeyboardButton(text="🧰 ابزارها", callback_data="tools")],
-        [InlineKeyboardButton(text="📊 آمار", callback_data="stats"),
-         InlineKeyboardButton(text="👥 کاربران", callback_data="users")],
-        [InlineKeyboardButton(text="📜 لاگ‌ها", callback_data="logs"),
-         InlineKeyboardButton(text="📢 همگانی", callback_data="bc")],
+        [InlineKeyboardButton(text="🛡️ مدیریت اعضا", callback_data="mod"), InlineKeyboardButton(text="🔐 امنیت", callback_data="security")],
+        [InlineKeyboardButton(text="👋 مدیریت گروه", callback_data="group"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="tools")],
+        [InlineKeyboardButton(text="🤖 هوش مصنوعی", callback_data="ai_panel"), InlineKeyboardButton(text="📊 آمار", callback_data="stats")],
+        [InlineKeyboardButton(text="👥 کاربران", callback_data="users"), InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports")],
+        [InlineKeyboardButton(text="📜 لاگ‌ها", callback_data="logs"), InlineKeyboardButton(text="📢 همگانی", callback_data="bc")],
     ])
+
+def ai_settings(chat_id):
+    row = db.execute("SELECT enabled,style FROM ai_settings WHERE chat=?", (chat_id,)).fetchone()
+    if not row:
+        enabled = 1 if os.getenv("AI_ENABLED", "1").lower() in ("1","true","yes","on") else 0
+        db.execute("INSERT OR IGNORE INTO ai_settings(chat,enabled,style) VALUES(?,?,?)", (chat_id,enabled,"khaki"))
+        db.commit()
+        return bool(enabled), "khaki"
+    return bool(row[0]), row[1] if row[1] in AI_STYLES else "khaki"
+
+def ai_keyboard():
+    rows = []
+    styles = list(AI_STYLES.items())
+    for i in range(0, len(styles), 2):
+        rows.append([InlineKeyboardButton(text=styles[i][1][0], callback_data=f"aistyle:{styles[i][0]}")])
+        if i + 1 < len(styles):
+            rows[-1].append(InlineKeyboardButton(text=styles[i+1][1][0], callback_data=f"aistyle:{styles[i+1][0]}"))
+    rows.append([InlineKeyboardButton(text="🔛 روشن/خاموش", callback_data="aitoggle"), InlineKeyboardButton(text="🧹 پاک‌کردن حافظه", callback_data="aiclear")])
+    rows.append([InlineKeyboardButton(text="⬅️ پنل اصلی", callback_data="home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+async def ai_reply(chat_id, user_id, user_text, user_name="دوست"):
+    if not ai_client:
+        return "هوش مصنوعی هنوز وصل نشده 😅 ادمین باید OPENAI_API_KEY رو توی متغیرهای محیطی ربات تنظیم کنه."
+    enabled, style = ai_settings(chat_id)
+    if not enabled:
+        return None
+    style_name, style_prompt = AI_STYLES.get(style, AI_STYLES["khaki"])
+    async with ai_locks[(chat_id,user_id)]:
+        db.execute("DELETE FROM ai_history WHERE created < ?", (time.time()-86400,))
+        history = db.execute("SELECT role,content FROM ai_history WHERE chat=? AND user=? ORDER BY id DESC LIMIT 12", (chat_id,user_id)).fetchall()
+        history.reverse()
+        instructions = ("تو دستیار گفتگویی یک ربات تلگرام هستی. با فارسی روان جواب بده و با کاربر صادق باش. "
+            "خودت را انسان واقعی جا نزن. اطلاعات شخصی دیگران را افشا نکن. اگر چیزی را نمی‌دانی واضح بگو. "
+            f"نام نمایشی کاربر: {user_name}. سبک فعلی: {style_name}. {style_prompt} "
+            "پاسخ معمولاً کوتاه و مناسب تلگرام باشد؛ وقتی کاربر توضیح کامل خواست، مفصل‌تر جواب بده.")
+        try:
+            response = await ai_client.responses.create(
+                model=AI_MODEL, instructions=instructions,
+                input=[{"role": role, "content": content} for role,content in history] + [{"role":"user","content":user_text}],
+                max_output_tokens=500,
+            )
+            answer = (response.output_text or "یه لحظه قاطی کردم 😅 دوباره می‌گی؟").strip()
+            db.execute("INSERT INTO ai_history(chat,user,role,content,created) VALUES(?,?,?,?,?)", (chat_id,user_id,"user",user_text[:3000],time.time()))
+            db.execute("INSERT INTO ai_history(chat,user,role,content,created) VALUES(?,?,?,?,?)", (chat_id,user_id,"assistant",answer[:4000],time.time()))
+            db.commit()
+            return answer[:4000]
+        except Exception:
+            logging.exception("AI response failed")
+            return "الان اتصال هوش مصنوعی یه مشکلی پیدا کرده 😕 یه کم دیگه دوباره امتحان کن."
 
 
 async def group_admin(m):
@@ -183,6 +247,9 @@ async def set_bot_commands():
         BotCommand(command="notes", description="لیست یادداشت‌ها"),
         BotCommand(command="report", description="گزارش کاربر"),
         BotCommand(command="id", description="نمایش شناسه‌ها"),
+        BotCommand(command="ai", description="فعال یا غیرفعال کردن هوش مصنوعی"),
+        BotCommand(command="style", description="انتخاب لحن هوش مصنوعی"),
+        BotCommand(command="clearchat", description="پاک کردن حافظه گفتگو"),
     ]
     private_commands = [
         BotCommand(command="start", description="شروع ربات"),
@@ -190,6 +257,8 @@ async def set_bot_commands():
         BotCommand(command="admin", description="پنل مدیریت"),
         BotCommand(command="stats", description="آمار ربات"),
         BotCommand(command="id", description="نمایش شناسه"),
+        BotCommand(command="style", description="انتخاب لحن هوش مصنوعی"),
+        BotCommand(command="clearchat", description="پاک کردن حافظه گفتگو"),
     ]
     await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
     await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
@@ -248,7 +317,29 @@ async def ident(m):
 async def admin_cmd(m):
     if not is_global_admin(m.from_user.id):
         return await m.answer("⛔ دسترسی ندارید.")
-    await m.answer("🛠 پنل مدیریت V2", reply_markup=menu())
+    await m.answer("🛠 پنل مدیریت ربات | برای کنترل قابلیت‌ها یکی از بخش‌ها را انتخاب کن.", reply_markup=menu())
+
+@dp.message(Command("ai"))
+async def ai_toggle_command(m):
+    parts = (m.text or "").split(maxsplit=1)
+    if len(parts) < 2 or parts[1].lower() not in ("on","off"):
+        enabled, style = ai_settings(m.chat.id)
+        return await m.answer(f"وضعیت هوش مصنوعی: {'روشن' if enabled else 'خاموش'}\nلحن: {AI_STYLES[style][0]}\nاستفاده: /ai on یا /ai off")
+    if m.chat.type != "private" and not await group_admin(m): return
+    enabled = parts[1].lower() == "on"
+    db.execute("INSERT INTO ai_settings(chat,enabled,style) VALUES(?,?,?) ON CONFLICT(chat) DO UPDATE SET enabled=excluded.enabled", (m.chat.id,int(enabled),"khaki"))
+    db.commit()
+    await m.answer(("🤖 هوش مصنوعی روشن شد." if enabled else "🤐 هوش مصنوعی خاموش شد.") + ("\nبرای پاسخ هوشمند، کلید API باید تنظیم شده باشد." if enabled and not ai_client else ""))
+
+@dp.message(Command("style"))
+async def ai_style_command(m):
+    await m.answer("🎭 لحن هوش مصنوعی رو انتخاب کن:", reply_markup=ai_keyboard())
+
+@dp.message(Command("clearchat"))
+async def clear_ai_history(m):
+    db.execute("DELETE FROM ai_history WHERE chat=? AND user=?", (m.chat.id,m.from_user.id))
+    db.commit()
+    await m.answer("🧹 حافظه گفتگوی تو با ربات پاک شد.")
 
 
 @dp.message(Command("stats"))
@@ -658,10 +749,44 @@ async def captcha_callback(c):
     except Exception:
         await c.answer("❌ تأیید انجام نشد.", show_alert=True)
 
-@dp.callback_query(F.data.in_({"stats","users","security","mod","group","tools","features","logs"}))
+@dp.callback_query(F.data.in_({"stats","users","security","mod","group","tools","features","logs","home","ai_panel","aitoggle","aiclear","reports"}) | F.data.startswith("aistyle:"))
 async def panel(c):
     if not is_global_admin(c.from_user.id):
         return await c.answer("⛔", show_alert=True)
+    if c.data == "home":
+        await c.message.edit_text("🛠 پنل مدیریت ربات", reply_markup=menu())
+        return await c.answer()
+    if c.data == "ai_panel":
+        enabled, style = ai_settings(c.message.chat.id)
+        t = ("🤖 پنل هوش مصنوعی\n" + f"وضعیت: {'روشن 🟢' if enabled else 'خاموش 🔴'}\n" + f"اتصال API: {'آماده' if ai_client else 'کلید API تنظیم نشده'}\n" + f"مدل: {AI_MODEL}\n" + f"لحن: {AI_STYLES[style][0]}\n\n" + "در گفتگوی خصوصی، ربات به پیام‌ها پاسخ می‌دهد. در گروه، به پیام ریپلای کن یا نام ربات را صدا بزن.")
+        await c.message.edit_text(t, reply_markup=ai_keyboard())
+        return await c.answer()
+    if c.data == "aitoggle":
+        enabled, style = ai_settings(c.message.chat.id)
+        db.execute("UPDATE ai_settings SET enabled=? WHERE chat=?", (0 if enabled else 1,c.message.chat.id))
+        db.commit()
+        enabled, style = ai_settings(c.message.chat.id)
+        t = f"🤖 هوش مصنوعی {'روشن 🟢' if enabled else 'خاموش 🔴'}\nAPI: {'وصل' if ai_client else 'نیازمند OPENAI_API_KEY'}\nلحن: {AI_STYLES[style][0]}"
+        await c.message.edit_text(t, reply_markup=ai_keyboard())
+        return await c.answer("انجام شد")
+    if c.data == "aiclear":
+        db.execute("DELETE FROM ai_history WHERE chat=?", (c.message.chat.id,))
+        db.commit()
+        await c.message.edit_text("🧹 حافظه هوش مصنوعی برای این گفتگو پاک شد.", reply_markup=ai_keyboard())
+        return await c.answer()
+    if c.data.startswith("aistyle:"):
+        style = c.data.split(":",1)[1]
+        if style not in AI_STYLES: return await c.answer("لحن ناشناخته", show_alert=True)
+        enabled, _ = ai_settings(c.message.chat.id)
+        db.execute("INSERT INTO ai_settings(chat,enabled,style) VALUES(?,?,?) ON CONFLICT(chat) DO UPDATE SET style=excluded.style", (c.message.chat.id,int(enabled),style))
+        db.commit()
+        await c.message.edit_text(f"🎭 لحن انتخاب شد: {AI_STYLES[style][0]}", reply_markup=ai_keyboard())
+        return await c.answer("ذخیره شد")
+    if c.data == "reports":
+        r = db.execute("SELECT chat,reporter,target,reason,created FROM reports ORDER BY id DESC LIMIT 10").fetchall()
+        t = "🚨 آخرین گزارش‌ها:\n" + ("\n".join(f"گروه {ch} | گزارش‌دهنده {rep} | کاربر {target}\n{reason[:100]} | {created[:16]}" for ch,rep,target,reason,created in r) or "گزارشی ثبت نشده.")
+        await c.message.edit_text(t, reply_markup=menu())
+        return await c.answer()
     if c.data == "stats":
         users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         filters_n = db.execute("SELECT COUNT(*) FROM filters").fetchone()[0]
@@ -761,7 +886,25 @@ async def allmsg(m):
             await asyncio.sleep(0.04)
         return await m.answer(f"📢 تمام شد\n✅ {ok}\n❌ {bad}")
 
-    if m.chat.type == "private" or not m.text:
+    if m.chat.type == "private":
+        if not m.text or m.text.startswith("/"):
+            return
+        enabled, _style = ai_settings(m.chat.id)
+        if enabled:
+            answer = await ai_reply(m.chat.id, m.from_user.id, m.text, m.from_user.full_name)
+            if answer: await m.answer(answer)
+        return
+    if not m.text:
+        return
+
+    me = await bot.get_me()
+    addressed = (m.reply_to_message and m.reply_to_message.from_user and m.reply_to_message.from_user.id == me.id) or (me.username and f"@{me.username.lower()}" in m.text.lower())
+    if addressed and not m.text.startswith("/"):
+        cleaned = m.text.replace(f"@{me.username}", "").strip() if me.username else m.text
+        enabled, _style = ai_settings(m.chat.id)
+        if enabled:
+            answer = await ai_reply(m.chat.id, m.from_user.id, cleaned, m.from_user.full_name)
+            if answer: await m.reply(answer)
         return
 
     low = m.text.lower()
