@@ -1104,6 +1104,83 @@ async def natural_command(m):
         await m.answer("👋 متن خوشامد ذخیره شد.")
         return True
 
+    # Additional conversational aliases for utility commands.
+    if any(x in t for x in ("شناسه من چیه", "آیدی من", "شناسه گروه", "آیدی گروه")):
+        await m.answer(f"🆔 شناسه کاربر: {m.from_user.id}\n💬 شناسه گفتگو: {m.chat.id}")
+        return True
+    if any(x in t for x in ("اطلاعات گروه", "مشخصات گروه", "درباره این گروه")):
+        await m.answer(f"💬 نام گفتگو: {m.chat.title or 'گفتگوی خصوصی'}\n🆔 شناسه: {m.chat.id}\nنوع: {m.chat.type}")
+        return True
+    if any(x in t for x in ("حافظه چت رو پاک کن", "حافظه گفتگو رو پاک کن", "حافظه هوش مصنوعی رو پاک کن")):
+        db.execute("DELETE FROM ai_history WHERE chat=? AND user=?", (m.chat.id, m.from_user.id))
+        db.commit()
+        await m.answer("🧹 حافظه گفتگوی خودت پاک شد.")
+        return True
+    if any(x in t for x in ("لحن رو خاکی کن", "با لحن خاکی حرف بزن", "خودمونی حرف بزن")):
+        style = "khaki"
+    elif any(x in t for x in ("لحن رو شوخ کن", "بامزه حرف بزن", "شوخ حرف بزن")):
+        style = "funny"
+    elif any(x in t for x in ("لحن رو ریلکس کن", "آروم حرف بزن")):
+        style = "chill"
+    elif any(x in t for x in ("لحن رو حرفه ای کن", "حرفه ای حرف بزن")):
+        style = "pro"
+    elif any(x in t for x in ("لحن رو انگیزشی کن", "انگیزشی حرف بزن")):
+        style = "coach"
+    elif any(x in t for x in ("لحن رو گیمر کن", "مثل گیمر حرف بزن")):
+        style = "gamer"
+    elif any(x in t for x in ("کوتاه جواب بده", "مختصر جواب بده")):
+        style = "short"
+    else:
+        style = None
+    if style:
+        enabled, _ = ai_settings(m.chat.id)
+        db.execute("INSERT INTO ai_settings(chat,enabled,style) VALUES(?,?,?) ON CONFLICT(chat) DO UPDATE SET style=excluded.style", (m.chat.id, int(enabled), style))
+        db.commit()
+        await m.answer(f"🎭 باشه، از این به بعد با لحن «{AI_STYLES[style][0]}» جواب می‌دم.")
+        return True
+    if any(x in t for x in ("یادداشت ها رو نشون بده", "یادداشت‌ها رو نشون بده", "فهرست یادداشت ها", "یادداشت‌های ذخیره شده")):
+        rows = db.execute("SELECT name FROM notes WHERE chat=? ORDER BY name", (m.chat.id,)).fetchall()
+        await m.answer("📝 یادداشت‌های ذخیره‌شده:\n" + ("\n".join("• " + row[0] for row in rows) or "هنوز یادداشتی ذخیره نشده."))
+        return True
+    if t.startswith("یادداشت ") or t.startswith("یه یادداشت ذخیره کن "):
+        if not await group_admin(m):
+            return True
+        parts = raw.split(maxsplit=2)
+        if len(parts) < 3:
+            await m.answer("برای ذخیره یادداشت بگو: «یادداشت نام متن یادداشت»")
+            return True
+        db.execute("INSERT OR REPLACE INTO notes VALUES(?,?,?)", (m.chat.id, parts[1].lower(), parts[2]))
+        db.commit()
+        await m.answer("📝 یادداشت ذخیره شد.")
+        return True
+    if t.startswith("یادداشت رو بیار ") or t.startswith("یادداشت ") and " رو نشون بده" in t:
+        name = raw.split()[-1].lower()
+        row = db.execute("SELECT text FROM notes WHERE chat=? AND name=?", (m.chat.id, name)).fetchone()
+        await m.answer(row[0] if row else "❌ این یادداشت رو پیدا نکردم.")
+        return True
+    if any(x in t for x in ("این کاربر رو از بن دربیار", "رفع مسدودی این کاربر", "بن این کاربر رو بردار")):
+        if not await group_admin(m):
+            return True
+        target_user = m.reply_to_message.from_user if m.reply_to_message else None
+        if not target_user:
+            await m.answer("روی پیام کاربر Reply کن و دوباره بگو.")
+            return True
+        try:
+            await bot.unban_chat_member(m.chat.id, target_user.id)
+            log_action(m.chat.id, m.from_user.id, "unban", target_user.id)
+            await m.answer(f"✅ مسدودی {target_user.full_name} برداشته شد.")
+        except Exception as e:
+            await m.answer(f"❌ رفع مسدودی انجام نشد: {e}")
+        return True
+    if any(x in t for x in ("این کاربر رو گزارش کن", "از این کاربر شکایت دارم", "گزارش تخلف این کاربر")):
+        target_user = m.reply_to_message.from_user if m.reply_to_message else None
+        reason = raw
+        db.execute("INSERT INTO reports(chat,reporter,target,reason,created) VALUES(?,?,?,?,?)",
+                   (m.chat.id, m.from_user.id, target_user.id if target_user else 0, reason[:1000], datetime.utcnow().isoformat()))
+        db.commit()
+        await m.answer("🚨 گزارشت ثبت شد؛ ادمین‌ها می‌تونن بررسیش کنن.")
+        return True
+
     # Help is always available.
     if any(x in t for x in ("راهنمای ربات", "چه کارهایی بلدی", "چطور باهات کار کنم", "کمک میخوام")):
         await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! مثلاً بگو:\n• ربات روشن / ربات خاموش\n• ضدلینک رو روشن کن\n• ضداسپم رو خاموش کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• پنل مدیریت رو باز کن\n• روی پیام کاربر Reply کن و بگو «این کاربر رو اخراج کن» یا «بهش اخطار بده»\n\nبرای بقیه گفتگوها هم عادی باهام حرف بزن.")
