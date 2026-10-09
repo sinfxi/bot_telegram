@@ -116,17 +116,30 @@ docs/COMMANDS.md
 ساخته‌شده برای مدیریت راحت‌تر گروه‌های تلگرام؛ یک ربات، چند ابزار. 🤖
 
 
-## مدیریت کانفیگ Xray
+## پنل اختصاصی Xray روی Railway
 
-ماژول `config_manager.py` از API پنل‌های سازگار با 3x-ui استفاده می‌کند. برای ساخت کانفیگ واقعی، باید پنل Xray و سرور فعال داشته باشی؛ این قابلیت به‌تنهایی سرور VPN ایجاد نمی‌کند.
+این پروژه پنل مدیریت را داخل خود ربات تلگرام ارائه می‌کند و از دو سرویس Xray مستقل روی Railway استفاده می‌کند: یکی برای VLESS و دیگری برای VMess. سرویس‌ها از REALITY استفاده می‌کنند؛ کاربران، شناسه‌ها، محدودیت حجم و تاریخ انقضا در SQLite ذخیره می‌شوند و برای هر سرویس باید Railway Volume متصل شود.
 
-فرمان‌ها فقط برای شناسه‌های موجود در `ADMIN_IDS` در دسترس‌اند:
+### دستورات مدیر
 
-- `/config` — پنل مدیریتی و دکمه‌های اتصال، ورودی‌ها و ساخت کانفیگ
-- `/confignew <inbound_id> <days> <GB>` — ساخت کاربر VLESS یا VMess با محدودیت حجم و زمان و ارسال لینک و QR
-- `/configlist <inbound_id>` — نمایش کاربران ثبت‌شده در ورودی
-- `/configrevoke <inbound_id> <client_uuid>` — حذف دسترسی کاربر از پنل
+- `/config` — باز کردن پنل دکمه‌ای
+- `/confignew vless 30 20` — ساخت VLESS با اعتبار ۳۰ روز و سقف ۲۰ گیگابایت
+- `/confignew vmess 30 20` — ساخت VMess با اعتبار ۳۰ روز و سقف ۲۰ گیگابایت
+- `/configlist vless` یا `/configlist vmess` — فهرست کاربران، مصرف و انقضا؛ از همین پنل می‌توان تمدید یا لغو کرد
+- `/configrenew vless UUID 30` — تمدید ۳۰ روزه؛ افزودن GB اختیاری، سهمیه را بازنشانی می‌کند
+- `/configrevoke vmess UUID` — لغو کامل دسترسی
 
-در تنظیمات Railway، متغیرهای `XRAY_PANEL_URL`، `XRAY_PANEL_USERNAME`، `XRAY_PANEL_PASSWORD` و `XRAY_PUBLIC_HOST` را وارد کن. `XRAY_VERIFY_TLS=true` را نگه دار، مگر اینکه برای محیط آزمایشی دلیل مشخصی برای تغییر داشته باشی. رمز پنل را داخل کد یا GitHub قرار نده.
+### معماری و محدودیت‌های Railway
 
-**سازگاری:** این نسخه از مسیرهای API رایج 3x-ui برای ورود، فهرست ورودی‌ها، افزودن کاربر و حذف کاربر استفاده می‌کند. اگر پنل دیگر API متفاوتی دارد، لازم است adapter آن پنل پیاده‌سازی شود. در حال حاضر تولید لینک فقط برای ورودی‌های VLESS و VMess است.
+- `xray_service.py` اجراکننده هسته Xray و API خصوصی مدیریت کاربران است؛ `xray.Dockerfile` تصویر جداگانه آن را می‌سازد.
+- هر سرویس Xray فقط یک TCP proxy عمومی می‌گیرد، بنابراین VLESS و VMess به دو سرویس جدا نیاز دارند.
+- برای هر سرویس Xray، Dockerfile را روی `xray.Dockerfile` بگذار، متغیرهای `XRAY_PROTOCOL` و `XRAY_LISTEN_PORT` را به‌ترتیب روی `vless/8443` و `vmess/8444` تنظیم کن، و یک Volume با مسیر `/data` متصل کن.
+- برای هر دو سرویس، `PORT=8080` و یک مقدار یکسان و قوی برای `XRAY_MANAGER_TOKEN` تنظیم کن. همچنین `XRAY_REALITY_TARGET=www.microsoft.com:443` و `XRAY_REALITY_SERVER_NAME=www.microsoft.com` را فقط در صورتی نگه دار که آن مقصد از شبکه/منطقه سرور مناسب باشد؛ در غیر این صورت یک مقصد معتبر سازگار با REALITY تنظیم کن.
+- برای هر سرویس، TCP Proxy را به پورت برنامه‌اش متصل کن: 8443 برای VLESS و 8444 برای VMess. سپس hostname و public port تولیدشده را در متغیرهای `XRAY_VLESS_HOST/PORT` و `XRAY_VMESS_HOST/PORT` در سرویس ربات وارد کن.
+- متغیرهای API در ربات باید به آدرس خصوصی Railway اشاره کنند: `http://xray-vless.railway.internal:8080` و `http://xray-vmess.railway.internal:8080`؛ نام endpoint خصوصی هر سرویس باید با این نام‌ها تنظیم شده باشد.
+- محدودیت حجم از آمار کاربر در Xray Stats API محاسبه می‌شود. این آمار باید در سرویس Xray فعال بماند؛ سهمیه و انقضا با خاموش‌کردن کاربر در تنظیمات Xray اعمال می‌شود.
+- قبل از استفاده واقعی، اتصال TCP، سازگاری لینک REALITY با کلاینت هدف و آمار مصرف را با یک کاربر آزمایشی بررسی کن. موفقیت CI فقط syntax را بررسی می‌کند، نه اتصال VPN از اینترنت.
+
+### متغیرهای ربات
+
+در Railway Variables برای سرویس ربات تنظیم کن: `XRAY_MANAGER_TOKEN`، `XRAY_VLESS_API_URL`، `XRAY_VLESS_HOST`، `XRAY_VLESS_PORT`، `XRAY_VMESS_API_URL`، `XRAY_VMESS_HOST` و `XRAY_VMESS_PORT`. قالب آن‌ها در [.env.example](.env.example) آمده است. رمزها را در GitHub commit نکن.
