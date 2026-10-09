@@ -1223,7 +1223,7 @@ async def natural_command(m):
             validity = "نامحدود" if not expires else f"{max(0, int((expires-now)/86400))} روز باقی‌مانده"
             lines.append(f"• {label} — {validity} — دسترسی: {perms}")
         db.commit()
-        await m.answer("⭐ گزارش کاربران ویژه:\\n" + ("\\n".join(lines) if lines else "کاربر ویژه‌ای ثبت نشده."))
+        await m.answer("⭐ گزارش کاربران ویژه:\n" + ("\n".join(lines) if lines else "کاربر ویژه‌ای ثبت نشده."))
         return True
 
     vip_action = "vip_add" if any(x in t for x in vip_add_phrases) else ("vip_remove" if any(x in t for x in vip_remove_phrases) else None)
@@ -1273,14 +1273,14 @@ async def natural_command(m):
         if not target_user:
             await m.answer("برای مدیریت VIP روی پیام همان کاربر ریپلای کن.")
             return True
-        days_match = re.search(r"(\\d+)\\s*(?:روز|day)", raw, re.IGNORECASE)
+        days_match = re.search(r"(\d+)\s*(?:روز|day)", raw, re.IGNORECASE)
         days = int(days_match.group(1)) if days_match else (vip_days if "vip_days" in locals() else None)
         if days is not None and not 1 <= days <= 365:
             await m.answer("مدت VIP باید بین ۱ تا ۳۶۵ روز باشد.")
             return True
         permissions = (vip_permissions if "vip_permissions" in locals() else None)
         if not permissions:
-            perm_match = re.search(r"(?:دسترسی|مجوز)\\s*[:：]?\\s*(.+)$", raw)
+            perm_match = re.search(r"(?:دسترسی|مجوز)\s*[:：]?\s*(.+)$", raw)
             permissions = perm_match.group(1)[:160].strip() if perm_match else "standard"
         token = secrets.token_urlsafe(8)
         pending_admin_actions[token] = (m.chat.id, target_user.id, vip_action, days, permissions, m.from_user.id)
@@ -1290,9 +1290,9 @@ async def natural_command(m):
             InlineKeyboardButton(text="❌ لغو", callback_data=f"vipcancel:{token}")
         ]])
         await m.answer(
-            f"⚠️ تأیید عملیات ویژه\\nعملیات: {label} VIP\\nکاربر: {target_user.full_name} "
-            + (f"\\nمدت: {days} روز" if days else ("\\nمدت: نامحدود" if vip_action == "vip_add" else ""))
-            + f"\\nدسترسی‌ها: {permissions if vip_action == 'vip_add' else 'حذف کامل'}\\nانجام بدهم؟",
+            f"⚠️ تأیید عملیات ویژه\nعملیات: {label} VIP\nکاربر: {target_user.full_name} "
+            + (f"\nمدت: {days} روز" if days else ("\nمدت: نامحدود" if vip_action == "vip_add" else ""))
+            + f"\nدسترسی‌ها: {permissions if vip_action == 'vip_add' else 'حذف کامل'}\nانجام بدهم؟",
             reply_markup=keyboard
         )
         return True
