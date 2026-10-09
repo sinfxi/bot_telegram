@@ -300,7 +300,14 @@ async def update_client(request):
             gb = float(body["gb"])
             if not 0.1 <= gb <= 100000:
                 raise ValueError
-            total, used, last_up, last_down = int(gb * 1024**3), 0, 0, 0
+            total, used = int(gb * 1024**3), 0
+            # Start the renewed quota from the current Xray counters, not from zero,
+            # otherwise the next poll would count all pre-renewal traffic again.
+            try:
+                current = (await query_stats()).get(row["email"], {})
+                last_up, last_down = current.get("uplink", row["last_up"]), current.get("downlink", row["last_down"])
+            except Exception:
+                last_up, last_down = row["last_up"], row["last_down"]
         else:
             total, used, last_up, last_down = row["total_bytes"], row["used_bytes"], row["last_up"], row["last_down"]
     except (TypeError, ValueError):
