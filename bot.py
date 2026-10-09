@@ -964,7 +964,7 @@ async def natural_command(m):
             await m.answer(f"{title} {'فعال شد ✅' if value else 'خاموش شد.'}")
             return True
 
-    if any(x in t for x in ("قفل گروه", "گروه رو قفل کن", "ارسال پیام رو قفل کن")):
+    if any(x in t for x in ("قفل گروه", "گروه رو قفل کن", "ارسال پیام رو قفل کن")) and not any(x in t for x in ("باز کردن", "باز کن", "آزاد کن")):
         if not await group_admin(m):
             return True
         try:
