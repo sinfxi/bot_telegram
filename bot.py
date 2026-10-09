@@ -834,6 +834,23 @@ async def vip_action_callback(c):
             db.commit()
             log_action(chat_id, c.from_user.id, "vip-revoke", user_id)
             await c.message.edit_text("✅ دسترسی ویژه کاربر برداشته شد.")
+        elif action == "ban":
+            await bot.ban_chat_member(chat_id, user_id)
+            log_action(chat_id, c.from_user.id, "ban", user_id)
+            await c.message.edit_text("🚫 عملیات تأیید شد؛ کاربر مسدود شد.")
+        elif action == "kick":
+            await bot.ban_chat_member(chat_id, user_id)
+            await bot.unban_chat_member(chat_id, user_id)
+            log_action(chat_id, c.from_user.id, "kick", user_id)
+            await c.message.edit_text("👋 عملیات تأیید شد؛ کاربر از گروه اخراج شد.")
+        elif action == "promote":
+            await bot.promote_chat_member(chat_id, user_id, can_manage_chat=True, can_delete_messages=True, can_restrict_members=True, can_invite_users=True, can_pin_messages=True)
+            log_action(chat_id, c.from_user.id, "promote", user_id)
+            await c.message.edit_text("👑 عملیات تأیید شد؛ دسترسی‌های ادمینی درخواست‌شده اعمال شد.")
+        elif action == "demote":
+            await bot.promote_chat_member(chat_id, user_id, can_manage_chat=False, can_delete_messages=False, can_restrict_members=False, can_pin_messages=False, can_invite_users=False)
+            log_action(chat_id, c.from_user.id, "demote", user_id)
+            await c.message.edit_text("🛡 دسترسی‌های مدیریتی کاربر حذف شد.")
         await c.answer("انجام شد")
     except Exception:
         logging.exception("VIP action failed")
@@ -1425,6 +1442,19 @@ async def natural_command(m):
                 return True
             if not target_user:
                 await m.answer("اول روی پیام همون کاربر Reply کن، بعد جمله رو بفرست.")
+                return True
+            if action in ("ban", "kick", "promote", "demote"):
+                token = secrets.token_urlsafe(8)
+                pending_admin_actions[token] = (m.chat.id, target_user.id, action, None, None, m.from_user.id)
+                action_names = {"ban": "مسدودکردن", "kick": "اخراج", "promote": "دادن دسترسی ادمین", "demote": "گرفتن دسترسی ادمین"}
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="✅ تأیید عملیات", callback_data=f"vipact:{token}"),
+                    InlineKeyboardButton(text="❌ لغو", callback_data=f"vipcancel:{token}")
+                ]])
+                await m.answer(
+                    f"⚠️ تأیید عملیات مدیریتی\\nعملیات: {action_names[action]}\\nشناسه کاربر: {target_user.id}\\nتأیید می‌کنی؟",
+                    reply_markup=keyboard
+                )
                 return True
             try:
                 if action == "ban":
