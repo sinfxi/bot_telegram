@@ -1,3 +1,4 @@
 aiogram>=3.22,<4
 aiohttp>=3.12,<4
 openai>=1.100,<3
+qrcode[pil]>=7.4,<9
