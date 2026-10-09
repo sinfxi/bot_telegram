@@ -251,6 +251,14 @@ async def set_bot_commands():
         BotCommand(command="ai", description="فعال یا غیرفعال کردن هوش مصنوعی"),
         BotCommand(command="style", description="انتخاب لحن هوش مصنوعی"),
         BotCommand(command="clearchat", description="پاک کردن حافظه گفتگو"),
+        BotCommand(command="dice", description="تاس انداختن"),
+        BotCommand(command="coin", description="شیر یا خط"),
+        BotCommand(command="joke", description="گفتن جوک"),
+        BotCommand(command="password", description="ساخت رمز تصادفی"),
+        BotCommand(command="profile", description="نمایش پروفایل"),
+        BotCommand(command="reminders", description="فهرست یادآوری‌ها"),
+        BotCommand(command="calc", description="ماشین‌حساب"),
+        BotCommand(command="poll", description="ساخت نظرسنجی"),
     ]
     private_commands = [
         BotCommand(command="start", description="شروع ربات"),
@@ -268,7 +276,7 @@ async def set_bot_commands():
 @dp.message(CommandStart())
 async def start(m):
     save(m)
-    text = "🛠 پنل مدیریت آماده است." if is_global_admin(m.from_user.id) else "🤖 ربات همه‌کاره آماده است. /help"
+    text = ("🛠 پنل مدیریت آماده است.\\n🧰 ابزارهای جدید: /dice /coin /joke /password /profile /reminders /calc /poll\\nبرای راهنما /help را بزن.") if is_global_admin(m.from_user.id) else "🤖 ربات به‌روزرسانی شد!\\n🧰 ابزارها: /dice /coin /joke /password /profile /reminders /calc /poll\\n⏰ یادآوری: «یادآوری 10 دقیقه بعد آب بخور»\\nبرای راهنمای کامل /help را بزن."
     await m.answer(text, reply_markup=menu() if is_global_admin(m.from_user.id) else None)
 
 @dp.message(Command("help"))
@@ -315,7 +323,7 @@ async def help_cmd(m):
 👑 مدیریت اصلی
 /admin /broadcast /cancel
 
-⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\nتاس بنداز / شیر یا خط / جوک بگو / رمز بساز / پروفایل من\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
+⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n/dice تاس /coin شیر یا خط /joke جوک /password رمز /profile پروفایل /reminders یادآوری‌ها /calc عبارت /poll سؤال | گزینه۱ | گزینه۲\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -878,6 +886,69 @@ async def broadcast(m):
 async def cancel(m):
     pending.discard(m.from_user.id)
     await m.answer("لغو شد.")
+
+@dp.message(Command("dice"))
+async def dice_cmd(m):
+    await m.answer(f"🎲 نتیجه تاس: {random.randint(1, 6)}")
+
+@dp.message(Command("coin"))
+async def coin_cmd(m):
+    await m.answer("🪙 " + random.choice(["شیر", "خط"]))
+
+@dp.message(Command("joke"))
+async def joke_cmd(m):
+    await m.answer(random.choice([
+        "به کامپیوتر گفتم استراحت کن؛ گفت اول همه پنجره‌هامو ببند! 😄",
+        "برنامه‌نویس چرا دیر خوابید؟ چون داشت باگ‌های خوابش رو دیباگ می‌کرد! 🐛",
+        "اینترنت چرا کند بود؟ داشت با زندگی سینک می‌شد! 😂",
+    ]))
+
+@dp.message(Command("password"))
+async def password_cmd(m):
+    password = "".join(secrets.choice(string.ascii_letters + string.digits + "!@#$%_-+") for _ in range(16))
+    await m.answer("🔐 رمز تصادفی ۱۶ کاراکتری:\\n<code>" + password + "</code>", parse_mode="HTML")
+
+@dp.message(Command("profile"))
+async def profile_cmd(m):
+    reminders_n = db.execute("SELECT COUNT(*) FROM reminders WHERE user=?", (m.from_user.id,)).fetchone()[0]
+    await m.answer(
+        f"👤 پروفایل تو\\nنام: {m.from_user.full_name}\\nشناسه: <code>{m.from_user.id}</code>\\n"
+        f"نام کاربری: @{m.from_user.username or 'ندارد'}\\nیادآوری‌های فعال: {reminders_n}",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("reminders"))
+async def reminders_cmd(m):
+    rows = db.execute("SELECT id,text,due FROM reminders WHERE user=? ORDER BY due LIMIT 10", (m.from_user.id,)).fetchall()
+    if not rows:
+        return await m.answer("⏰ یادآوری فعالی نداری.")
+    await m.answer("⏰ یادآوری‌های تو:\\n" + "\\n".join(
+        f"#{rid} — {txt} (حدود {max(0, int((due-time.time())/60))} دقیقه دیگه)" for rid,txt,due in rows
+    ))
+
+@dp.message(Command("calc"))
+async def calc_cmd(m):
+    parts = (m.text or "").split(maxsplit=1)
+    if len(parts) < 2:
+        return await m.answer("مثال: /calc 12*(4+3)")
+    try:
+        result = safe_calculate(parts[1].replace("×", "*").replace("÷", "/").replace("^", "**"))
+        await m.answer(f"🧮 نتیجه: <code>{result}</code>", parse_mode="HTML")
+    except ZeroDivisionError:
+        await m.answer("🧮 تقسیم بر صفر ممکن نیست.")
+    except Exception:
+        await m.answer("عبارت ریاضی ساده وارد کن؛ مثال: /calc 12*(4+3)")
+
+@dp.message(Command("poll"))
+async def poll_cmd(m):
+    payload = (m.text or "").split(maxsplit=1)
+    parts = [x.strip() for x in payload[1].split("|") if x.strip()] if len(payload) > 1 else []
+    if len(parts) < 3 or len(parts) > 11:
+        return await m.answer("قالب: /poll سؤال | گزینه اول | گزینه دوم")
+    try:
+        await bot.send_poll(m.chat.id, question=parts[0][:300], options=[x[:100] for x in parts[1:11]], is_anonymous=True)
+    except Exception:
+        await m.answer("❌ نظرسنجی ساخته نشد؛ قالب را بررسی کن.")
 
 def safe_calculate(expression):
     """Evaluate basic arithmetic without eval or arbitrary Python execution."""
