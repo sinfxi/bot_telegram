@@ -878,6 +878,239 @@ async def cancel(m):
     pending.discard(m.from_user.id)
     await m.answer("لغو شد.")
 
+def normalize_text(text):
+    import re
+    text = (text or "").lower().replace("ي", "ی").replace("ك", "ک")
+    text = re.sub(r"[!?؟،,.؛:]+", " ", text)
+    return " ".join(text.split())
+
+async def natural_command(m):
+    """Run common Persian natural-language aliases for the bot's slash commands."""
+    if not m.text or m.text.startswith("/"):
+        return False
+    raw = m.text.strip()
+    t = normalize_text(raw)
+    is_private = m.chat.type == "private"
+
+    # AI toggle / tone can be used in private chats or groups.
+    if any(x in t for x in ("ربات روشن", "هوش مصنوعی روشن", "هوش مصنوعی رو روشن", "ربات رو روشن کن", "ai روشن")):
+        if not is_private and not await group_admin(m):
+            return True
+        db.execute("INSERT INTO ai_settings(chat,enabled,style) VALUES(?,?,?) ON CONFLICT(chat) DO UPDATE SET enabled=1", (m.chat.id, 1, "khaki"))
+        db.commit()
+        await m.answer("🤖 چشم! هوش مصنوعی روشن شد." + ("\nبرای پاسخ هوشمند باید OPENAI_API_KEY تنظیم شده باشه." if not ai_client else ""))
+        return True
+    if any(x in t for x in ("ربات خاموش", "هوش مصنوعی خاموش", "هوش مصنوعی رو خاموش", "ربات رو خاموش کن", "ai خاموش")):
+        if not is_private and not await group_admin(m):
+            return True
+        enabled, style = ai_settings(m.chat.id)
+        db.execute("UPDATE ai_settings SET enabled=0 WHERE chat=?", (m.chat.id,))
+        db.commit()
+        await m.answer("🤐 باشه، هوش مصنوعی این گفتگو خاموش شد.")
+        return True
+
+    if any(x in t for x in ("پنل مدیریت", "منوی مدیریت", "پنل ربات", "مدیریت ربات")):
+        if not is_global_admin(m.from_user.id):
+            await m.answer("⛔ این پنل فقط برای مدیر اصلی رباته.")
+        else:
+            await m.answer("🛠 پنل مدیریت ربات", reply_markup=menu())
+        return True
+
+    # Read-only information commands.
+    if any(x in t for x in ("آمار گروه", "آمار ربات", "وضعیت گروه", "آمار رو بگو")):
+        users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        filters_n = db.execute("SELECT COUNT(*) FROM filters WHERE chat=?", (m.chat.id,)).fetchone()[0]
+        warnings_n = db.execute("SELECT COALESCE(SUM(count),0) FROM warnings WHERE chat=?", (m.chat.id,)).fetchone()[0]
+        notes_n = db.execute("SELECT COUNT(*) FROM notes WHERE chat=?", (m.chat.id,)).fetchone()[0]
+        await m.answer(f"📊 آمار\n👥 کاربران ثبت‌شده: {users}\n⚠️ اخطارها: {warnings_n}\n🚫 فیلترها: {filters_n}\n📝 یادداشت‌ها: {notes_n}")
+        return True
+    if any(x in t for x in ("قوانین گروه", "قانون های گروه", "قانون‌های گروه", "قوانین چیه")):
+        rules_text = get_chat_text(m.chat.id, "rules", "1) احترام متقابل\n2) بدون اسپم و فلود\n3) تبلیغ بدون اجازه ممنوع\n4) لینک مشکوک ممنوع")
+        await m.answer("📜 قوانین گروه:\n" + rules_text)
+        return True
+    if any(x in t for x in ("لیست ادمین", "ادمین های گروه", "ادمین‌های گروه")):
+        try:
+            admins = await bot.get_chat_administrators(m.chat.id)
+            await m.answer("👑 ادمین‌های گروه:\n" + "\n".join("• " + (a.user.full_name or str(a.user.id)) for a in admins))
+        except Exception:
+            await m.answer("نتونستم فهرست ادمین‌ها رو بگیرم؛ ربات رو بررسی کن.")
+        return True
+    if any(x in t for x in ("لیست فیلتر", "فیلترها رو نشون بده", "کلمه های فیلتر")):
+        rows = db.execute("SELECT word FROM filters WHERE chat=? ORDER BY word", (m.chat.id,)).fetchall()
+        await m.answer("🔎 فیلترهای گروه:\n" + ("\n".join("• " + x[0] for x in rows) or "هنوز فیلتری ثبت نشده."))
+        return True
+
+    # Group settings: only admins can change these.
+    toggles = [
+        (("ضدلینک روشن", "ضد لینک روشن", "لینک ممنوع رو روشن", "جلوگیری از لینک رو روشن"), "antilink", "🔗 ضدلینک"),
+        (("ضدلینک خاموش", "ضد لینک خاموش", "لینک ممنوع رو خاموش", "جلوگیری از لینک رو خاموش"), "antilink", "🔗 ضدلینک"),
+        (("ضداسپم روشن", "ضد اسپم روشن", "اسپم رو روشن", "جلوگیری از اسپم رو روشن"), "antispam", "🛡 ضداسپم"),
+        (("ضداسپم خاموش", "ضد اسپم خاموش", "اسپم رو خاموش", "جلوگیری از اسپم رو خاموش"), "antispam", "🛡 ضداسپم"),
+        (("کپچا روشن", "تایید اعضای جدید روشن", "تأیید اعضای جدید روشن"), "captcha", "🧩 کپچا"),
+        (("کپچا خاموش", "تایید اعضای جدید خاموش", "تأیید اعضای جدید خاموش"), "captcha", "🧩 کپچا"),
+        (("خوشامد روشن", "خوشامدگویی روشن", "پیام خوشامد روشن"), "welcome", "👋 خوشامدگویی"),
+        (("خوشامد خاموش", "خوشامدگویی خاموش", "پیام خوشامد خاموش"), "welcome", "👋 خوشامدگویی"),
+    ]
+    for phrases, field, title in toggles:
+        matched = next((p for p in phrases if p in t), None)
+        if matched:
+            if not await group_admin(m):
+                return True
+            value = not any(word in matched for word in ("خاموش",))
+            ensure_settings(m.chat.id)
+            db.execute(f"UPDATE settings SET {field}=? WHERE chat=?", (int(value), m.chat.id))
+            db.commit()
+            log_action(m.chat.id, m.from_user.id, f"{field} {'on' if value else 'off'}")
+            await m.answer(f"{title} {'فعال شد ✅' if value else 'خاموش شد.'}")
+            return True
+
+    if any(x in t for x in ("قفل گروه", "گروه رو قفل کن", "ارسال پیام رو قفل کن")):
+        if not await group_admin(m):
+            return True
+        try:
+            await bot.set_chat_permissions(m.chat.id, ChatPermissions(can_send_messages=False))
+            await m.answer("🔒 ارسال پیام در گروه قفل شد.")
+        except Exception as e:
+            await m.answer(f"❌ نتونستم گروه رو قفل کنم: {e}")
+        return True
+    if any(x in t for x in ("باز کردن قفل گروه", "قفل گروه رو باز کن", "گروه رو باز کن", "ارسال پیام رو آزاد کن")):
+        if not await group_admin(m):
+            return True
+        try:
+            await bot.set_chat_permissions(m.chat.id, ChatPermissions(can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True, can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True))
+            await m.answer("🔓 قفل ارسال پیام برداشته شد.")
+        except Exception as e:
+            await m.answer(f"❌ نتونستم قفل رو باز کنم: {e}")
+        return True
+
+    # Moderation actions require an explicit reply to the target message.
+    moderation = [
+        (("این کاربر رو بن کن", "کاربر رو بن کن", "مسدودش کن", "بنش کن"), "ban"),
+        (("این کاربر رو اخراج کن", "کاربر رو اخراج کن", "اخراجش کن", "بندازش بیرون"), "kick"),
+        (("این کاربر رو ساکت کن", "کاربر رو ساکت کن", "سکوتش کن", "میوتش کن"), "mute"),
+        (("سکوت این کاربر رو بردار", "رفع سکوتش کن", "آزادش کن"), "unmute"),
+        (("به این کاربر اخطار بده", "بهش اخطار بده", "اخطارش کن"), "warn"),
+        (("اخطارهای این کاربر رو پاک کن", "اخطارهاش رو پاک کن"), "clearwarn"),
+        (("این پیام رو پاک کن", "پیام رو حذف کن", "این پیامو پاک کن"), "delete"),
+        (("این پیام رو سنجاق کن", "پیام رو پین کن", "سنجاقش کن"), "pin"),
+        (("سنجاق این پیام رو بردار", "پیام رو از سنجاق دربیار", "آنپین کن"), "unpin"),
+        (("این کاربر رو ادمین کن", "بهش دسترسی ادمین بده"), "promote"),
+        (("ادمینیش رو بردار", "دسترسی ادمینش رو بگیر", "از ادمینی برش دار"), "demote"),
+    ]
+    for phrases, action in moderation:
+        if any(p in t for p in phrases):
+            if not await group_admin(m):
+                return True
+            target_user = m.reply_to_message.from_user if m.reply_to_message else None
+            if action == "delete":
+                if not m.reply_to_message:
+                    await m.answer("برای حذف، روی پیام موردنظر Reply کن.")
+                else:
+                    try:
+                        await m.reply_to_message.delete()
+                        await m.delete()
+                    except Exception:
+                        await m.answer("❌ نتونستم پیام رو پاک کنم؛ دسترسی حذف پیام رو بررسی کن.")
+                return True
+            if not target_user:
+                await m.answer("اول روی پیام همون کاربر Reply کن، بعد جمله رو بفرست.")
+                return True
+            try:
+                if action == "ban":
+                    await bot.ban_chat_member(m.chat.id, target_user.id)
+                    log_action(m.chat.id, m.from_user.id, "ban", target_user.id)
+                    await m.answer(f"🚫 {target_user.full_name} مسدود شد.")
+                elif action == "kick":
+                    await bot.ban_chat_member(m.chat.id, target_user.id)
+                    await bot.unban_chat_member(m.chat.id, target_user.id)
+                    log_action(m.chat.id, m.from_user.id, "kick", target_user.id)
+                    await m.answer(f"👋 {target_user.full_name} از گروه اخراج شد.")
+                elif action == "mute":
+                    await mute_user(m.chat.id, target_user.id, 60)
+                    log_action(m.chat.id, m.from_user.id, "mute", target_user.id)
+                    await m.answer(f"🔇 {target_user.full_name} برای یک ساعت ساکت شد.")
+                elif action == "unmute":
+                    await bot.restrict_chat_member(m.chat.id, target_user.id, permissions=ChatPermissions(can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True, can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True))
+                    db.execute("DELETE FROM mutes WHERE chat=? AND user=?", (m.chat.id, target_user.id))
+                    db.commit()
+                    await m.answer(f"🔊 سکوت {target_user.full_name} برداشته شد.")
+                elif action == "warn":
+                    row = db.execute("SELECT count FROM warnings WHERE chat=? AND user=?", (m.chat.id, target_user.id)).fetchone()
+                    count = (row[0] if row else 0) + 1
+                    db.execute("INSERT OR REPLACE INTO warnings VALUES(?,?,?)", (m.chat.id, target_user.id, count))
+                    db.commit()
+                    log_action(m.chat.id, m.from_user.id, f"warn {count}", target_user.id)
+                    if count >= 3:
+                        try:
+                            await mute_user(m.chat.id, target_user.id, 60)
+                        except Exception:
+                            pass
+                        await m.answer(f"⚠️ {target_user.full_name}: اخطار {count}/3؛ برای یک ساعت محدود شد.")
+                    else:
+                        await m.answer(f"⚠️ به {target_user.full_name} اخطار داده شد ({count}/3).")
+                elif action == "clearwarn":
+                    db.execute("DELETE FROM warnings WHERE chat=? AND user=?", (m.chat.id, target_user.id))
+                    db.commit()
+                    await m.answer("✅ اخطارهای کاربر پاک شد.")
+                elif action == "pin":
+                    await m.reply_to_message.pin()
+                    log_action(m.chat.id, m.from_user.id, "pin", target_user.id)
+                    await m.answer("📌 پیام سنجاق شد.")
+                elif action == "unpin":
+                    await m.reply_to_message.unpin()
+                    await m.answer("📌 سنجاق پیام برداشته شد.")
+                elif action == "promote":
+                    await bot.promote_chat_member(m.chat.id, target_user.id, can_manage_chat=True, can_delete_messages=True, can_restrict_members=True, can_pin_messages=True)
+                    log_action(m.chat.id, m.from_user.id, "promote", target_user.id)
+                    await m.answer("👑 دسترسی مدیریتی داده شد.")
+                elif action == "demote":
+                    await bot.promote_chat_member(m.chat.id, target_user.id, can_manage_chat=False, can_delete_messages=False, can_restrict_members=False, can_pin_messages=False)
+                    log_action(m.chat.id, m.from_user.id, "demote", target_user.id)
+                    await m.answer("✅ دسترسی‌های مدیریتی حذف شد.")
+            except Exception as e:
+                await m.answer(f"❌ عملیات انجام نشد؛ دسترسی‌های ربات رو بررسی کن. ({e})")
+            return True
+
+    # More aliases with arguments.
+    if t.startswith("فیلتر کلمه ") or t.startswith("این کلمه رو فیلتر کن "):
+        if not await group_admin(m):
+            return True
+        word = raw.split(maxsplit=2)[-1].strip().lower()
+        if word:
+            db.execute("INSERT OR IGNORE INTO filters VALUES(?,?)", (m.chat.id, word))
+            db.commit()
+            await m.answer(f"✅ کلمه «{word}» فیلتر شد.")
+        return True
+    if t.startswith("فیلتر رو حذف کن ") or t.startswith("فیلتر کلمه رو بردار "):
+        if not await group_admin(m):
+            return True
+        word = raw.split(maxsplit=3)[-1].strip().lower()
+        db.execute("DELETE FROM filters WHERE chat=? AND word=?", (m.chat.id, word))
+        db.commit()
+        await m.answer(f"✅ فیلتر «{word}» حذف شد.")
+        return True
+    if t.startswith("قوانین رو تنظیم کن ") or t.startswith("قوانین گروه رو بذار "):
+        if not await group_admin(m):
+            return True
+        new_rules = raw.split(maxsplit=3)[-1].strip()
+        set_chat_text(m.chat.id, "rules", new_rules)
+        await m.answer("📜 قوانین گروه ذخیره شد.")
+        return True
+    if t.startswith("خوشامد رو تنظیم کن ") or t.startswith("متن خوشامد رو بذار "):
+        if not await group_admin(m):
+            return True
+        welcome_text = raw.split(maxsplit=4)[-1].strip()
+        set_chat_text(m.chat.id, "welcome_text", welcome_text)
+        await m.answer("👋 متن خوشامد ذخیره شد.")
+        return True
+
+    # Help is always available.
+    if any(x in t for x in ("راهنمای ربات", "چه کارهایی بلدی", "چطور باهات کار کنم", "کمک میخوام")):
+        await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! مثلاً بگو:\n• ربات روشن / ربات خاموش\n• ضدلینک رو روشن کن\n• ضداسپم رو خاموش کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• پنل مدیریت رو باز کن\n• روی پیام کاربر Reply کن و بگو «این کاربر رو اخراج کن» یا «بهش اخطار بده»\n\nبرای بقیه گفتگوها هم عادی باهام حرف بزن.")
+        return True
+    return False
+
+
 @dp.message()
 async def allmsg(m):
     save(m)
@@ -893,15 +1126,19 @@ async def allmsg(m):
             await asyncio.sleep(0.04)
         return await m.answer(f"📢 تمام شد\n✅ {ok}\n❌ {bad}")
 
+    if not m.text:
+        return
+    if await natural_command(m):
+        return
+
     if m.chat.type == "private":
-        if not m.text or m.text.startswith("/"):
+        if m.text.startswith("/"):
             return
         enabled, _style = ai_settings(m.chat.id)
         if enabled:
             answer = await ai_reply(m.chat.id, m.from_user.id, m.text, m.from_user.full_name)
-            if answer: await m.answer(answer)
-        return
-    if not m.text:
+            if answer:
+                await m.answer(answer)
         return
 
     me = await bot.get_me()
@@ -911,7 +1148,8 @@ async def allmsg(m):
         enabled, _style = ai_settings(m.chat.id)
         if enabled:
             answer = await ai_reply(m.chat.id, m.from_user.id, cleaned, m.from_user.full_name)
-            if answer: await m.reply(answer)
+            if answer:
+                await m.reply(answer)
         return
 
     low = m.text.lower()
@@ -954,7 +1192,6 @@ async def allmsg(m):
             await m.delete()
         except Exception:
             pass
-
 async def maintenance():
     while True:
         try:
