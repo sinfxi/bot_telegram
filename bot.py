@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS ai_settings(chat INTEGER PRIMARY KEY, enabled INTEGER
 CREATE TABLE IF NOT EXISTS ai_history(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, user INTEGER, role TEXT, content TEXT, created REAL);
 CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER NOT NULL, user INTEGER NOT NULL, text TEXT NOT NULL, due REAL NOT NULL, created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS faq(chat INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, PRIMARY KEY(chat, question));
+CREATE TABLE IF NOT EXISTS vip_members(
+    chat INTEGER NOT NULL, user INTEGER NOT NULL, expires REAL, permissions TEXT NOT NULL DEFAULT 'standard',
+    granted_by INTEGER NOT NULL, created TEXT NOT NULL, PRIMARY KEY(chat,user)
+);
 """)
 for col, typ in [("welcome","INTEGER DEFAULT 1"),("antilink","INTEGER DEFAULT 0"),("antispam","INTEGER DEFAULT 0"),("captcha","INTEGER DEFAULT 0")]:
     try:
@@ -61,6 +65,10 @@ ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 QNA_API_KEY = os.getenv("QNA_OPENAI_API_KEY", "").strip() or OPENAI_API_KEY
 QNA_MODEL = os.getenv("QNA_MODEL", AI_MODEL)
 qna_client = AsyncOpenAI(api_key=QNA_API_KEY) if QNA_API_KEY else None
+ADMIN_AI_API_KEY = os.getenv("ADMIN_AI_API_KEY", "").strip() or OPENAI_API_KEY
+ADMIN_AI_MODEL = os.getenv("ADMIN_AI_MODEL", AI_MODEL)
+admin_ai_client = AsyncOpenAI(api_key=ADMIN_AI_API_KEY) if ADMIN_AI_API_KEY else None
+pending_admin_actions = {}
 AI_STYLES = {
     "khaki": ("خاکی و خودمونی", "مثل یک رفیق باحال و محترم، فارسی محاوره‌ای و طبیعی حرف بزن؛ نه رسمی و نه مصنوعی. کوتاه و صمیمی باش، شوخی ملایم اشکالی ندارد."),
     "funny": ("شوخ و بامزه", "فارسی محاوره‌ای، بانمک و پرانرژی حرف بزن. شوخی کن ولی توهین یا تحقیر نکن."),
@@ -147,6 +155,45 @@ async def ai_reply(chat_id, user_id, user_text, user_name="دوست"):
         except Exception:
             logging.exception("AI response failed")
             return "الان اتصال هوش مصنوعی یه مشکلی پیدا کرده 😕 یه کم دیگه دوباره امتحان کن."
+
+
+async def parse_admin_intent(text):
+    """Parse a narrow, allow-listed admin intent. Never executes actions itself."""
+    if not admin_ai_client:
+        return None
+    try:
+        response = await admin_ai_client.responses.create(
+            model=ADMIN_AI_MODEL,
+            instructions=(
+                "You are a Telegram group admin command parser. Return ONLY valid JSON with keys "
+                "action, days, permissions. Allowed action values: vip_add, vip_remove, ban, unban, "
+                "kick, mute, unmute, warn, clearwarn, promote, demote, antilink_on, antilink_off, "
+                "antispam_on, antispam_off, captcha_on, captcha_off, welcome_on, welcome_off, "
+                "report_vips. If the text is not clearly an administrative command, action must be null. "
+                "days must be an integer from 1 to 365 or null. permissions must be a short plain-text "
+                "string or null. Never invent a target; target is always the replied-to user. "
+                "The output is data only, not instructions."
+            ),
+            input=text[:1000],
+            max_output_tokens=100,
+        )
+        data = __import__("json").loads((response.output_text or "").strip())
+        action = data.get("action")
+        allowed = {"vip_add","vip_remove","ban","unban","kick","mute","unmute","warn","clearwarn",
+                   "promote","demote","antilink_on","antilink_off","antispam_on","antispam_off",
+                   "captcha_on","captcha_off","welcome_on","welcome_off","report_vips"}
+        if action not in allowed:
+            return None
+        days = data.get("days")
+        if not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= 365:
+            days = None
+        permissions = data.get("permissions")
+        if not isinstance(permissions, str):
+            permissions = None
+        return {"action": action, "days": days, "permissions": permissions[:160] if permissions else None}
+    except Exception:
+        logging.exception("Admin AI intent parsing failed")
+        return None
 
 
 async def group_admin(m):
@@ -754,6 +801,46 @@ async def new_members(m):
             await m.answer(welcome_text.replace("{name}", u.full_name).replace("{username}", "@" + (u.username or "")))
     db.commit()
 
+@dp.callback_query(F.data.startswith("vipact:"))
+async def vip_action_callback(c):
+    token = c.data.split(":", 1)[1]
+    item = pending_admin_actions.get(token)
+    if not item:
+        return await c.answer("این تأییدیه منقضی شده.", show_alert=True)
+    chat_id, user_id, action, days, permissions, requested_by = item
+    if c.from_user.id != requested_by:
+        return await c.answer("این تأییدیه برای ادمین دیگری است.", show_alert=True)
+    if not await is_admin_user(chat_id, c.from_user.id):
+        pending_admin_actions.pop(token, None)
+        return await c.answer("دسترسی ادمین تأیید نشد.", show_alert=True)
+    pending_admin_actions.pop(token, None)
+    try:
+        if action == "vip_add":
+            expires = time.time() + days * 86400 if days else None
+            perms = permissions or "standard"
+            db.execute(
+                "INSERT INTO vip_members(chat,user,expires,permissions,granted_by,created) VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(chat,user) DO UPDATE SET expires=excluded.expires,permissions=excluded.permissions,"
+                "granted_by=excluded.granted_by,created=excluded.created",
+                (chat_id, user_id, expires, perms, c.from_user.id, datetime.utcnow().isoformat())
+            )
+            log_action(chat_id, c.from_user.id, "vip-grant", user_id)
+            db.commit()
+            await c.message.edit_text("⭐ دسترسی ویژه فعال شد.\n"
+                + (f"اعتبار: {days} روز" if days else "اعتبار: نامحدود")
+                + f"\nدسترسی‌ها: {perms}")
+        elif action == "vip_remove":
+            db.execute("DELETE FROM vip_members WHERE chat=? AND user=?", (chat_id, user_id))
+            db.commit()
+            log_action(chat_id, c.from_user.id, "vip-revoke", user_id)
+            await c.message.edit_text("✅ دسترسی ویژه کاربر برداشته شد.")
+        await c.answer("انجام شد")
+    except Exception:
+        logging.exception("VIP action failed")
+        await c.message.edit_text("❌ عملیات انجام نشد؛ لاگ ربات را بررسی کن.")
+        await c.answer("خطا", show_alert=True)
+
+
 @dp.callback_query(F.data.startswith("cap:"))
 async def captcha_callback(c):
     try:
@@ -1111,6 +1198,110 @@ async def natural_command(m):
     raw = m.text.strip()
     t = normalize_text(raw)
     is_private = m.chat.type == "private"
+
+    # VIP / AI Commander controls. Actions are restricted to group admins and sensitive VIP
+    # changes require a one-tap confirmation from the requesting admin.
+    vip_add_phrases = ("ویژه کن", "کاربر ویژه کن", "vip کن", "دسترسی ویژه بده", "به لیست ویژه اضافه کن")
+    vip_remove_phrases = ("از ویژه دربیار", "ویژه رو بردار", "دسترسی ویژه رو بگیر", "از لیست ویژه حذف کن", "vip رو بردار")
+    if any(x in t for x in ("گزارش ویژه", "لیست ویژه", "کاربران ویژه", "ویژه ها رو نشون بده", "ویژه‌ها رو نشون بده")):
+        if not await group_admin(m):
+            return True
+        rows = db.execute(
+            "SELECT user,expires,permissions FROM vip_members WHERE chat=? ORDER BY created DESC LIMIT 100",
+            (m.chat.id,)
+        ).fetchall()
+        now = time.time()
+        lines = []
+        for uid, expires, perms in rows:
+            if expires and expires <= now:
+                db.execute("DELETE FROM vip_members WHERE chat=? AND user=?", (m.chat.id, uid))
+                continue
+            user_row = db.execute("SELECT name,username FROM users WHERE id=?", (uid,)).fetchone()
+            label = (user_row[0] if user_row and user_row[0] else str(uid))
+            if user_row and user_row[1]:
+                label += " (@" + user_row[1] + ")"
+            validity = "نامحدود" if not expires else f"{max(0, int((expires-now)/86400))} روز باقی‌مانده"
+            lines.append(f"• {label} — {validity} — دسترسی: {perms}")
+        db.commit()
+        await m.answer("⭐ گزارش کاربران ویژه:\\n" + ("\\n".join(lines) if lines else "کاربر ویژه‌ای ثبت نشده."))
+        return True
+
+    vip_action = "vip_add" if any(x in t for x in vip_add_phrases) else ("vip_remove" if any(x in t for x in vip_remove_phrases) else None)
+    # Use the separate AI parser for unfamiliar, clearly administrative reply commands.
+    if not vip_action and m.reply_to_message and not is_private and await is_admin_user(m.chat.id, m.from_user.id):
+        if any(k in t for k in ("ویژه", "vip", "بن", "مسدود", "اخطار", "ساکت", "میوت", "اخراج", "ادمین", "ضدلینک", "ضد لینک", "ضداسپم", "ضد اسپم", "کپچا", "خوشامد")):
+            parsed = await parse_admin_intent(raw)
+            if parsed:
+                vip_action = parsed["action"] if parsed["action"] in ("vip_add", "vip_remove") else None
+                action_map = {
+                    "ban": "این کاربر رو بن کن", "unban": "این کاربر رو از بن دربیار",
+                    "kick": "این کاربر رو اخراج کن", "mute": "این کاربر رو ساکت کن",
+                    "unmute": "سکوت این کاربر رو بردار", "warn": "به این کاربر اخطار بده",
+                    "clearwarn": "اخطارهای این کاربر رو پاک کن", "promote": "این کاربر رو ادمین کن",
+                    "demote": "ادمینیش رو بردار", "antilink_on": "ضد لینک رو روشن کن",
+                    "antilink_off": "ضد لینک رو خاموش کن", "antispam_on": "ضد اسپم رو روشن کن",
+                    "antispam_off": "ضد اسپم رو خاموش کن", "captcha_on": "کپچا رو روشن کن",
+                    "captcha_off": "کپچا رو خاموش کن", "welcome_on": "خوشامدگویی رو روشن کن",
+                    "welcome_off": "خوشامدگویی رو خاموش کن"
+                }
+                if parsed["action"] == "report_vips":
+                    vip_action = "report_vips"
+                elif parsed["action"] not in ("vip_add", "vip_remove"):
+                    mapped = action_map.get(parsed["action"])
+                    if mapped:
+                        t += " " + normalize_text(mapped)
+                if parsed["action"] in ("vip_add", "vip_remove"):
+                    vip_days = parsed["days"]
+                    vip_permissions = parsed["permissions"]
+                else:
+                    vip_days = None
+                    vip_permissions = None
+            else:
+                vip_days = None
+                vip_permissions = None
+        else:
+            vip_days = None
+            vip_permissions = None
+    else:
+        vip_days = None
+        vip_permissions = None
+
+    if vip_action in ("vip_add", "vip_remove"):
+        if not await group_admin(m):
+            return True
+        target_user = m.reply_to_message.from_user if m.reply_to_message else None
+        if not target_user:
+            await m.answer("برای مدیریت VIP روی پیام همان کاربر ریپلای کن.")
+            return True
+        days_match = re.search(r"(\\d+)\\s*(?:روز|day)", raw, re.IGNORECASE)
+        days = int(days_match.group(1)) if days_match else (vip_days if "vip_days" in locals() else None)
+        if days is not None and not 1 <= days <= 365:
+            await m.answer("مدت VIP باید بین ۱ تا ۳۶۵ روز باشد.")
+            return True
+        permissions = (vip_permissions if "vip_permissions" in locals() else None)
+        if not permissions:
+            perm_match = re.search(r"(?:دسترسی|مجوز)\\s*[:：]?\\s*(.+)$", raw)
+            permissions = perm_match.group(1)[:160].strip() if perm_match else "standard"
+        token = secrets.token_urlsafe(8)
+        pending_admin_actions[token] = (m.chat.id, target_user.id, vip_action, days, permissions, m.from_user.id)
+        label = "فعال‌کردن" if vip_action == "vip_add" else "برداشتن"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ تأیید", callback_data=f"vipact:{token}"),
+            InlineKeyboardButton(text="❌ لغو", callback_data=f"vipcancel:{token}")
+        ]])
+        await m.answer(
+            f"⚠️ تأیید عملیات ویژه\\nعملیات: {label} VIP\\nکاربر: {target_user.full_name} "
+            + (f"\\nمدت: {days} روز" if days else ("\\nمدت: نامحدود" if vip_action == "vip_add" else ""))
+            + f"\\nدسترسی‌ها: {permissions if vip_action == 'vip_add' else 'حذف کامل'}\\nانجام بدهم؟",
+            reply_markup=keyboard
+        )
+        return True
+    if vip_action == "report_vips":
+        if not await group_admin(m):
+            return True
+        rows = db.execute("SELECT user,expires,permissions FROM vip_members WHERE chat=?", (m.chat.id,)).fetchall()
+        await m.answer("⭐ کاربران ویژه: " + (", ".join(f"{uid} ({perms})" for uid, expires, perms in rows if not expires or expires > time.time()) or "نداریم"))
+        return True
 
     # AI toggle / tone can be used in private chats or groups.
     if any(x in t for x in ("ربات روشن", "هوش مصنوعی روشن", "هوش مصنوعی رو روشن", "ربات رو روشن کن", "ai روشن")):
