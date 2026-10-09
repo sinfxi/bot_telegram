@@ -72,7 +72,7 @@ def get_keys():
     if result.returncode:
         raise RuntimeError("Could not generate Xray REALITY key pair: " + output[-500:])
     private_match = re.search(r"Private\s*key:\s*(\S+)", output, re.I)
-    public_match = re.search(r"(?:Public\s*key|Password):\s*(\S+)", output, re.I)
+    public_match = re.search(r"(?:Public\s*key|Password(?:\s*\(PublicKey\))?):\s*(\S+)", output, re.I)
     if not private_match or not public_match:
         raise RuntimeError("Could not parse xray x25519 output: " + output[-500:])
     keys = {"privateKey": private_match.group(1), "publicKey": public_match.group(1),
