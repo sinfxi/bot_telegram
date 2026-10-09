@@ -1,4 +1,5 @@
 """Telegram-native admin UI for the self-hosted Xray services on Railway."""
+import asyncio
 import base64
 import io
 import json
