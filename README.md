@@ -73,12 +73,12 @@
 |---|---|
 | `BOT_TOKEN` | توکن ربات تلگرام |
 | `ADMIN_IDS` | شناسه مدیران اصلی |
-| `OPENAI_API_KEY` | کلید پیش‌فرض AI Chat |
-| `OPENAI_MODEL` | مدل AI Chat |
-| `QNA_OPENAI_API_KEY` | کلید جدا برای AI Answer؛ در صورت خالی بودن از کلید پیش‌فرض استفاده می‌کند |
-| `QNA_MODEL` | مدل AI Answer |
-| `ADMIN_AI_API_KEY` | کلید جدا برای AI Commander؛ در صورت خالی بودن از کلید پیش‌فرض استفاده می‌کند |
-| `ADMIN_AI_MODEL` | مدل AI Commander |
+| `GROQ_API_KEY` | کلید پیش‌فرض Groq برای هر سه حالت هوش مصنوعی (پیشنهادی) |
+| `AI_MODEL` | مدل AI Chat؛ پیش‌فرض Groq: `openai/gpt-oss-20b` |
+| `QNA_GROQ_API_KEY` | کلید جدا برای AI Answer (اختیاری) |
+| `QNA_MODEL` | مدل AI Answer؛ پیش‌فرض `openai/gpt-oss-20b` |
+| `ADMIN_GROQ_API_KEY` | کلید جدا برای AI Commander (اختیاری) |
+| `ADMIN_AI_MODEL` | مدل AI Commander؛ پیش‌فرض `openai/gpt-oss-20b` |
 | `DB_PATH` | مسیر دیتابیس SQLite |
 | `PORT` | پورت سرویس سلامت |
 
@@ -89,7 +89,7 @@
 - Python و aiogram
 - SQLite
 - aiohttp
-- OpenAI API
+- Groq API (سازگار با کلاینت OpenAI)
 - GitHub Actions و Railway
 
 ## ساختار
