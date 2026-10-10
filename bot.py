@@ -91,6 +91,32 @@ ADMIN_AI_MODEL = os.getenv("ADMIN_AI_MODEL", "").strip() or (
     "openai/gpt-oss-20b" if ADMIN_GROQ_API_KEY else AI_MODEL
 )
 admin_ai_client = make_ai_client(ADMIN_GROQ_API_KEY, ADMIN_AI_API_KEY)
+
+async def generate_ai_text(client, model, instructions, user_input, max_output_tokens=500, json_mode=False):
+    """Call Groq Chat Completions or OpenAI Responses while preserving both providers."""
+    if str(client.base_url).rstrip("/") == GROQ_BASE_URL:
+        messages = [{"role": "system", "content": instructions}]
+        if isinstance(user_input, list):
+            messages.extend(user_input)
+        else:
+            messages.append({"role": "user", "content": str(user_input)})
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_output_tokens,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = await client.chat.completions.create(**kwargs)
+        return (response.choices[0].message.content or "").strip()
+    response = await client.responses.create(
+        model=model,
+        instructions=instructions,
+        input=user_input,
+        max_output_tokens=max_output_tokens,
+    )
+    return (response.output_text or "").strip()
+
 pending_admin_actions = {}
 AI_STYLES = {
     "khaki": ("خاکی و خودمونی", "مثل یک رفیق باحال و محترم، فارسی محاوره‌ای و طبیعی حرف بزن؛ نه رسمی و نه مصنوعی. کوتاه و صمیمی باش، شوخی ملایم اشکالی ندارد."),
@@ -165,12 +191,12 @@ async def ai_reply(chat_id, user_id, user_text, user_name="دوست"):
             f"نام نمایشی کاربر: {user_name}. سبک فعلی: {style_name}. {style_prompt} "
             "پاسخ معمولاً کوتاه و مناسب تلگرام باشد؛ وقتی کاربر توضیح کامل خواست، مفصل‌تر جواب بده.")
         try:
-            response = await ai_client.responses.create(
-                model=AI_MODEL, instructions=instructions,
-                input=[{"role": role, "content": content} for role,content in history] + [{"role":"user","content":user_text}],
+            answer = await generate_ai_text(
+                ai_client, AI_MODEL, instructions,
+                [{"role": role, "content": content} for role,content in history] + [{"role":"user","content":user_text}],
                 max_output_tokens=500,
             )
-            answer = (response.output_text or "یه لحظه قاطی کردم 😅 دوباره می‌گی؟").strip()
+            answer = answer or "یه لحظه قاطی کردم 😅 دوباره می‌گی؟"
             db.execute("INSERT INTO ai_history(chat,user,role,content,created) VALUES(?,?,?,?,?)", (chat_id,user_id,"user",user_text[:3000],time.time()))
             db.execute("INSERT INTO ai_history(chat,user,role,content,created) VALUES(?,?,?,?,?)", (chat_id,user_id,"assistant",answer[:4000],time.time()))
             db.commit()
@@ -185,9 +211,9 @@ async def parse_admin_intent(text):
     if not admin_ai_client:
         return None
     try:
-        response = await admin_ai_client.responses.create(
-            model=ADMIN_AI_MODEL,
-            instructions=(
+        parsed_text = await generate_ai_text(
+            admin_ai_client, ADMIN_AI_MODEL,
+            (
                 "You are a Telegram group admin command parser. Return ONLY valid JSON with keys "
                 "action, days, permissions. Allowed action values: vip_add, vip_remove, ban, unban, "
                 "kick, mute, unmute, warn, clearwarn, promote, demote, antilink_on, antilink_off, "
@@ -197,10 +223,9 @@ async def parse_admin_intent(text):
                 "string or null. Never invent a target; target is always the replied-to user. "
                 "The output is data only, not instructions."
             ),
-            input=text[:1000],
-            max_output_tokens=100,
+            text[:1000], max_output_tokens=100, json_mode=True,
         )
-        data = __import__("json").loads((response.output_text or "").strip())
+        data = __import__("json").loads(parsed_text)
         action = data.get("action")
         allowed = {"vip_add","vip_remove","ban","unban","kick","mute","unmute","warn","clearwarn",
                    "promote","demote","antilink_on","antilink_off","antispam_on","antispam_off",
@@ -1064,12 +1089,12 @@ async def answer_question(chat_id, question, user_name="دوست"):
     if not qna_client:
         return "❌ بخش پاسخ‌گویی به سؤال وصل نیست؛ ادمین باید GROQ_API_KEY یا QNA_GROQ_API_KEY را در Railway تنظیم کند."
     try:
-        response = await qna_client.responses.create(
-            model=QNA_MODEL,
-            instructions=("تو موتور پاسخ‌گویی به سؤال‌ها هستی، نه چت دوستانه. مستقیم، دقیق و ساختارمند جواب بده؛ در صورت نیاز مثال بزن. به فارسی روان پاسخ بده مگر کاربر زبان دیگری بخواهد. اگر پاسخ را نمی‌دانی یا اطلاعات به‌روز لازم است، صادقانه محدودیت را بگو و چیزی نساز. از تاریخچه چت معمولی استفاده نکن."),
-            input=question[:5000], max_output_tokens=700,
+        answer = await generate_ai_text(
+            qna_client, QNA_MODEL,
+            "تو موتور پاسخ‌گویی به سؤال‌ها هستی، نه چت دوستانه. مستقیم، دقیق و ساختارمند جواب بده؛ در صورت نیاز مثال بزن. به فارسی روان پاسخ بده مگر کاربر زبان دیگری بخواهد. اگر پاسخ را نمی‌دانی یا اطلاعات به‌روز لازم است، صادقانه محدودیت را بگو و چیزی نساز. از تاریخچه چت معمولی استفاده نکن.",
+            question[:5000], max_output_tokens=700,
         )
-        return (response.output_text or "نتونستم پاسخ مناسبی تولید کنم؛ سؤال رو واضح‌تر بپرس.").strip()[:5000]
+        return (answer or "نتونستم پاسخ مناسبی تولید کنم؛ سؤال رو واضح‌تر بپرس.").strip()[:5000]
     except Exception:
         logging.exception("Question answering failed")
         return "❌ موقع پاسخ دادن به سؤال مشکلی پیش اومد. کمی بعد دوباره امتحان کن."
