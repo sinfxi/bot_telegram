@@ -59,15 +59,38 @@ db.commit()
 bot = Bot(TOKEN)
 dp = Dispatcher()
 pending = set()
+# Groq uses an OpenAI-compatible API, so existing Responses API calls can be retained.
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-AI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
-ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-QNA_API_KEY = os.getenv("QNA_OPENAI_API_KEY", "").strip() or OPENAI_API_KEY
-QNA_MODEL = os.getenv("QNA_MODEL", AI_MODEL)
-qna_client = AsyncOpenAI(api_key=QNA_API_KEY) if QNA_API_KEY else None
+
+def make_ai_client(groq_key="", openai_key=""):
+    groq_key = (groq_key or "").strip()
+    openai_key = (openai_key or "").strip()
+    if groq_key:
+        return AsyncOpenAI(api_key=groq_key, base_url=GROQ_BASE_URL)
+    if openai_key:
+        return AsyncOpenAI(api_key=openai_key)
+    return None
+
+AI_MODEL = os.getenv("AI_MODEL", "").strip() or (
+    os.getenv("OPENAI_MODEL", "gpt-5.5") if not GROQ_API_KEY else "openai/gpt-oss-20b"
+)
+ai_client = make_ai_client(GROQ_API_KEY, OPENAI_API_KEY)
+
+QNA_GROQ_API_KEY = os.getenv("QNA_GROQ_API_KEY", "").strip() or GROQ_API_KEY
+QNA_OPENAI_API_KEY = os.getenv("QNA_OPENAI_API_KEY", "").strip() or OPENAI_API_KEY
+QNA_MODEL = os.getenv("QNA_MODEL", "").strip() or (
+    "openai/gpt-oss-20b" if QNA_GROQ_API_KEY else AI_MODEL
+)
+qna_client = make_ai_client(QNA_GROQ_API_KEY, QNA_OPENAI_API_KEY)
+
+ADMIN_GROQ_API_KEY = os.getenv("ADMIN_GROQ_API_KEY", "").strip() or GROQ_API_KEY
 ADMIN_AI_API_KEY = os.getenv("ADMIN_AI_API_KEY", "").strip() or OPENAI_API_KEY
-ADMIN_AI_MODEL = os.getenv("ADMIN_AI_MODEL", AI_MODEL)
-admin_ai_client = AsyncOpenAI(api_key=ADMIN_AI_API_KEY) if ADMIN_AI_API_KEY else None
+ADMIN_AI_MODEL = os.getenv("ADMIN_AI_MODEL", "").strip() or (
+    "openai/gpt-oss-20b" if ADMIN_GROQ_API_KEY else AI_MODEL
+)
+admin_ai_client = make_ai_client(ADMIN_GROQ_API_KEY, ADMIN_AI_API_KEY)
 pending_admin_actions = {}
 AI_STYLES = {
     "khaki": ("خاکی و خودمونی", "مثل یک رفیق باحال و محترم، فارسی محاوره‌ای و طبیعی حرف بزن؛ نه رسمی و نه مصنوعی. کوتاه و صمیمی باش، شوخی ملایم اشکالی ندارد."),
@@ -128,7 +151,7 @@ def ai_keyboard():
 
 async def ai_reply(chat_id, user_id, user_text, user_name="دوست"):
     if not ai_client:
-        return "هوش مصنوعی هنوز وصل نشده 😅 ادمین باید OPENAI_API_KEY رو توی متغیرهای محیطی ربات تنظیم کنه."
+        return "هوش مصنوعی هنوز وصل نشده 😅 ادمین باید GROQ_API_KEY رو در متغیرهای محیطی Railway تنظیم کنه."
     enabled, style = ai_settings(chat_id)
     if not enabled:
         return None
@@ -1039,7 +1062,7 @@ def find_faq(chat_id, question):
 async def answer_question(chat_id, question, user_name="دوست"):
     """Dedicated Q&A mode, separate from conversational chat."""
     if not qna_client:
-        return "❌ بخش پاسخ‌گویی به سؤال وصل نیست؛ ادمین باید QNA_OPENAI_API_KEY یا OPENAI_API_KEY را تنظیم کند."
+        return "❌ بخش پاسخ‌گویی به سؤال وصل نیست؛ ادمین باید GROQ_API_KEY یا QNA_GROQ_API_KEY را در Railway تنظیم کند."
     try:
         response = await qna_client.responses.create(
             model=QNA_MODEL,
