@@ -96,7 +96,7 @@ async def group_admin(m):
             return True
     except Exception:
         pass
-    await m.answer("⛔ فقط ادمین گروه.")
+    await m.answer("⛔ این کار فقط برای مدیران گروه مجاز است.")
     return False
 
 def target(m):
@@ -161,13 +161,13 @@ async def set_bot_commands():
         BotCommand(command="warn", description="ثبت اخطار"),
         BotCommand(command="warnings", description="مشاهده اخطارها"),
         BotCommand(command="clearwarn", description="پاک کردن اخطارها"),
-        BotCommand(command="promote", description="ارتقای کاربر به ادمین"),
-        BotCommand(command="demote", description="حذف دسترسی ادمینی"),
+        BotCommand(command="promote", description="دادن دسترسی مدیریت"),
+        BotCommand(command="demote", description="گرفتن دسترسی مدیریت"),
         BotCommand(command="del", description="حذف پیام"),
         BotCommand(command="pin", description="سنجاق پیام"),
         BotCommand(command="unpin", description="برداشتن سنجاق"),
         BotCommand(command="userinfo", description="اطلاعات کاربر"),
-        BotCommand(command="admins", description="لیست ادمین‌ها"),
+        BotCommand(command="admins", description="فهرست مدیران گروه"),
         BotCommand(command="stats", description="آمار گروه"),
         BotCommand(command="chatinfo", description="اطلاعات گروه"),
         BotCommand(command="lock", description="قفل کردن ارسال پیام"),
@@ -745,7 +745,7 @@ async def panel(c):
     if not is_global_admin(c.from_user.id):
         return await c.answer("⛔", show_alert=True)
     if c.data == "home":
-        await c.message.edit_text("🛠 پنل مدیریت ربات", reply_markup=menu())
+        await c.message.edit_text("⚙️ تنظیمات و ابزارهای پیشرفته", reply_markup=menu())
         return await c.answer()
     if c.data == "reports":
         r = db.execute("SELECT chat,reporter,target,reason,created FROM reports ORDER BY id DESC LIMIT 10").fetchall()
@@ -759,7 +759,7 @@ async def panel(c):
         logs_n = db.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
         pending_n = db.execute("SELECT COUNT(*) FROM pending_captcha").fetchone()[0]
         t = (
-            "📊 آمار V2\n"
+            "📊 خلاصه وضعیت\n"
             f"👥 کاربران ثبت‌شده: {users}\n"
             f"🔎 فیلترها: {filters_n}\n"
             f"⚠️ اخطارها: {warnings_n}\n"
@@ -785,33 +785,33 @@ async def panel(c):
     elif c.data == "security":
         t = (
             "🛡️ امنیت\n"
-            "• Anti-Link\n• Anti-Spam + Auto-Mute\n• CAPTCHA\n"
-            "• Word Filter\n• Lock / Unlock\n\n"
+            "• کنترل لینک‌ها و پیام‌های تکراری\n• بررسی اعضای تازه‌وارد\n"
+            "• فیلتر واژه‌ها\n• قفل و بازکردن گفتگو\n\n"
             "/antilink on|off\n/antispam on|off\n/captcha on|off\n/filter کلمه\n/unfilter کلمه\n/filters\n/lock\n/unlock"
         )
     elif c.data == "mod":
         t = (
-            "🛡️ مدیریت اعضا\n"
+            "👥 ابزارهای اعضا\n"
             "/ban /unban /kick\n/mute [minutes] /unmute\n/warn /warnings /clearwarn\n"
             "/promote /demote\n/del /pin /unpin\n/userinfo /admins"
         )
     elif c.data == "group":
         t = (
-            "👋 مدیریت گروه\n"
+            "👋 خوشامد و قوانین\n"
             "/welcome on|off\n/setwelcome متن\n/rules\n/setrules متن\n"
             "/chatinfo /stats"
         )
     elif c.data == "tools":
         t = (
-            "🧰 ابزارها\n"
+            "🧰 ابزارهای کاربردی\n"
             "/note نام متن\n/getnote نام\n/notes\n/report\n/id"
         )
     else:
         t = (
-            "⚙️ امکانات V2\n"
-            "• مدیریت اعضا\n• Warning خودکار\n• Anti-Link\n"
-            "• Anti-Spam + محدودسازی\n• CAPTCHA زمان‌دار\n"
-            "• Notes\n• Welcome\n• Broadcast\n• Action Logs"
+            "✨ امکانات اصلی\n"
+            "• مدیریت اعضا\n• اخطار و محدودسازی خودکار\n• کنترل لینک‌ها\n"
+            "• کنترل پیام‌های تکراری\n• بررسی اعضای تازه‌وارد\n"
+            "• یادداشت‌ها و خوشامدگویی\n• پیام‌رسانی و ثبت فعالیت‌ها"
         )
     await c.message.edit_text(t, reply_markup=menu())
     await c.answer()
@@ -880,7 +880,7 @@ async def add_faq_cmd(m):
     if m.chat.type != "private" and not await group_admin(m):
         return
     if m.chat.type == "private" and not is_global_admin(m.from_user.id):
-        return await m.answer("⛔ افزودن پاسخ آماده فقط برای ادمین ربات مجاز است.")
+        return await m.answer("⛔ افزودن پاسخ آماده در گفتگوی خصوصی در دسترس نیست.")
     payload = (m.text or "").split(maxsplit=1)
     parts = [x.strip() for x in payload[1].split("|", 1)] if len(payload) > 1 else []
     if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -896,7 +896,7 @@ async def add_faq_cmd(m):
 @dp.message(Command("faqs"))
 async def list_faq_cmd(m):
     rows = db.execute("SELECT question FROM faq WHERE chat=? ORDER BY question LIMIT 50", (m.chat.id,)).fetchall()
-    await m.answer("📚 سؤال‌های آماده:\n" + ("\n".join(f"• {q}" for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده. ادمین می‌تواند با /faq سؤال | پاسخ اضافه کند."))
+    await m.answer("📚 سؤال‌های آماده:\n" + ("\n".join(f"• {q}" for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده. مدیر گروه می‌تواند با /faq سؤال | پاسخ اضافه کند."))
 
 
 @dp.message(Command("delfaq"))
@@ -904,7 +904,7 @@ async def delete_faq_cmd(m):
     if m.chat.type != "private" and not await group_admin(m):
         return
     if m.chat.type == "private" and not is_global_admin(m.from_user.id):
-        return await m.answer("⛔ حذف پاسخ آماده فقط برای ادمین ربات مجاز است.")
+        return await m.answer("⛔ حذف پاسخ آماده در گفتگوی خصوصی در دسترس نیست.")
     parts = (m.text or "").split(maxsplit=1)
     if len(parts) < 2:
         return await m.answer("قالب: /delfaq متن سؤال")
