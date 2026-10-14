@@ -142,7 +142,8 @@ def kind_matches(title, kind):
 def search_keyboard(items, page=0):
     page_size = 8
     subset = items[page * page_size:(page + 1) * page_size]
-    rows = [[InlineKeyboardButton(text=("📄 " + x["title"])[:62], callback_data=f"hd:item:{items.index(x)}")] for x in subset]
+    all_items = CACHE.get("items", [])
+    rows = [[InlineKeyboardButton(text=("📄 " + x["title"])[:62], callback_data=f"hd:item:{all_items.index(x)}")] for x in subset]
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅️ قبلی", callback_data=f"hd:page:{page-1}"))
