@@ -326,6 +326,25 @@ def resource_type(url, title=""):
     return None
 
 
+async def detect_remote_media(url):
+    """Identify PDF/video files served from extensionless or redirected download URLs."""
+    try:
+        timeout = aiohttp.ClientTimeout(total=10, connect=4)
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; HamyarDarsBot/1.2)", "Range": "bytes=0-7"}
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            async with session.get(url, allow_redirects=True) as response:
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                prefix = await response.content.read(8)
+                final_url = str(response.url)
+                if response.status < 400 and (prefix.startswith(b"%PDF-") or "application/pdf" in content_type or urlparse(final_url).path.lower().endswith(".pdf")):
+                    return "pdf", final_url
+                if response.status < 400 and (content_type.startswith("video/") or prefix[4:8] == b"ftyp"):
+                    return "video", final_url
+    except Exception:
+        log.debug("Could not identify remote media", exc_info=True)
+    return None, url
+
+
 async def send_resource(callback, url, title, kind):
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.hostname.lower() in ("localhost", "127.0.0.1"):
@@ -493,6 +512,10 @@ def register_hamyar_handlers(dp):
                 return await c.message.answer("این فهرست قدیمی شده؛ دوباره بخش را باز کن.")
             item = items[index]
             direct_kind = resource_type(item["url"], item["title"])
+            if direct_kind not in ("pdf", "video"):
+                detected_kind, detected_url = await detect_remote_media(item["url"])
+                if detected_kind in ("pdf", "video"):
+                    return await send_resource(c, detected_url, item["title"], detected_kind)
             if direct_kind in ("pdf", "video"):
                 return await send_resource(c, item["url"], item["title"], direct_kind)
             if direct_kind == "link":
@@ -504,11 +527,17 @@ def register_hamyar_handlers(dp):
             parser = await fetch_page(item["url"])
             excerpt = short_summary(parser)
             resources, seen = [], set()
-            for link in parser.links:
+            candidates = parser.links[:28]
+            for link in candidates:
                 url = link.get("url", "")
                 title = " ".join((link.get("title") or "").split()) or "فایل آموزشی"
+                if urlparse(url).scheme not in ("http", "https") or url in seen:
+                    continue
                 kind = resource_type(url, title)
-                if kind and url not in seen and urlparse(url).scheme in ("http", "https"):
+                if kind not in ("pdf", "video"):
+                    kind, final_url = await detect_remote_media(url)
+                    url = final_url or url
+                if kind in ("pdf", "video") and url not in seen:
                     seen.add(url)
                     resources.append({"url": url, "title": title[:100], "kind": kind})
             CHAT_CACHE[f"_resources_{c.message.chat.id}_{index}"] = resources[:12]
