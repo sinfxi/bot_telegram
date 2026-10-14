@@ -40,10 +40,20 @@ class PageParser(HTMLParser):
             self.capture_title = True
         if tag in ("script", "style", "nav", "footer", "header", "noscript"):
             self.skip_depth += 1
-        if tag in ("iframe", "video", "source", "embed") and not self.skip_depth:
-            src = attrs.get("src") or attrs.get("data-src") or attrs.get("data-video-src")
-            if src:
-                self.links.append({"title": attrs.get("title") or attrs.get("aria-label") or tag, "url": urljoin(BASE, src)})
+        if not self.skip_depth:
+            # Hamyar and similar pages sometimes hide file URLs on buttons or lazy-loaded media.
+            for key in ("href", "src", "data-src", "data-href", "data-url",
+                        "data-download", "data-download-url", "data-file", "data-pdf",
+                        "data-video-src", "poster"):
+                raw = attrs.get(key)
+                if raw and (key != "href" or tag != "a"):
+                    lowered = raw.lower()
+                    label = attrs.get("title") or attrs.get("aria-label") or attrs.get("download") or tag
+                    if key in ("data-download", "data-download-url", "data-pdf", "data-file"):
+                        label = str(label) + " PDF دانلود فایل"
+                    if key == "data-video-src":
+                        label = str(label) + " ویدئو"
+                    self.links.append({"title": str(label), "url": urljoin(BASE, raw)})
         if tag == "a" and not self.skip_depth:
             self.current_link = {"title": "", "url": attrs.get("href", "")}
         if tag in ("h1", "h2", "h3", "h4"):
@@ -300,7 +310,7 @@ def resource_type(url, title=""):
     path = parsed.path.lower()
     host = (parsed.hostname or "").lower()
     label = (title or "").replace("‌", " ").lower()
-    if path.endswith(".pdf") or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label:
+    if path.endswith(".pdf") or ".pdf?" in url.lower() or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label:
         return "pdf"
     if "pdf" in label and any(word in label for word in ("دانلود", "دریافت", "فایل", "جزوه", "کتاب")):
         return "pdf"
@@ -337,8 +347,11 @@ async def send_resource(callback, url, title, kind):
                         reply_markup=keyboard([[InlineKeyboardButton(text="باز کردن فایل", url=url)]])
                     )
                 content_type = (response.headers.get("Content-Type") or "").lower()
-                if kind == "pdf" and "pdf" not in content_type and not parsed.path.lower().endswith(".pdf"):
+                is_pdf_bytes = data.startswith(b"%PDF-")
+                if kind == "pdf" and "pdf" not in content_type and not parsed.path.lower().endswith(".pdf") and not is_pdf_bytes:
                     return await callback.message.answer("میزبان به‌جای PDF فایل دیگری برگرداند؛ ارسال لغو شد.")
+                if kind == "pdf" and not is_pdf_bytes and "pdf" not in content_type and parsed.path.lower().endswith(".pdf"):
+                    return await callback.message.answer("فایل دریافتی PDF معتبر به نظر نمی‌رسد؛ ارسال لغو شد.")
                 filename = parsed.path.rsplit("/", 1)[-1] or ("video.mp4" if kind == "video" else "lesson.pdf")
                 filename = filename.split("?")[0][:120]
                 file = BufferedInputFile(data, filename=filename)
