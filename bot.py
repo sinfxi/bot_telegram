@@ -77,11 +77,11 @@ def is_global_admin(uid):
 
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛡️ مدیریت اعضا", callback_data="mod"), InlineKeyboardButton(text="🔐 امنیت", callback_data="security")],
-        [InlineKeyboardButton(text="👋 مدیریت گروه", callback_data="group"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="tools")],
-        [InlineKeyboardButton(text="📊 آمار", callback_data="stats"), InlineKeyboardButton(text="👥 کاربران", callback_data="users")],
-        [InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports"), InlineKeyboardButton(text="📜 لاگ‌ها", callback_data="logs")],
-        [InlineKeyboardButton(text="📢 همگانی", callback_data="bc")],
+        [InlineKeyboardButton(text="👥 اعضا", callback_data="mod"), InlineKeyboardButton(text="🛡️ امنیت گروه", callback_data="security")],
+        [InlineKeyboardButton(text="👋 خوشامد و قوانین", callback_data="group"), InlineKeyboardButton(text="🧰 ابزارهای کاربردی", callback_data="tools")],
+        [InlineKeyboardButton(text="📊 آمار", callback_data="stats"), InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="users")],
+        [InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports"), InlineKeyboardButton(text="🗂️ فعالیت‌ها", callback_data="logs")],
+        [InlineKeyboardButton(text="📣 پیام‌رسانی", callback_data="bc")],
     ])
 
 async def group_admin(m):
@@ -153,7 +153,6 @@ async def set_bot_commands():
     group_commands = [
         BotCommand(command="start", description="شروع ربات"),
         BotCommand(command="help", description="نمایش همه قابلیت‌ها"),
-        BotCommand(command="admin", description="پنل مدیریت"),
         BotCommand(command="ban", description="مسدود کردن کاربر"),
         BotCommand(command="unban", description="رفع مسدودی"),
         BotCommand(command="kick", description="اخراج کاربر"),
@@ -204,11 +203,8 @@ async def set_bot_commands():
     private_commands = [
         BotCommand(command="start", description="شروع ربات"),
         BotCommand(command="help", description="نمایش همه قابلیت‌ها"),
-        BotCommand(command="admin", description="پنل مدیریت"),
         BotCommand(command="stats", description="آمار ربات"),
         BotCommand(command="id", description="نمایش شناسه"),
-        BotCommand(command="style", description="انتخاب لحن هوش مصنوعی"),
-        BotCommand(command="clearchat", description="پاک کردن حافظه گفتگو"),
         BotCommand(command="dice", description="تاس انداختن"),
         BotCommand(command="coin", description="شیر یا خط"),
         BotCommand(command="joke", description="گفتن جوک"),
@@ -225,54 +221,50 @@ async def set_bot_commands():
 @dp.message(CommandStart())
 async def start(m):
     save(m)
-    text = ("🛠 پنل مدیریت آماده است.\n🧰 ابزارهای جدید: /dice /coin /joke /password /profile /reminders /calc /poll\nبرای راهنما /help را بزن.") if is_global_admin(m.from_user.id) else "🤖 ربات به‌روزرسانی شد!\n🧰 ابزارها: /dice /coin /joke /password /profile /reminders /calc /poll\n⏰ یادآوری: «یادآوری 10 دقیقه بعد آب بخور»\nبرای راهنمای کامل /help را بزن."
+    text = ("سلام! 🌟\nاز اینجا می‌تونی بخش‌های مختلف رو سریع باز کنی.\nبرای راهنمای کامل /help رو بزن.") if is_global_admin(m.from_user.id) else ("سلام " + (m.from_user.first_name or "دوست من") + " جان! 👋\nمن برای مرتب‌کردن گروه، امنیت، یادآوری‌ها، محاسبات و پاسخ‌های آماده کمکت می‌کنم.\n\nچند نمونه:\n• یادآوری 10 دقیقه بعد آب بخور\n• حساب کن 12 * (4 + 3)\n• قوانین گروه چیه؟\n• راهنمای ربات\n\nبرای دیدن راهنما /help رو بزن.")
     await m.answer(text, reply_markup=menu() if is_global_admin(m.from_user.id) else None)
 
 @dp.message(Command("help"))
 async def help_cmd(m):
-    await m.answer("""🤖 ربات مدیریت جامع گروه
+    await m.answer("""✨ راهنمای سریع
 
-🛡️ مدیریت اعضا
-/ban /unban /kick
-/mute [minutes] /unmute
-/warn /warnings /clearwarn
-/promote /demote
-/del /pin /unpin
-/userinfo /admins
+👥 اعضای گروه
+روی پیام فرد ریپلای کن و بنویس:
+• این کاربر رو بن کن
+• این کاربر رو اخراج کن
+• بهش اخطار بده
+• این کاربر رو ساکت کن
+• این پیام رو پاک کن یا سنجاق کن
 
-🔐 امنیت
-/antilink on|off
-/antispam on|off
-/captcha on|off
-/filter کلمه
-/unfilter کلمه
-/filters
-/lock /unlock
+🛡️ امنیت و تنظیمات
+• ضدلینک رو روشن کن / ضدلینک رو خاموش کن
+• ضداسپم رو روشن کن / ضداسپم رو خاموش کن
+• کپچا رو روشن کن
+• گروه رو قفل کن / گروه رو باز کن
+• خوشامدگویی رو روشن کن
+• قوانین گروه رو تنظیم کن متن قوانین
 
-👋 مدیریت گروه
-/welcome on|off
-/setwelcome متن
-/rules
-/setrules متن
-/chatinfo /stats
+📝 یادداشت و پاسخ آماده
+• یادداشت قوانین متن قوانین
+• یادداشت‌های ذخیره‌شده رو نشون بده
+• سوال ساعت کاری چیه؟
+• /faq سؤال | پاسخ
+• /faqs
 
-🧰 ابزارها
-/note نام متن
-/getnote نام
-/notes
-/report
-/id
+⏰ ابزارهای شخصی
+• یادآوری 10 دقیقه بعد آب بخور
+• یادآوری‌های من
+• آخرین یادآوری رو حذف کن
+• حساب کن 12 * (4 + 3)
+• نظرسنجی بساز | سؤال | گزینه اول | گزینه دوم
+• /dice ، /coin ، /joke ، /password ، /profile
 
-📚 پاسخ‌های آماده
-/question متن سؤال — جست‌وجو در پاسخ‌های ذخیره‌شده
-/faq سؤال | پاسخ — ثبت پاسخ (ادمین)
-/faqs — فهرست پرسش‌ها
-/delfaq سؤال — حذف پاسخ
+📊 اطلاعات
+• آمار گروه رو بگو
+• قوانین گروه چیه؟
+• شناسه من چیه
 
-👑 مدیریت اصلی
-/admin /broadcast /cancel
-
-⏰ ابزارهای شخصی (بدون نیاز به مدیریت گروه)\nیادآوری 10 دقیقه بعد آب بخور\nیادآوری‌های من / آخرین یادآوری رو حذف کن\nحساب کن 12 * (4 + 3)\nنظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n/dice تاس /coin شیر یا خط /joke جوک /password رمز /profile پروفایل /reminders یادآوری‌ها /calc عبارت /poll سؤال | گزینه۱ | گزینه۲\n\n🤖 پاسخ‌گویی مستقل به سؤال‌ها\n/question متن سؤال یا /ask متن سؤال\n/faq سؤال | پاسخ — ثبت پاسخ (ادمین گروه)\n/faqs — فهرست سؤال‌ها\n/delfaq سؤال — حذف پاسخ (ادمین گروه)\n\n💡 دستورات مدیریتی را با Reply روی پیام کاربر اجرا کن.""")
+دستورهای کوتاه هم در منوی فرمان‌های تلگرام در دسترس‌اند. برای کارهای مربوط به یک عضو، پیام همان فرد را ریپلای کن.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -282,7 +274,7 @@ async def ident(m):
 async def admin_cmd(m):
     if not is_global_admin(m.from_user.id):
         return await m.answer("⛔ دسترسی ندارید.")
-    await m.answer("🛠 پنل مدیریت ربات | برای کنترل قابلیت‌ها یکی از بخش‌ها را انتخاب کن.", reply_markup=menu())
+    await m.answer("⚙️ تنظیمات و ابزارهای پیشرفته", reply_markup=menu())
 
 @dp.message(Command("stats"))
 async def stats_cmd(m):
@@ -1105,11 +1097,11 @@ async def natural_command(m):
         await m.answer("⭐ کاربران ویژه: " + (", ".join(f"{uid} ({perms})" for uid, expires, perms in rows if not expires or expires > time.time()) or "نداریم"))
         return True
 
-    if any(x in t for x in ("پنل مدیریت", "منوی مدیریت", "پنل ربات", "مدیریت ربات")):
+    if any(x in t for x in ("تنظیمات ویژه", "ابزارهای پیشرفته", "منوی ابزارها", "تنظیمات ربات")):
         if not is_global_admin(m.from_user.id):
-            await m.answer("⛔ این پنل فقط برای مدیر اصلی رباته.")
+            await m.answer("⛔ این بخش در دسترس نیست.")
         else:
-            await m.answer("🛠 پنل مدیریت ربات", reply_markup=menu())
+            await m.answer("⚙️ تنظیمات و ابزارهای پیشرفته", reply_markup=menu())
         return True
 
     # Read-only information commands.
@@ -1456,7 +1448,7 @@ async def natural_command(m):
 
     # Help is always available.
     if any(x in t for x in ("راهنمای ربات", "چه کارهایی بلدی", "چطور باهات کار کنم", "کمک میخوام")):
-        await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! مثلاً بگو:\n• ربات روشن / ربات خاموش\n• ضدلینک رو روشن کن\n• ضداسپم رو خاموش کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• «سؤال ساعت کاری چیه؟» برای پاسخ آماده (بدون AI)\n• پنل مدیریت رو باز کن\n• روی پیام کاربر Reply کن و بگو «این کاربر رو اخراج کن» یا «بهش اخطار بده»\n\nچت هوش مصنوعی در این نسخه حذف شده است.")
+        await m.answer("🙂 لازم نیست دستورها رو حفظ کنی! می‌تونی بگی:\n• ضدلینک رو روشن کن\n• ضداسپم رو روشن کن\n• آمار گروه رو بگو\n• قوانین گروه چیه؟\n• یادآوری 10 دقیقه بعد آب بخور\n• حساب کن 12 * (4 + 3)\n• راهنمای ربات\n\nبرای کار روی پیام یک عضو، روی پیامش ریپلای کن و درخواستت رو بنویس.")
         return True
     return False
 
@@ -1484,12 +1476,12 @@ async def allmsg(m):
     if m.chat.type == "private":
         if m.text.startswith("/"):
             return
-        return await m.answer("سلام! ابزارهای مدیریتی، یادآوری، ماشین‌حساب و پاسخ‌های آماده فعاله؛ چت هوش مصنوعی از این نسخه حذف شده. برای راهنما /help را بزن.")
+        return await m.answer("سلام! 👋 می‌تونم در مدیریت گروه، امنیت، یادآوری، محاسبه و پاسخ‌های آماده کمکت کنم. برای شروع /help رو بزن یا مستقیم درخواستت رو بنویس.")
 
     me = await bot.get_me()
     addressed = (m.reply_to_message and m.reply_to_message.from_user and m.reply_to_message.from_user.id == me.id) or (me.username and f"@{me.username.lower()}" in m.text.lower())
     if addressed and not m.text.startswith("/"):
-        return await m.reply("قابلیت چت هوش مصنوعی حذف شده؛ برای فهرست ابزارها /help را بزن.")
+        return await m.reply("من برای مدیریت گروه و ابزارهای کاربردی آماده‌ام 🙂 برای دیدن نمونه‌ها /help رو بزن.")
 
     low = m.text.lower()
     blocked_reason = None
