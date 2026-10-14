@@ -551,10 +551,17 @@ def register_hamyar_handlers(dp):
                         items.extend(await get_grade_items(n))
                     except Exception:
                         continue
-            terms = [x for x in re.findall(r"[\wآ-ی]+", text) if len(x) > 2 and x not in {"همیار", "درس", "پایه", "برای", "گام", "به", "سوال", "سؤال", "نمونه", "جواب"}]
-            found = [x for x in items if all(term in x["title"].replace("‌", " ").lower() for term in terms[:4])] if terms else items
+            grade_terms = set(GRADE_WORDS.values())
+            stop_words = {"همیار", "درس", "پایه", "برای", "گام", "به", "سوال", "سؤال", "نمونه", "جواب", "لطفا", "لطفاً", "میخوام", "میخواهم", "نمایش", "دانلود", "دیدن", "پیدا", "کن"}
+            terms = [x for x in re.findall(r"[\wآ-ی]+", text) if len(x) > 2 and x not in stop_words and x not in grade_terms]
+            def normalized_title(item):
+                title = item.get("title", "").replace("‌", " ").replace("-", " ").lower()
+                return " ".join(title.split())
+            # Prefer matches containing every meaningful word, then fall back to ranked partial matches.
+            found = [x for x in items if all(term in normalized_title(x) for term in terms[:4])] if terms else items
             if not found and terms:
-                found = [x for x in items if any(term in x["title"].replace("‌", " ").lower() for term in terms[:4])]
+                found = [x for x in items if any(term in normalized_title(x) for term in terms[:4])]
+                found.sort(key=lambda item: sum(term in normalized_title(item) for term in terms[:4]), reverse=True)
             set_visible(m.chat.id, found[:80])
             if not found:
                 return await m.answer("با این عبارت نتیجه‌ای پیدا نکردم. پایه و نام درس را کوتاه‌تر بنویس یا از منوی «همیار درس» پایه را انتخاب کن.")
