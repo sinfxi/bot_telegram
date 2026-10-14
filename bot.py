@@ -361,9 +361,9 @@ async def admins(m):
         for x in members:
             user = x.user
             lines.append(f"• {user.full_name} — @{user.username or '-'}")
-        await m.answer("👑 ادمین‌های گروه:\n" + "\n".join(lines))
+        await m.answer("👑 مدیران گروه:\n" + "\n".join(lines))
     except Exception as e:
-        await m.answer(f"❌ دریافت ادمین‌ها ممکن نشد: {e}")
+        await m.answer(f"❌ دریافت فهرست مدیران گروه ممکن نشد: {e}")
 
 @dp.message(Command("chatinfo"))
 async def chatinfo(m):
@@ -451,7 +451,7 @@ async def report(m):
     db.execute("INSERT INTO reports(chat,reporter,target,reason,created) VALUES(?,?,?,?,?)",
                (m.chat.id, m.from_user.id, u.id, reason, datetime.utcnow().isoformat()))
     db.commit()
-    await m.answer("🚨 گزارش ثبت شد و برای بررسی ادمین‌ها ذخیره شد.")
+    await m.answer("🚨 گزارش ثبت شد و برای بررسی ذخیره شد.")
 
 @dp.message(Command("ban"))
 async def ban(m):
@@ -946,7 +946,7 @@ async def add_faq_cmd(m):
         return await m.answer("سؤال حداکثر ۲۰۰ و پاسخ حداکثر ۳۰۰۰ کاراکتر باشد.")
     db.execute("INSERT OR REPLACE INTO faq(chat,question,answer) VALUES(?,?,?)", (m.chat.id, question, answer))
     db.commit()
-    await m.answer("✅ پاسخ ذخیره شد. از این به بعد بدون هوش مصنوعی هم به سؤال‌های مشابه جواب می‌دهم.")
+    await m.answer("✅ پاسخ ذخیره شد. از این به بعد به سؤال‌های مشابه هم پاسخ می‌دهم.")
 
 
 @dp.message(Command("faqs"))
@@ -1175,9 +1175,9 @@ async def natural_command(m):
     if any(x in t for x in ("لیست ادمین", "ادمین های گروه", "ادمین‌های گروه")):
         try:
             admins = await bot.get_chat_administrators(m.chat.id)
-            await m.answer("👑 ادمین‌های گروه:\n" + "\n".join("• " + (a.user.full_name or str(a.user.id)) for a in admins))
+            await m.answer("👑 مدیران گروه:\n" + "\n".join("• " + (a.user.full_name or str(a.user.id)) for a in admins))
         except Exception:
-            await m.answer("نتونستم فهرست ادمین‌ها رو بگیرم؛ ربات رو بررسی کن.")
+            await m.answer("نتونستم فهرست مدیران گروه رو بگیرم؛ دسترسی ربات رو بررسی کن.")
         return True
     if any(x in t for x in ("لیست فیلتر", "فیلترها رو نشون بده", "کلمه های فیلتر")):
         rows = db.execute("SELECT word FROM filters WHERE chat=? ORDER BY word", (m.chat.id,)).fetchall()
@@ -1408,7 +1408,7 @@ async def natural_command(m):
         db.execute("INSERT INTO reports(chat,reporter,target,reason,created) VALUES(?,?,?,?,?)",
                    (m.chat.id, m.from_user.id, target_user.id if target_user else 0, reason[:1000], datetime.utcnow().isoformat()))
         db.commit()
-        await m.answer("🚨 گزارشت ثبت شد؛ ادمین‌ها می‌تونن بررسیش کنن.")
+        await m.answer("🚨 گزارشت ثبت شد؛ برای بررسی نگه داشته شد.")
         return True
 
     # Personal utilities — independent of group moderation.
