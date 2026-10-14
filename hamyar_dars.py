@@ -269,7 +269,10 @@ async def send_resource(callback, url, title, kind):
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.hostname.lower() in ("localhost", "127.0.0.1"):
         return await callback.message.answer("آدرس فایل معتبر نیست.")
-    await callback.answer("در حال دریافت فایل…")
+    try:
+        await callback.answer("در حال دریافت فایل…")
+    except Exception:
+        pass
     try:
         timeout = aiohttp.ClientTimeout(total=45, connect=10)
         headers = {"User-Agent": "Mozilla/5.0 (compatible; HamyarDarsBot/1.1)"}
