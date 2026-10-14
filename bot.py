@@ -1624,6 +1624,9 @@ async def main():
 
     # This bot uses long polling; clear any stale Telegram webhook first.
     await bot.delete_webhook(drop_pending_updates=False)
+    # Keep the health endpoint available while Railway retires the previous deployment.
+    # Starting getUpdates too early makes old/new deployments fight over the same bot token.
+    await asyncio.sleep(15)
     await set_bot_commands()
     maintenance_task = asyncio.create_task(maintenance())
     try:
