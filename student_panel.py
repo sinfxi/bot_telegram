@@ -55,6 +55,18 @@ FLASHCARDS = [
     ("مساحت مثلث چگونه محاسبه می‌شود؟", "قاعده × ارتفاع ÷ ۲."),
     ("شیب خط در نمودار چیست؟", "تغییرات y تقسیم بر تغییرات x."),
     ("عدد اتمی چه چیزی را نشان می‌دهد؟", "تعداد پروتون‌های هسته."),
+    ("یکای توان چیست؟", "وات (W)، برابر ژول بر ثانیه."),
+    ("چگالی چگونه محاسبه می‌شود؟", "جرم تقسیم بر حجم: ρ = m / V."),
+    ("انرژی جنبشی به چه چیزهایی بستگی دارد؟", "به جرم و مجذور سرعت: K = ½mv²."),
+    ("قانون فیثاغورس چیست؟", "در مثلث قائم‌الزاویه: a² + b² = c²."),
+    ("میانگین حسابی چیست؟", "مجموع داده‌ها تقسیم بر تعداد داده‌ها."),
+    ("عدد جرمی اتم چیست؟", "مجموع تعداد پروتون‌ها و نوترون‌های هسته."),
+    ("واحد اندازه‌گیری جریان الکتریکی چیست؟", "آمپر (A)."),
+    ("درصد چگونه محاسبه می‌شود؟", "مقدار بخش تقسیم بر کل، ضرب‌در ۱۰۰."),
+    ("نقش میتوکندری چیست؟", "تولید بخش بزرگی از ATP موردنیاز سلول در تنفس سلولی."),
+    ("فتوسنتز در کدام اندامک انجام می‌شود؟", "در کلروپلاست سلول‌های گیاهی و جلبک‌ها."),
+    ("مجموع زاویه‌های داخلی مثلث چند درجه است؟", "۱۸۰ درجه."),
+    ("مول چیست؟", "مقدار ماده‌ای که تقریباً 6.022×10²³ ذره دارد."),
 ]
 
 
@@ -97,7 +109,8 @@ def _premium_keyboard():
          InlineKeyboardButton(text="🎬 ویدئوها", callback_data="sp:videohelp")],
         [InlineKeyboardButton(text="🧠 فلش‌کارت و مرور", callback_data="sp:flashcards"),
          InlineKeyboardButton(text="📐 فرمول‌های درسی", callback_data="sp:formulas")],
-        [InlineKeyboardButton(text="📝 نمونه‌سؤال و آزمون", callback_data="sp:examhelp")],
+        [InlineKeyboardButton(text="📝 نمونه‌سؤال و آزمون", callback_data="sp:examhelp"),
+         InlineKeyboardButton(text="🎯 آزمونک تعاملی", callback_data="sp:quiz")],
         [InlineKeyboardButton(text="🗓 برنامه‌ریزی درسی", callback_data="sp:planner")],
         [InlineKeyboardButton(text="🎓 مشاوره انتخاب دانشگاه", callback_data="sp:consult")],
         [InlineKeyboardButton(text="⬅️ منوی پنل", callback_data="sp:menu")],
@@ -323,6 +336,79 @@ def register_student_handlers(dp, bot, admin_ids):
         except Exception:
             await c.answer("این کارت در دسترس نیست.", show_alert=True)
 
+    @dp.callback_query(F.data == "sp:quiz")
+    async def quiz_start(c: CallbackQuery):
+        await c.answer()
+        panel, _ = _access(c.from_user.id)
+        if not panel:
+            return await c.message.answer(
+                "🔒 آزمونک تعاملی داخل پنل VIP است.",
+                reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]])
+            )
+        await send_quiz_question(c.message, 0)
+
+    async def send_quiz_question(message, index):
+        quiz = [
+            ("یکای نیرو کدام است؟", ["ژول", "نیوتن", "وات"], 1, "نیرو با نیوتن (N) اندازه‌گیری می‌شود."),
+            ("اگر جرم ۲ کیلوگرم و شتاب ۳ متر بر مجذور ثانیه باشد، نیرو چند نیوتن است؟", ["۵", "۶", "۹"], 1, "طبق F = ma، نیرو برابر ۲×۳ = ۶ نیوتن است."),
+            ("مساحت مثلث برابر است با…", ["قاعده × ارتفاع", "قاعده × ارتفاع ÷ ۲", "طول + عرض"], 1, "مساحت مثلث نصف حاصل‌ضرب قاعده در ارتفاع است."),
+            ("عدد اتمی برابر تعداد کدام ذره است؟", ["پروتون", "نوترون", "پروتون و نوترون"], 0, "عدد اتمی تعداد پروتون‌های هسته را نشان می‌دهد."),
+            ("مجموع زاویه‌های داخلی مثلث چند درجه است؟", ["۹۰", "۱۸۰", "۳۶۰"], 1, "مجموع زاویه‌های داخلی هر مثلث ۱۸۰ درجه است."),
+            ("فتوسنتز عمدتاً در کدام اندامک انجام می‌شود؟", ["میتوکندری", "هسته", "کلروپلاست"], 2, "کلروپلاست محل اصلی فتوسنتز در سلول‌های گیاهی است."),
+            ("یکای توان چیست؟", ["وات", "آمپر", "پاسکال"], 0, "توان با وات (W) اندازه‌گیری می‌شود."),
+            ("مول تقریباً شامل چند ذره است؟", ["6.022×10²³", "3×10⁸", "9.8"], 0, "عدد آووگادرو تقریباً 6.022×10²³ ذره بر مول است.")
+        ]
+        if index >= len(quiz):
+            return await message.answer(
+                "🎉 آزمونک تمام شد! برای مرور دوباره می‌توانی آزمون را از اول شروع کنی.",
+                reply_markup=_keyboard([
+                    [InlineKeyboardButton(text="🔁 شروع دوباره", callback_data="sp:quiz")],
+                    [InlineKeyboardButton(text="⬅️ پنل دانش‌آموزی", callback_data="sp:enter")]
+                ])
+            )
+        question, options, correct, explanation = quiz[index]
+        rows = [
+            [InlineKeyboardButton(text=option, callback_data=f"sp:quiz:{index}:{opt_index}")]
+            for opt_index, option in enumerate(options)
+        ]
+        rows.append([InlineKeyboardButton(text=f"سؤال {index + 1} از {len(quiz)}", callback_data="sp:quiz:noop")])
+        await message.answer(f"🎯 آزمونک {index + 1}/{len(quiz)}\\n\\n{question}", reply_markup=_keyboard(rows))
+
+    @dp.callback_query(F.data.startswith("sp:quiz:"))
+    async def quiz_answer(c: CallbackQuery):
+        if c.data == "sp:quiz:noop":
+            return await c.answer()
+        panel, _ = _access(c.from_user.id)
+        if not panel:
+            return await c.answer("ابتدا اشتراک پنل را فعال کن.", show_alert=True)
+        try:
+            _, _, index_s, option_s = c.data.split(":")
+            index, option = int(index_s), int(option_s)
+        except ValueError:
+            return await c.answer("گزینه نامعتبر است.", show_alert=True)
+        quiz = [
+            ("یکای نیرو کدام است؟", ["ژول", "نیوتن", "وات"], 1, "نیرو با نیوتن (N) اندازه‌گیری می‌شود."),
+            ("اگر جرم ۲ کیلوگرم و شتاب ۳ متر بر مجذور ثانیه باشد، نیرو چند نیوتن است؟", ["۵", "۶", "۹"], 1, "طبق F = ma، نیرو برابر ۲×۳ = ۶ نیوتن است."),
+            ("مساحت مثلث برابر است با…", ["قاعده × ارتفاع", "قاعده × ارتفاع ÷ ۲", "طول + عرض"], 1, "مساحت مثلث نصف حاصل‌ضرب قاعده در ارتفاع است."),
+            ("عدد اتمی برابر تعداد کدام ذره است؟", ["پروتون", "نوترون", "پروتون و نوترون"], 0, "عدد اتمی تعداد پروتون‌های هسته را نشان می‌دهد."),
+            ("مجموع زاویه‌های داخلی مثلث چند درجه است؟", ["۹۰", "۱۸۰", "۳۶۰"], 1, "مجموع زاویه‌های داخلی هر مثلث ۱۸۰ درجه است."),
+            ("فتوسنتز عمدتاً در کدام اندامک انجام می‌شود؟", ["میتوکندری", "هسته", "کلروپلاست"], 2, "کلروپلاست محل اصلی فتوسنتز در سلول‌های گیاهی است."),
+            ("یکای توان چیست؟", ["وات", "آمپر", "پاسکال"], 0, "توان با وات (W) اندازه‌گیری می‌شود."),
+            ("مول تقریباً شامل چند ذره است؟", ["6.022×10²³", "3×10⁸", "9.8"], 0, "عدد آووگادرو تقریباً 6.022×10²³ ذره بر مول است.")
+        ]
+        if index < 0 or index >= len(quiz) or option < 0 or option >= 3:
+            return await c.answer("این سؤال معتبر نیست.", show_alert=True)
+        _, options, correct, explanation = quiz[index]
+        await c.answer()
+        status = "✅ پاسخ درست بود!" if option == correct else f"❌ پاسخ درست: {options[correct]}"
+        await c.message.answer(
+            f"{status}\\n💡 {explanation}",
+            reply_markup=_keyboard([
+                [InlineKeyboardButton(text="➡️ سؤال بعدی", callback_data=f"sp:quiz:{index + 1}:0")],
+                [InlineKeyboardButton(text="⬅️ خروج به پنل", callback_data="sp:enter")]
+            ])
+        )
+
     @dp.callback_query(F.data == "sp:formulas")
     async def formula_menu(c: CallbackQuery):
         await c.answer()
@@ -332,6 +418,8 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.message.answer("📐 فرمول‌های درسی — موضوع را انتخاب کن:", reply_markup=_keyboard([
             [InlineKeyboardButton(text="⚙️ فیزیک", callback_data="sp:formula:physics"),
              InlineKeyboardButton(text="📏 ریاضی", callback_data="sp:formula:math")],
+            [InlineKeyboardButton(text="🧪 شیمی", callback_data="sp:formula:chemistry"),
+             InlineKeyboardButton(text="🧬 زیست", callback_data="sp:formula:biology")],
             [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:enter")]
         ]))
 
@@ -343,7 +431,9 @@ def register_student_handlers(dp, bot, admin_ids):
         topic = c.data.rsplit(":", 1)[1]
         formulas = {
             "physics": "⚙️ فرمول‌های پایه فیزیک\n• سرعت متوسط: v = Δx / Δt\n• شتاب متوسط: a = Δv / Δt\n• قانون دوم نیوتن: F = ma\n• وزن: W = mg\n• کار نیروی ثابت: W = Fd cosθ\n• انرژی جنبشی: K = ½mv²\n• چگالی: ρ = m / V",
-            "math": "📏 فرمول‌های پایه ریاضی\n• مساحت مستطیل: A = طول × عرض\n• مساحت مثلث: A = ½ × قاعده × ارتفاع\n• شیب خط: m = (y₂ − y₁) / (x₂ − x₁)\n• فیثاغورس: a² + b² = c²\n• میانگین حسابی: مجموع داده‌ها ÷ تعداد داده‌ها"
+            "math": "📏 فرمول‌های پایه ریاضی\n• مساحت مستطیل: A = طول × عرض\n• مساحت مثلث: A = ½ × قاعده × ارتفاع\n• شیب خط: m = (y₂ − y₁) / (x₂ − x₁)\n• فیثاغورس: a² + b² = c²\n• میانگین حسابی: مجموع داده‌ها ÷ تعداد داده‌ها",
+            "chemistry": "🧪 شیمی | روابط پرکاربرد\n• تعداد مول: n = m / M\n• غلظت مولار: C = n / V\n• چگالی: ρ = m / V\n• تعداد ذره: N = n × Nₐ\nواحدها را کنار هر عدد بنویس و پیش از جایگذاری، واحدها را یکسان کن.",
+            "biology": "🧬 زیست‌شناسی | نکته‌های محاسباتی\n• درصد: (مقدار بخش ÷ مقدار کل) × ۱۰۰\n• نسبت: مقدار اول ÷ مقدار دوم\n• بازده درصدی: (مقدار واقعی ÷ مقدار نظری) × ۱۰۰\nدر زیست، قیدهای متن سؤال و شرایط آزمایش را هم بررسی کن."
         }
         await c.answer()
         await c.message.answer(formulas.get(topic, "موضوع پیدا نشد."), reply_markup=_keyboard([[InlineKeyboardButton(text="⬅️ برگشت به فرمول‌ها", callback_data="sp:formulas")]]))
