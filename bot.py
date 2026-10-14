@@ -500,7 +500,8 @@ async def mute(m):
 async def unmute(m):
     if not await group_admin(m): return
     u = target(m)
-    if not u: return await m.answer("کاربر را ریپلای کن.")    try:
+    if not u: return await m.answer("کاربر را ریپلای کن.")
+    try:
         await bot.restrict_chat_member(
             m.chat.id, u.id,
             permissions=ChatPermissions(can_send_messages=True)
