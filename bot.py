@@ -84,6 +84,7 @@ def menu():
         [InlineKeyboardButton(text="📊 آمار", callback_data="stats"), InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="users")],
         [InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports"), InlineKeyboardButton(text="🗂️ فعالیت‌ها", callback_data="logs")],
         [InlineKeyboardButton(text="📣 پیام‌رسانی", callback_data="bc")],
+        [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
     ])
 
 
