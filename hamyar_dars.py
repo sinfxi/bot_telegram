@@ -443,12 +443,12 @@ def register_hamyar_handlers(dp):
                 [InlineKeyboardButton(text="🔎 جست‌وجوی دوباره", callback_data="hd:search")],
                 [InlineKeyboardButton(text="🏠 منوی همیار درس", callback_data="hd:home")],
             ])
-            await c.message.answer(
-                f"📘 {item['title']}\n\n{excerpt}\n\n",
-                ("فایل‌ها و ویدئوهای عمومی پیدا شده‌اند؛ برای دریافت یا پخش، یکی را انتخاب کن."
-                 if resources else "در این صفحه فایل مستقیم عمومی پیدا نشد. می‌توانی نتیجه‌های دیگر را ببینی."),
-                reply_markup=keyboard(rows)
+            detail_text = (
+                f"📘 {item['title']}\\n\\n{excerpt}\\n\\n"
+                + ("فایل‌ها و ویدئوهای عمومی پیدا شده‌اند؛ برای دریافت یا پخش، یکی را انتخاب کن."
+                   if resources else "در این صفحه فایل مستقیم عمومی پیدا نشد. می‌توانی نتیجه‌های دیگر را ببینی.")
             )
+            await c.message.answer(detail_text, reply_markup=keyboard(rows))
         except Exception:
             log.exception("Hamyar item fetch failed")
             await c.message.answer("این مطلب فعلاً دریافت نشد. کمی بعد دوباره تلاش کن.")
