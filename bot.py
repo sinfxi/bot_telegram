@@ -84,6 +84,14 @@ def menu():
         [InlineKeyboardButton(text="📣 پیام‌رسانی", callback_data="bc")],
     ])
 
+
+def personal_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📖 راهنما", callback_data="u:help"), InlineKeyboardButton(text="👤 پروفایل من", callback_data="u:profile")],
+        [InlineKeyboardButton(text="⏰ یادآوری‌ها", callback_data="u:reminders"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="u:tools")],
+        [InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="u:faqs")],
+    ])
+
 async def group_admin(m):
     if m.chat.type == "private":
         await m.answer("این دستور داخل گروه است.")
@@ -222,7 +230,55 @@ async def set_bot_commands():
 async def start(m):
     save(m)
     text = ("سلام! 🌟\nاز اینجا می‌تونی بخش‌های مختلف رو سریع باز کنی.\nبرای راهنمای کامل /help رو بزن.") if is_global_admin(m.from_user.id) else ("سلام " + (m.from_user.first_name or "دوست من") + " جان! 👋\nمن برای مرتب‌کردن گروه، امنیت، یادآوری‌ها، محاسبات و پاسخ‌های آماده کمکت می‌کنم.\n\nچند نمونه:\n• یادآوری 10 دقیقه بعد آب بخور\n• حساب کن 12 * (4 + 3)\n• قوانین گروه چیه؟\n• راهنمای ربات\n\nبرای دیدن راهنما /help رو بزن.")
-    await m.answer(text, reply_markup=menu() if is_global_admin(m.from_user.id) else None)
+    await m.answer(text, reply_markup=menu() if is_global_admin(m.from_user.id) else personal_menu())
+
+
+
+@dp.callback_query(F.data.startswith("u:"))
+async def personal_menu_callback(c):
+    if not c.message:
+        return await c.answer()
+    section = c.data.split(":", 1)[1]
+    if section == "help":
+        answer = (
+            "✨ راهنمای سریع\\n"
+            "• یادآوری 10 دقیقه بعد آب بخور\\n"
+            "• حساب کن 12 * (4 + 3)\\n"
+            "• یادآوری‌های من\\n"
+            "• قوانین گروه چیه؟\\n"
+            "• سوال ساعت کاری چیه؟\\n\\n"
+            "برای کار روی پیام یک عضو، روی پیامش ریپلای کن و درخواستت رو بنویس."
+        )
+    elif section == "profile":
+        reminders_n = db.execute("SELECT COUNT(*) FROM reminders WHERE user=?", (c.from_user.id,)).fetchone()[0]
+        answer = (
+            f"👤 پروفایل تو\\nنام: {c.from_user.full_name}\\n"
+            f"شناسه: {c.from_user.id}\\n"
+            f"نام کاربری: @{c.from_user.username or 'ندارد'}\\n"
+            f"یادآوری فعال: {reminders_n}"
+        )
+    elif section == "reminders":
+        rows = db.execute("SELECT id,text,due FROM reminders WHERE user=? ORDER BY due LIMIT 10", (c.from_user.id,)).fetchall()
+        answer = "⏰ یادآوری‌های تو:\\n" + (
+            "\\n".join(f"• {txt} — حدود {max(0, int((due-time.time())/60))} دقیقه دیگر" for _,txt,due in rows)
+            if rows else "یادآوری فعالی نداری."
+        )
+    elif section == "tools":
+        answer = (
+            "🧰 ابزارهای کاربردی\\n"
+            "• یادآوری 10 دقیقه بعد آب بخور\\n"
+            "• حساب کن 12 * (4 + 3)\\n"
+            "• نظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\\n"
+            "• /dice تاس\\n• /coin شیر یا خط\\n• /joke جوک بگو\\n• /password رمز بساز"
+        )
+    elif section == "faqs":
+        rows = db.execute("SELECT question FROM faq WHERE chat=? ORDER BY question LIMIT 20", (c.message.chat.id,)).fetchall()
+        answer = "📚 پاسخ‌های آماده:\\n" + ("\\n".join("• " + q for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده.")
+    else:
+        answer = "این بخش در دسترس نیست."
+    await c.message.answer(answer)
+    await c.answer("انجام شد")
+
 
 @dp.message(Command("help"))
 async def help_cmd(m):
