@@ -261,6 +261,8 @@ def resource_type(url, title=""):
     label = (title or "").replace("‌", " ").lower()
     if path.endswith(".pdf") or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label:
         return "pdf"
+    if "pdf" in label and any(word in label for word in ("دانلود", "دریافت", "فایل", "جزوه", "کتاب")):
+        return "pdf"
     if path.endswith((".mp4", ".m4v", ".webm", ".mov")):
         return "video"
     if any(x in host for x in ("youtube.com", "youtu.be", "aparat.com", "namasha.com", "vidio.com")):
@@ -444,7 +446,7 @@ def register_hamyar_handlers(dp):
                 [InlineKeyboardButton(text="🏠 منوی همیار درس", callback_data="hd:home")],
             ])
             detail_text = (
-                f"📘 {item['title']}\\n\\n{excerpt}\\n\\n"
+                f"📘 {item['title']}\n\n{excerpt}\n\n"
                 + ("فایل‌ها و ویدئوهای عمومی پیدا شده‌اند؛ برای دریافت یا پخش، یکی را انتخاب کن."
                    if resources else "در این صفحه فایل مستقیم عمومی پیدا نشد. می‌توانی نتیجه‌های دیگر را ببینی.")
             )
