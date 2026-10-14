@@ -170,7 +170,10 @@ async def get_grade_items(grade):
     for link in parser.links:
         title = " ".join(link["title"].replace("‌", " ").split())
         url = link["url"]
-        if not title or url in seen or not url.startswith(BASE + "/"):
+        media_kind = resource_type(url, title)
+        if not title or url in seen:
+            continue
+        if not url.startswith(BASE + "/") and media_kind not in ("pdf", "video", "link"):
             continue
         if url.rstrip("/") == target["url"].rstrip("/"):
             continue
@@ -258,9 +261,11 @@ def resource_type(url, title=""):
     label = (title or "").replace("‌", " ").lower()
     if path.endswith(".pdf") or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label:
         return "pdf"
-    if path.endswith((".mp4", ".m4v", ".webm", ".mov", ".m3u8")):
+    if path.endswith((".mp4", ".m4v", ".webm", ".mov")):
         return "video"
-    if any(x in host for x in ("youtube.com", "youtu.be", "aparat.com", "namasha.com", "vidio.com")) or any(x in label for x in ("ویدیو", "ویدئو", "فیلم آموزشی", "پخش ویدئو")):
+    if any(x in host for x in ("youtube.com", "youtu.be", "aparat.com", "namasha.com", "vidio.com")):
+        return "link"
+    if host not in ("hamyar.me", "www.hamyar.me") and any(x in label for x in ("ویدیو", "ویدئو", "فیلم آموزشی", "پخش ویدئو")):
         return "link"
     return None
 
@@ -282,8 +287,10 @@ async def send_resource(callback, url, title, kind):
                     return await callback.message.answer("فایل فعلاً از میزبان دریافت نشد؛ کمی بعد دوباره امتحان کن.")
                 data = await response.content.read(45 * 1024 * 1024 + 1)
                 if len(data) > 45 * 1024 * 1024:
+                    if (parsed.hostname or "").lower() in ("hamyar.me", "www.hamyar.me"):
+                        return await callback.message.answer("حجم این فایل از سقف ارسال مستقیم ربات بیشتر است؛ برای اینکه به سایت هدایت نشوی، لینک سایت نمایش داده نمی‌شود.")
                     return await callback.message.answer(
-                        "حجم فایل برای ارسال مستقیم از ربات زیاد است. از دکمهٔ دریافت در میزبان فایل استفاده کن.",
+                        "حجم فایل برای ارسال مستقیم از ربات زیاد است.",
                         reply_markup=keyboard([[InlineKeyboardButton(text="باز کردن فایل", url=url)]])
                     )
                 content_type = (response.headers.get("Content-Type") or "").lower()
@@ -407,8 +414,16 @@ def register_hamyar_handlers(dp):
             if index < 0 or index >= len(items):
                 return await c.message.answer("این فهرست قدیمی شده؛ دوباره بخش را باز کن.")
             item = items[index]
-            if urlparse(item["url"]).path.lower().endswith(".pdf"):
-                return await send_resource(c, item["url"], item["title"], "pdf")
+            direct_kind = resource_type(item["url"], item["title"])
+            if direct_kind in ("pdf", "video"):
+                return await send_resource(c, item["url"], item["title"], direct_kind)
+            if direct_kind == "link":
+                await c.answer()
+                return await c.message.answer(
+                    "🎬 آموزش ویدئویی در میزبان پخش قرار دارد.",
+                    reply_markup=keyboard([[InlineKeyboardButton(text="▶️ پخش آموزش", url=item["url"])],
+                                           [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="hd:page:0")]])
+                )
             parser = await fetch_page(item["url"])
             excerpt = short_summary(parser)
             resources, seen = [], set()
