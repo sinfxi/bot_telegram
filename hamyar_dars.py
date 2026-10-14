@@ -310,7 +310,10 @@ def resource_type(url, title=""):
     path = parsed.path.lower()
     host = (parsed.hostname or "").lower()
     label = (title or "").replace("‌", " ").lower()
-    if path.endswith(".pdf") or ".pdf?" in url.lower() or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label:
+    query = parsed.query.lower()
+    if (path.endswith(".pdf") or ".pdf?" in url.lower() or path.endswith("%2epdf")
+            or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label
+            or any(token in query for token in ("format=pdf", "type=pdf", "download=pdf", "filetype=pdf"))):
         return "pdf"
     if "pdf" in label and any(word in label for word in ("دانلود", "دریافت", "فایل", "جزوه", "کتاب")):
         return "pdf"
