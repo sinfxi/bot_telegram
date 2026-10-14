@@ -13,9 +13,10 @@ from aiogram.types import (
 from aiogram.enums import ChatMemberStatus
 from aiohttp import web
 from hamyar_dars import register_hamyar_handlers
+from student_panel import register_student_handlers
 
 TOKEN = os.getenv("BOT_TOKEN")
-ADM = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x}
+ADM = {int(x) for x in (os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID", "")).replace(" ", "").split(",") if x}
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN is required")
 
@@ -57,6 +58,7 @@ db.commit()
 bot = Bot(TOKEN)
 dp = Dispatcher()
 register_hamyar_handlers(dp)
+register_student_handlers(dp, bot, ADM)
 pending = set()
 pending_admin_actions = {}
 
@@ -85,6 +87,7 @@ def menu():
         [InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports"), InlineKeyboardButton(text="🗂️ فعالیت‌ها", callback_data="logs")],
         [InlineKeyboardButton(text="📣 پیام‌رسانی", callback_data="bc")],
         [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
+        [InlineKeyboardButton(text="🎒 پنل دانش‌آموزی و دانشجویی", callback_data="sp:menu")],
     ])
 
 
@@ -94,6 +97,7 @@ def personal_menu():
         [InlineKeyboardButton(text="⏰ یادآوری‌ها", callback_data="u:reminders"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="u:tools")],
         [InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="u:faqs")],
         [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
+        [InlineKeyboardButton(text="🎒 پنل دانش‌آموزی و دانشجویی", callback_data="sp:menu")],
     ])
 
 async def group_admin(m):
