@@ -372,12 +372,22 @@ def register_student_handlers(dp, bot, admin_ids):
             for opt_index, option in enumerate(options)
         ]
         rows.append([InlineKeyboardButton(text=f"سؤال {index + 1} از {len(quiz)}", callback_data="sp:quiz:noop")])
-        await message.answer(f"🎯 آزمونک {index + 1}/{len(quiz)}\\n\\n{question}", reply_markup=_keyboard(rows))
+        await message.answer(f"🎯 آزمونک {index + 1}/{len(quiz)}\n\n{question}", reply_markup=_keyboard(rows))
 
     @dp.callback_query(F.data.startswith("sp:quiz:"))
     async def quiz_answer(c: CallbackQuery):
         if c.data == "sp:quiz:noop":
             return await c.answer()
+        if c.data.startswith("sp:quiz:next:"):
+            panel, _ = _access(c.from_user.id)
+            if not panel:
+                return await c.answer("ابتدا اشتراک پنل را فعال کن.", show_alert=True)
+            try:
+                next_index = int(c.data.rsplit(":", 1)[1])
+            except ValueError:
+                return await c.answer("شماره سؤال نامعتبر است.", show_alert=True)
+            await c.answer()
+            return await send_quiz_question(c.message, next_index)
         panel, _ = _access(c.from_user.id)
         if not panel:
             return await c.answer("ابتدا اشتراک پنل را فعال کن.", show_alert=True)
@@ -402,9 +412,9 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.answer()
         status = "✅ پاسخ درست بود!" if option == correct else f"❌ پاسخ درست: {options[correct]}"
         await c.message.answer(
-            f"{status}\\n💡 {explanation}",
+            f"{status}\n💡 {explanation}",
             reply_markup=_keyboard([
-                [InlineKeyboardButton(text="➡️ سؤال بعدی", callback_data=f"sp:quiz:{index + 1}:0")],
+                [InlineKeyboardButton(text="➡️ سؤال بعدی", callback_data=f"sp:quiz:next:{index + 1}")],
                 [InlineKeyboardButton(text="⬅️ خروج به پنل", callback_data="sp:enter")]
             ])
         )
