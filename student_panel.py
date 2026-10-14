@@ -46,6 +46,16 @@ ON student_payments(user_id,status);
 db.commit()
 
 GRADE_NAMES = ["اول", "دوم", "سوم", "چهارم", "پنجم", "ششم", "هفتم", "هشتم", "نهم", "دهم", "یازدهم", "دوازدهم"]
+FLASHCARDS = [
+    ("یکای نیرو در SI چیست؟", "نیوتن (N)."),
+    ("شتاب متوسط چگونه محاسبه می‌شود؟", "تغییر سرعت تقسیم بر بازهٔ زمانی: a = Δv / Δt."),
+    ("یکای انرژی چیست؟", "ژول (J)."),
+    ("سرعت متوسط چیست؟", "مسافت طی‌شده تقسیم بر زمان کل."),
+    ("قانون دوم نیوتن چیست؟", "برآیند نیروها برابر جرم ضرب‌در شتاب است: F = ma."),
+    ("مساحت مثلث چگونه محاسبه می‌شود؟", "قاعده × ارتفاع ÷ ۲."),
+    ("شیب خط در نمودار چیست؟", "تغییرات y تقسیم بر تغییرات x."),
+    ("عدد اتمی چه چیزی را نشان می‌دهد؟", "تعداد پروتون‌های هسته."),
+]
 
 
 def _keyboard(rows):
@@ -84,6 +94,8 @@ def _premium_keyboard():
         [InlineKeyboardButton(text="📚 گام‌به‌گام و پاسخ تمرین‌ها", callback_data="hd:home")],
         [InlineKeyboardButton(text="📄 فایل‌ها و جزوه‌ها", callback_data="sp:pdfhelp"),
          InlineKeyboardButton(text="🎬 ویدئوها", callback_data="sp:videohelp")],
+        [InlineKeyboardButton(text="🧠 فلش‌کارت و مرور", callback_data="sp:flashcards"),
+         InlineKeyboardButton(text="📐 فرمول‌های درسی", callback_data="sp:formulas")],
         [InlineKeyboardButton(text="📝 نمونه‌سؤال و آزمون", callback_data="sp:examhelp")],
         [InlineKeyboardButton(text="🗓 برنامه‌ریزی درسی", callback_data="sp:planner")],
         [InlineKeyboardButton(text="🎓 مشاوره انتخاب دانشگاه", callback_data="sp:consult")],
@@ -200,6 +212,70 @@ def register_student_handlers(dp, bot, admin_ids):
             "منطقه/سهمیه و سال کنکور. اگر هنوز رتبه نداری، بنویس «تخمین ندارم» تا روش خواندن کارنامه و عوامل مؤثر را توضیح بدهم.\n\n"
             "⚠️ ربات به کارنامه رسمی سنجش دسترسی ندارد و رتبه یا تراز رسمی را از روی حدس تولید نمی‌کند."
         )
+
+    @dp.callback_query(F.data == "sp:flashcards")
+    async def flashcards(c: CallbackQuery):
+        await c.answer()
+        panel, _ = _access(c.from_user.id)
+        if not panel:
+            return await c.message.answer("این بخش با اشتراک پنل VIP فعال می‌شود.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]]))
+        index = 0
+        question, _answer = FLASHCARDS[index]
+        await c.message.answer(
+            f"🧠 فلش‌کارت {index + 1} از {len(FLASHCARDS)}\n\n❓ {question}",
+            reply_markup=_keyboard([[
+                InlineKeyboardButton(text="👁 دیدن پاسخ", callback_data=f"sp:card:show:{index}"),
+                InlineKeyboardButton(text="➡️ کارت بعد", callback_data=f"sp:card:next:{index}")
+            ], [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="sp:enter")]])
+        )
+
+    @dp.callback_query(F.data.startswith("sp:card:"))
+    async def flashcard_action(c: CallbackQuery):
+        panel, _ = _access(c.from_user.id)
+        if not panel:
+            return await c.answer("ابتدا اشتراک پنل را فعال کن.", show_alert=True)
+        try:
+            _, _, action, raw_index = c.data.split(":")
+            index = int(raw_index)
+            if action == "show":
+                await c.answer()
+                await c.message.answer(f"✅ پاسخ کارت {index + 1}:\n{FLASHCARDS[index][1]}",
+                    reply_markup=_keyboard([[InlineKeyboardButton(text="➡️ کارت بعد", callback_data=f"sp:card:next:{index}")]]))
+            else:
+                index = (index + 1) % len(FLASHCARDS)
+                await c.answer()
+                await c.message.answer(f"🧠 فلش‌کارت {index + 1} از {len(FLASHCARDS)}\n\n❓ {FLASHCARDS[index][0]}",
+                    reply_markup=_keyboard([[
+                        InlineKeyboardButton(text="👁 دیدن پاسخ", callback_data=f"sp:card:show:{index}"),
+                        InlineKeyboardButton(text="➡️ کارت بعد", callback_data=f"sp:card:next:{index}")
+                    ]]))
+        except Exception:
+            await c.answer("این کارت در دسترس نیست.", show_alert=True)
+
+    @dp.callback_query(F.data == "sp:formulas")
+    async def formula_menu(c: CallbackQuery):
+        await c.answer()
+        panel, _ = _access(c.from_user.id)
+        if not panel:
+            return await c.message.answer("این بخش با اشتراک پنل VIP فعال می‌شود.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]]))
+        await c.message.answer("📐 فرمول‌های درسی — موضوع را انتخاب کن:", reply_markup=_keyboard([
+            [InlineKeyboardButton(text="⚙️ فیزیک", callback_data="sp:formula:physics"),
+             InlineKeyboardButton(text="📏 ریاضی", callback_data="sp:formula:math")],
+            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:enter")]
+        ]))
+
+    @dp.callback_query(F.data.startswith("sp:formula:"))
+    async def formula_topic(c: CallbackQuery):
+        panel, _ = _access(c.from_user.id)
+        if not panel:
+            return await c.answer("ابتدا اشتراک پنل را فعال کن.", show_alert=True)
+        topic = c.data.rsplit(":", 1)[1]
+        formulas = {
+            "physics": "⚙️ فرمول‌های پایه فیزیک\n• سرعت متوسط: v = Δx / Δt\n• شتاب متوسط: a = Δv / Δt\n• قانون دوم نیوتن: F = ma\n• وزن: W = mg\n• کار نیروی ثابت: W = Fd cosθ\n• انرژی جنبشی: K = ½mv²\n• چگالی: ρ = m / V",
+            "math": "📏 فرمول‌های پایه ریاضی\n• مساحت مستطیل: A = طول × عرض\n• مساحت مثلث: A = ½ × قاعده × ارتفاع\n• شیب خط: m = (y₂ − y₁) / (x₂ − x₁)\n• فیثاغورس: a² + b² = c²\n• میانگین حسابی: مجموع داده‌ها ÷ تعداد داده‌ها"
+        }
+        await c.answer()
+        await c.message.answer(formulas.get(topic, "موضوع پیدا نشد."), reply_markup=_keyboard([[InlineKeyboardButton(text="⬅️ برگشت به فرمول‌ها", callback_data="sp:formulas")]]))
 
     @dp.callback_query(F.data.in_({"sp:pdfhelp", "sp:videohelp", "sp:examhelp", "sp:planner"}))
     async def study_shortcuts(c: CallbackQuery):
@@ -328,12 +404,27 @@ def register_student_handlers(dp, bot, admin_ids):
             await c.message.edit_reply_markup(reply_markup=None)
             await c.message.answer(f"رسید درخواست #{payment_id} رد شد.")
 
-    @dp.message(F.text.regexp(r"(?i)(رتبه|تراز|انتخاب دانشگاه|دانشگاه کجا|رتبه ندارم|تخمین ندارم|کارنامه ندارم)"))
+    @dp.message(F.text.regexp(r"(?i)(رتبه|تراز|انتخاب دانشگاه|دانشگاه کجا|رتبه ندارم|تخمین ندارم|کارنامه ندارم|برنامه.?ریزی|برنامه درسی|زمان آزاد)"))
     async def student_text_features(message: Message):
         if not message.from_user or not message.text:
             return
         text = message.text.strip()
         normalized = text.lower().replace("ي", "ی").replace("ك", "ک").replace("‌", " ")
+        if any(word in normalized for word in ("برنامه ریزی", "برنامه‌ریزی", "برنامه درسی", "زمان آزاد")):
+            panel, _ = _access(message.from_user.id)
+            if not panel:
+                return await message.answer("برای برنامه‌ریزی درسی، اشتراک پنل ۳۰٬۰۰۰ تومانی لازم است.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل", callback_data="sp:buy:panel")]]))
+            hours_match = re.search(r"(\d+)\s*ساعت", normalized)
+            hours = max(1, min(8, int(hours_match.group(1)))) if hours_match else 3
+            subjects = [x.strip(" .،؛") for x in re.split(r"[,،؛|]", text) if len(x.strip()) >= 2]
+            subjects = [x for x in subjects if not any(k in x for k in ("برنامه", "ساعت", "زمان آزاد", "آزمون", "روزانه"))]
+            if not subjects:
+                return await message.answer("اسم درس‌ها و زمان روزانه را بفرست؛ نمونه: «برنامه‌ریزی، روزی ۳ ساعت، ریاضی، فیزیک، شیمی، فارسی»")
+            slots = []
+            for i in range(hours):
+                subject = subjects[i % len(subjects)]
+                slots.append(f"{i + 1}. {subject} — ۴۰ دقیقه مطالعه + ۱۰ دقیقه استراحت")
+            return await message.answer("🗓 برنامهٔ پیشنهادی روزانه\n\n" + "\n".join(slots) + "\n\nاین برنامه را با تاریخ آزمون، سختی درس‌ها و زمان واقعی خودت تنظیم کن؛ اگر پایه و تاریخ امتحان را بفرستی، دقیق‌ترش می‌کنم.")
         if normalized in {"رتبه ندارم", "تخمین ندارم", "کارنامه ندارم"}:
             return await message.answer(
                 "برای بررسی کارنامه، این موارد مهم‌اند: رتبه در سهمیه، رتبه کشوری، تراز، گروه آزمایشی، سهمیه و سال آزمون. "
