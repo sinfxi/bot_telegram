@@ -444,7 +444,7 @@ def register_hamyar_handlers(dp):
                 [InlineKeyboardButton(text="🏠 منوی همیار درس", callback_data="hd:home")],
             ])
             await c.message.answer(
-                f"📘 {item['title']}\n\n{excerpt}\n\n"
+                f"📘 {item['title']}\n\n{excerpt}\n\n",
                 ("فایل‌ها و ویدئوهای عمومی پیدا شده‌اند؛ برای دریافت یا پخش، یکی را انتخاب کن."
                  if resources else "در این صفحه فایل مستقیم عمومی پیدا نشد. می‌توانی نتیجه‌های دیگر را ببینی."),
                 reply_markup=keyboard(rows)
