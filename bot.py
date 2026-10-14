@@ -1499,7 +1499,8 @@ async def natural_command(m):
             result = safe_calculate(expression)
             await m.answer(f"🧮 نتیجه: <code>{result}</code>", parse_mode="HTML")
         except ZeroDivisionError:
-            await m.answer("🧮 تقسیم بر صفر ممکن نیست.")        except Exception:
+            await m.answer("🧮 تقسیم بر صفر ممکن نیست.")
+        except Exception:
             await m.answer("🧮 عبارت رو ساده و عددی بنویس؛ مثلاً «حساب کن 12 * (4 + 3)».")
         return True
 
