@@ -534,6 +534,10 @@ def register_hamyar_handlers(dp):
                 if urlparse(url).scheme not in ("http", "https") or url in seen:
                     continue
                 kind = resource_type(url, title)
+                hints = (title + " " + url).lower()
+                media_hints = ("pdf", "دانلود", "دریافت", "فایل", "جزوه", "کتاب", "download", "file", "media", ".mp4", ".webm", ".m3u8")
+                if kind not in ("pdf", "video") and not any(hint in hints for hint in media_hints):
+                    continue
                 if kind not in ("pdf", "video"):
                     kind, final_url = await detect_remote_media(url)
                     url = final_url or url
@@ -552,8 +556,8 @@ def register_hamyar_handlers(dp):
             ])
             detail_text = (
                 f"📘 {item['title']}\n\n{excerpt}\n\n"
-                + ("فایل‌ها و ویدئوهای عمومی پیدا شده‌اند؛ برای دریافت یا پخش، یکی را انتخاب کن."
-                   if resources else "در این صفحه فایل مستقیم عمومی پیدا نشد. می‌توانی نتیجه‌های دیگر را ببینی.")
+                + ("✅ فایل واقعی PDF یا ویدئو شناسایی شد؛ برای دریافت یا پخش، یکی را انتخاب کن."
+                   if resources else "⚠️ در این صفحه لینک مستقیم PDF قابل دریافت پیدا نشد؛ ممکن است پاسخ‌ها داخل متن یا تصویر باشند. از دکمه‌های زیر برای دیدن مطالب دیگر استفاده کن.")
             )
             await c.message.answer(detail_text, reply_markup=keyboard(rows))
         except Exception:
