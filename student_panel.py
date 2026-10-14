@@ -208,9 +208,9 @@ def register_student_handlers(dp, bot, admin_ids):
     async def free_rank(c: CallbackQuery):
         await c.answer()
         await c.message.answer(
-            "📊 رتبه و تراز کنکور | رایگان\\n\\n"
+            "📊 رتبه و تراز کنکور | رایگان\n\n"
             "گروه آزمایشی را انتخاب کن، سپس رتبه/تراز، منطقه یا سهمیه و سال کنکور را وارد کن. "
-            "اگر هنوز کارنامه نداری، راهنمای بدون کارنامه را انتخاب کن.\\n\\n"
+            "اگر هنوز کارنامه نداری، راهنمای بدون کارنامه را انتخاب کن.\n\n"
             "⚠️ ربات به سامانهٔ رسمی سنجش وصل نیست و رتبه یا تراز رسمی را حدس نمی‌زند.",
             reply_markup=_keyboard([
                 [InlineKeyboardButton(text="🧬 تجربی", callback_data="sp:rank:group:تجربی"),
@@ -228,9 +228,9 @@ def register_student_handlers(dp, bot, admin_ids):
         group = c.data.rsplit(":", 1)[1]
         await c.answer()
         await c.message.answer(
-            f"📊 راهنمای رتبه و تراز | گروه {group}\\n\\n"
-            "اطلاعاتت را در یک پیام بفرست:\\n"
-            f"گروه: {group} | رتبه: ... | تراز: ... | منطقه/سهمیه: ... | سال کنکور: ...\\n\\n"
+            f"📊 راهنمای رتبه و تراز | گروه {group}\n\n"
+            "اطلاعاتت را در یک پیام بفرست:\n"
+            f"گروه: {group} | رتبه: ... | تراز: ... | منطقه/سهمیه: ... | سال کنکور: ...\n\n"
             "اگر رتبه یا تراز نداری، بنویس «تخمین ندارم». نتیجه‌ها رسمی نیستند و قبولی قطعی را تضمین نمی‌کنند.",
             reply_markup=_keyboard([
                 [InlineKeyboardButton(text="📝 راهنمای بدون کارنامه", callback_data="sp:rank:manual")],
@@ -242,7 +242,7 @@ def register_student_handlers(dp, bot, admin_ids):
     async def rank_manual(c: CallbackQuery):
         await c.answer()
         await c.message.answer(
-            "📝 اگر هنوز کارنامه نداری، گروه آزمایشی، پایه/سال تحصیل، درس‌های قوی و ضعیف و میانگین ساعت مطالعه را بنویس.\\n\\n"
+            "📝 اگر هنوز کارنامه نداری، گروه آزمایشی، پایه/سال تحصیل، درس‌های قوی و ضعیف و میانگین ساعت مطالعه را بنویس.\n\n"
             "در کارنامه، رتبه در سهمیه، رتبه کشوری، تراز، سهمیه و سال آزمون را از هم جدا کن. "
             "اطلاعات حساس مثل کد ملی، رمز یا تصویر کامل کارنامه را نفرست.",
             reply_markup=_keyboard([[InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:rank")]])
@@ -276,7 +276,7 @@ def register_student_handlers(dp, bot, admin_ids):
         if not rows:
             lines.append("هنوز درخواست خریدی ثبت نکرده‌ای.")
         await c.message.answer(
-            "\\n".join(lines),
+            "\n".join(lines),
             reply_markup=_keyboard([
                 [InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")],
                 [InlineKeyboardButton(text="🎓 خرید مشاوره | ۲۰٬۰۰۰ تومان", callback_data="sp:buy:consult")],
