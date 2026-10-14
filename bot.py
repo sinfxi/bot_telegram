@@ -1516,6 +1516,82 @@ async def natural_command(m):
     return False
 
 
+async def run_ai_mode(message: Message, mode: str):
+    """Run an opt-in writing/thinking mode through Groq; never expose API credentials."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return await message.answer("⚠️ سرویس هوش مصنوعی تنظیم نشده است؛ مدیر باید GROQ_API_KEY را در متغیرهای محیطی قرار دهد.")
+    prompt = ""
+    if message.text:
+        parts = message.text.split(maxsplit=1)
+        if len(parts) > 1:
+            prompt = parts[1].strip()
+    if not prompt and message.reply_to_message:
+        prompt = (message.reply_to_message.text or message.reply_to_message.caption or "").strip()
+    if not prompt:
+        examples = {
+            "brainstorm": "مثال: /brainstorm ایده‌هایی برای پروژه برنامه‌نویسی دانش‌آموزی بده",
+            "copywriter": "مثال: /copywriter یک متن معرفی برای کانال آموزشی بنویس",
+            "human": "مثال: /human این متن را طبیعی و روان بازنویسی کن",
+            "critic": "مثال: /critic این ایده را منصفانه نقد کن و ایرادهایش را بگو",
+        }
+        return await message.answer("متن یا درخواستت را بعد از دستور بنویس، یا روی یک پیام ریپلای کن.\n" + examples[mode])
+    system_prompts = {
+        "brainstorm": "تو یک هم‌فکر خلاق و دقیق هستی. چند ایده متفاوت و عملی پیشنهاد بده، مزایا و گام شروع هرکدام را کوتاه توضیح بده و از تکرار پرهیز کن. به فارسی روان پاسخ بده.",
+        "copywriter": "تو نویسنده تبلیغاتی حرفه‌ای هستی. متن روشن، متقاعدکننده و متناسب با مخاطب بنویس؛ ادعای بی‌پشتوانه نساز و اگر اطلاعاتی کم است فرض‌ها را مشخص کن. به فارسی روان پاسخ بده.",
+        "human": "متن ورودی را با حفظ معنا به فارسی طبیعی، روان و ملموس بازنویسی کن. از کلیشه‌ها، اغراق و لحن رباتیک دوری کن؛ اطلاعات تازه یا ادعای ساختگی اضافه نکن.",
+        "critic": "تو منتقدی منصف و دقیق هستی. نقاط قوت، ایرادها، فرض‌های پنهان و ریسک‌ها را مشخص کن و در پایان پیشنهادهای عملی بده. بی‌دلیل موافقت نکن و به فارسی روان پاسخ بده.",
+    }
+    await message.answer("⏳ دارم بررسی می‌کنم…")
+    try:
+        timeout = aiohttp.ClientTimeout(total=55, connect=10)
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": os.getenv("AI_MODEL", "llama-3.3-70b-versatile"),
+            "messages": [
+                {"role": "system", "content": system_prompts[mode]},
+                {"role": "user", "content": prompt[:12000]},
+            ],
+            "temperature": 0.65,
+            "max_tokens": 1800,
+        }
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            async with session.post("https://api.groq.com/openai/v1/chat/completions", json=payload) as response:
+                if response.status >= 400:
+                    body = await response.text()
+                    logging.warning("Groq request failed: HTTP %s; body=%s", response.status, body[:300])
+                    return await message.answer("❌ سرویس هوش مصنوعی فعلاً پاسخ نداد. کمی بعد دوباره امتحان کن یا تنظیمات مدل را بررسی کن.")
+                data = await response.json()
+        answer = data["choices"][0]["message"]["content"].strip()
+        if not answer:
+            return await message.answer("پاسخ خالی دریافت شد؛ لطفاً درخواستت را کمی دقیق‌تر بنویس.")
+        for start in range(0, len(answer), 3900):
+            await message.answer(answer[start:start + 3900])
+    except Exception:
+        logging.exception("AI mode failed: %s", mode)
+        await message.answer("⚠️ در اجرای این ابزار خطایی رخ داد. لطفاً دوباره تلاش کن.")
+
+
+@dp.message(Command("brainstorm", "brainstorn"))
+async def brainstorm_cmd(m: Message):
+    await run_ai_mode(m, "brainstorm")
+
+
+@dp.message(Command("copywriter"))
+async def copywriter_cmd(m: Message):
+    await run_ai_mode(m, "copywriter")
+
+
+@dp.message(Command("human"))
+async def human_cmd(m: Message):
+    await run_ai_mode(m, "human")
+
+
+@dp.message(Command("critic"))
+async def critic_cmd(m: Message):
+    await run_ai_mode(m, "critic")
+
+
 @dp.message()
 async def allmsg(m):
     save(m)
