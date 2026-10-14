@@ -208,6 +208,46 @@ def classify(title, kind, url=""):
     return True
 
 
+async def collect_grade_resources(grade, kind, limit=16):
+    """Inspect a bounded set of lesson pages for downloadable PDFs and playable video links."""
+    items = await get_grade_items(grade)
+    wanted = {"pdf"} if kind == "PDF" else {"video", "link"}
+    collected, seen = [], set()
+    for item in items:
+        direct = resource_type(item.get("url", ""), item.get("title", ""))
+        if direct in wanted and item.get("url") not in seen:
+            seen.add(item["url"])
+            collected.append({"title": item.get("title", "فایل آموزشی")[:160], "url": item["url"], "grade": grade})
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def inspect(item):
+        async with semaphore:
+            try:
+                parser = await fetch_page(item["url"])
+            except Exception:
+                return []
+            found = []
+            for link in parser.links:
+                url = link.get("url", "")
+                title = " ".join((link.get("title") or "").split()) or item.get("title", "منبع آموزشی")
+                if urlparse(url).scheme not in ("http", "https"):
+                    continue
+                media = resource_type(url, title)
+                if media in wanted:
+                    found.append({"title": (item.get("title", "") + " — " + title)[:180], "url": url, "grade": grade})
+            return found
+
+    inspected = await asyncio.gather(*(inspect(item) for item in items[:limit]), return_exceptions=True)
+    for result in inspected:
+        if isinstance(result, list):
+            for item in result:
+                if item["url"] not in seen:
+                    seen.add(item["url"])
+                    collected.append(item)
+    return collected[:80]
+
+
 def set_visible(chat_id, items):
     CHAT_CACHE[f"_visible_{chat_id}"] = items
 
@@ -224,7 +264,8 @@ def results_keyboard(chat_id, page=0):
         item = items[i]
         url = item.get("url", "")
         path = urlparse(url).path.lower()
-        icon = "📥" if path.endswith(".pdf") else ("🎬" if path.endswith((".mp4", ".m4v", ".webm", ".mov", ".m3u8")) else "📘")
+        media = resource_type(url, item.get("title", ""))
+        icon = "📥" if media == "pdf" else ("🎬" if media in ("video", "link") else "📘")
         rows.append([InlineKeyboardButton(text=(icon + " " + item["title"])[:62], callback_data=f"hd:item:{i}")])
     nav = []
     if page:
@@ -351,7 +392,13 @@ def register_hamyar_handlers(dp):
             items = await get_grade_items(grade)
             set_visible(c.message.chat.id, items)
             if not items:
-                return await c.message.answer("برای این پایه هنوز عنوانی دریافت نشد.")
+                return await c.message.answer(
+                    "برای این پایه فعلاً عنوانی دریافت نشد. می‌توانی دوباره تلاش کنی یا پایه‌ای دیگر را انتخاب کنی.",
+                    reply_markup=keyboard([
+                        [InlineKeyboardButton(text="🔄 تلاش دوباره", callback_data=f"hd:all:{grade}")],
+                        [InlineKeyboardButton(text="🎓 انتخاب پایه", callback_data="hd:home")]
+                    ])
+                )
             await c.message.answer(f"📚 همهٔ مطالب پایه {GRADE_WORDS[grade]}:", reply_markup=results_keyboard(c.message.chat.id))
         except Exception:
             log.exception("Hamyar all items failed")
@@ -365,9 +412,22 @@ def register_hamyar_handlers(dp):
             grade = int(grade_s)
             items = await get_grade_items(grade)
             found = [x for x in items if classify(x["title"], kind, x.get("url", ""))]
+            if kind in ("PDF", "ویدیو"):
+                discovered = await collect_grade_resources(grade, kind)
+                by_url = {x.get("url"): x for x in found}
+                for resource in discovered:
+                    by_url.setdefault(resource.get("url"), resource)
+                found = list(by_url.values())
             set_visible(c.message.chat.id, found)
             if not found:
-                return await c.message.answer("در این دسته عنوانی پیدا نشد؛ بخش «همهٔ مطالب این پایه» را هم امتحان کن.")
+                return await c.message.answer(
+                    f"در این پایه فعلاً مورد مستقیمی برای «{kind}» پیدا نشد. می‌توانی همهٔ مطالب پایه را ببینی یا پایه دیگری را انتخاب کنی.",
+                    reply_markup=keyboard([
+                        [InlineKeyboardButton(text="📚 همهٔ مطالب این پایه", callback_data=f"hd:all:{grade}")],
+                        [InlineKeyboardButton(text="⬅️ بازگشت به دسته‌ها", callback_data=f"hd:grade:{grade}")],
+                        [InlineKeyboardButton(text="🎓 انتخاب پایه", callback_data="hd:home")]
+                    ])
+                )
             await c.message.answer(
                 f"📚 همیار درس — {kind}\n{len(found)} عنوان پیدا شد. یک مورد را انتخاب کن:",
                 reply_markup=results_keyboard(c.message.chat.id)
