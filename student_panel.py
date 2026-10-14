@@ -82,6 +82,7 @@ def _panel_keyboard(user_id):
             callback_data="sp:consult"
         )],
         [InlineKeyboardButton(text="📊 رتبه و تراز کنکور | رایگان", callback_data="sp:rank")],
+        [InlineKeyboardButton(text="🧾 وضعیت خرید و اشتراک", callback_data="sp:status")],
         [InlineKeyboardButton(text="📚 همیار درس و گام‌به‌گام", callback_data="hd:home")],
         [InlineKeyboardButton(text="📄 راهنمای فایل‌ها و PDF", callback_data="sp:pdfhelp"),
          InlineKeyboardButton(text="🎬 آموزش ویدئویی", callback_data="sp:videohelp")],
@@ -207,10 +208,80 @@ def register_student_handlers(dp, bot, admin_ids):
     async def free_rank(c: CallbackQuery):
         await c.answer()
         await c.message.answer(
-            "📊 بخش رایگان رتبه و تراز کنکور\n\n"
-            "برای یک راهنمای اولیه، اطلاعات موجودت را بفرست: رشته (تجربی/ریاضی/انسانی)، رتبه یا تراز، "
-            "منطقه/سهمیه و سال کنکور. اگر هنوز رتبه نداری، بنویس «تخمین ندارم» تا روش خواندن کارنامه و عوامل مؤثر را توضیح بدهم.\n\n"
-            "⚠️ ربات به کارنامه رسمی سنجش دسترسی ندارد و رتبه یا تراز رسمی را از روی حدس تولید نمی‌کند."
+            "📊 رتبه و تراز کنکور | رایگان\\n\\n"
+            "گروه آزمایشی را انتخاب کن، سپس رتبه/تراز، منطقه یا سهمیه و سال کنکور را وارد کن. "
+            "اگر هنوز کارنامه نداری، راهنمای بدون کارنامه را انتخاب کن.\\n\\n"
+            "⚠️ ربات به سامانهٔ رسمی سنجش وصل نیست و رتبه یا تراز رسمی را حدس نمی‌زند.",
+            reply_markup=_keyboard([
+                [InlineKeyboardButton(text="🧬 تجربی", callback_data="sp:rank:group:تجربی"),
+                 InlineKeyboardButton(text="📐 ریاضی", callback_data="sp:rank:group:ریاضی")],
+                [InlineKeyboardButton(text="📚 انسانی", callback_data="sp:rank:group:انسانی"),
+                 InlineKeyboardButton(text="🎨 هنر", callback_data="sp:rank:group:هنر"),
+                 InlineKeyboardButton(text="🌐 زبان", callback_data="sp:rank:group:زبان")],
+                [InlineKeyboardButton(text="📝 راهنمای بدون کارنامه", callback_data="sp:rank:manual")],
+                [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:menu")]
+            ])
+        )
+
+    @dp.callback_query(F.data.startswith("sp:rank:group:"))
+    async def rank_group(c: CallbackQuery):
+        group = c.data.rsplit(":", 1)[1]
+        await c.answer()
+        await c.message.answer(
+            f"📊 راهنمای رتبه و تراز | گروه {group}\\n\\n"
+            "اطلاعاتت را در یک پیام بفرست:\\n"
+            f"گروه: {group} | رتبه: ... | تراز: ... | منطقه/سهمیه: ... | سال کنکور: ...\\n\\n"
+            "اگر رتبه یا تراز نداری، بنویس «تخمین ندارم». نتیجه‌ها رسمی نیستند و قبولی قطعی را تضمین نمی‌کنند.",
+            reply_markup=_keyboard([
+                [InlineKeyboardButton(text="📝 راهنمای بدون کارنامه", callback_data="sp:rank:manual")],
+                [InlineKeyboardButton(text="⬅️ بازگشت به رتبه و تراز", callback_data="sp:rank")]
+            ])
+        )
+
+    @dp.callback_query(F.data == "sp:rank:manual")
+    async def rank_manual(c: CallbackQuery):
+        await c.answer()
+        await c.message.answer(
+            "📝 اگر هنوز کارنامه نداری، گروه آزمایشی، پایه/سال تحصیل، درس‌های قوی و ضعیف و میانگین ساعت مطالعه را بنویس.\\n\\n"
+            "در کارنامه، رتبه در سهمیه، رتبه کشوری، تراز، سهمیه و سال آزمون را از هم جدا کن. "
+            "اطلاعات حساس مثل کد ملی، رمز یا تصویر کامل کارنامه را نفرست.",
+            reply_markup=_keyboard([[InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:rank")]])
+        )
+
+    @dp.callback_query(F.data == "sp:status")
+    async def payment_status(c: CallbackQuery):
+        await c.answer()
+        panel, consult = _access(c.from_user.id)
+        rows = db.execute(
+            "SELECT id,product,amount,status,created_at FROM student_payments WHERE user_id=? ORDER BY id DESC LIMIT 5",
+            (c.from_user.id,)
+        ).fetchall()
+        labels = {
+            "awaiting_receipt": "منتظر ارسال رسید",
+            "pending_review": "در انتظار بررسی مدیر",
+            "approved": "تأیید شده",
+            "rejected": "رسید رد شده",
+        }
+        lines = [
+            "🧾 وضعیت دسترسی‌ها",
+            f"پنل دانش‌آموزی/دانشجویی: {'🟢 فعال' if panel else '🔴 قفل'}",
+            f"مشاوره انتخاب دانشگاه: {'🟢 فعال' if consult else '🔴 قفل'}",
+            "",
+            "آخرین درخواست‌ها:"
+        ]
+        for payment_id, product, amount, status, created_at in rows:
+            name = "پنل VIP" if product == "panel" else "مشاوره دانشگاه"
+            date = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d %H:%M")
+            lines.append(f"• #{payment_id} | {name} | {amount:,} تومان | {labels.get(status, status)} | {date}")
+        if not rows:
+            lines.append("هنوز درخواست خریدی ثبت نکرده‌ای.")
+        await c.message.answer(
+            "\\n".join(lines),
+            reply_markup=_keyboard([
+                [InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")],
+                [InlineKeyboardButton(text="🎓 خرید مشاوره | ۲۰٬۰۰۰ تومان", callback_data="sp:buy:consult")],
+                [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:menu")]
+            ])
         )
 
     @dp.callback_query(F.data == "sp:flashcards")
