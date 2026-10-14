@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse
 
 import aiohttp
 from aiogram import F
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message, BufferedInputFile
 
 log = logging.getLogger(__name__)
 BASE = "https://hamyar.me"
@@ -40,6 +40,10 @@ class PageParser(HTMLParser):
             self.capture_title = True
         if tag in ("script", "style", "nav", "footer", "header", "noscript"):
             self.skip_depth += 1
+        if tag in ("iframe", "video", "source", "embed") and not self.skip_depth:
+            src = attrs.get("src") or attrs.get("data-src") or attrs.get("data-video-src")
+            if src:
+                self.links.append({"title": attrs.get("title") or attrs.get("aria-label") or tag, "url": urljoin(BASE, src)})
         if tag == "a" and not self.skip_depth:
             self.current_link = {"title": "", "url": attrs.get("href", "")}
         if tag in ("h1", "h2", "h3", "h4"):
@@ -118,6 +122,7 @@ def kind_keyboard(grade):
         [InlineKeyboardButton(text="📘 گام‌به‌گام و پاسخ تمرین‌ها", callback_data=f"hd:kind:{grade}:گام")],
         [InlineKeyboardButton(text="📝 نمونه‌سؤال‌های امتحانی", callback_data=f"hd:kind:{grade}:نمونه")],
         [InlineKeyboardButton(text="📒 جزوه و درسنامه", callback_data=f"hd:kind:{grade}:جزوه")],
+        [InlineKeyboardButton(text="📥 فایل‌های PDF و جزوه‌های دانلودی", callback_data=f"hd:kind:{grade}:PDF")],
         [InlineKeyboardButton(text="🎬 آموزش ویدئویی", callback_data=f"hd:kind:{grade}:ویدیو")],
         [InlineKeyboardButton(text="🧪 آزمون و تمرین", callback_data=f"hd:kind:{grade}:آزمون")],
         [InlineKeyboardButton(text="📚 همهٔ مطالب این پایه", callback_data=f"hd:all:{grade}")],
@@ -177,16 +182,24 @@ async def get_grade_items(grade):
     return items
 
 
-def classify(title, kind):
+def classify(title, kind, url=""):
     t = title.replace("‌", " ").lower()
+    parsed_path = urlparse(url).path.lower()
+    if kind == "PDF":
+        return parsed_path.endswith(".pdf") or any(x in t for x in ("pdf", "پی دی اف", "دانلود فایل", "فایل pdf", "جزوه دانلود"))
     if kind == "گام":
-        return any(x in t for x in ("گام به گام", "گام‌به‌گام", "جواب", "پاسخ", "فعالیت", "تمرین", "کار در کلاس", "معنی "))
+        return any(x in t for x in ("گام به گام", "گام‌به‌گام", "حل تمرین", "پاسخ تمرین", "جواب", "پاسخ", "فعالیت", "تمرین", "کار در کلاس", "معنی "))
     if kind == "نمونه":
         return "نمونه سوال" in t or "نمونه‌سوال" in t or "نمونه سؤال" in t
     if kind == "جزوه":
         return any(x in t for x in ("جزوه", "درسنامه", "خلاصه"))
     if kind == "ویدیو":
-        return any(x in t for x in ("ویدیو", "ویدئو", "فیلم آموزشی", "آموزش تصویری"))
+        host = (urlparse(url).hostname or "").lower()
+        return (
+            parsed_path.endswith((".mp4", ".m4v", ".webm", ".mov", ".m3u8"))
+            or any(x in t for x in ("ویدیو", "ویدئو", "فیلم آموزشی", "آموزش تصویری", "ویدئویی"))
+            or any(x in host for x in ("youtube.com", "youtu.be", "aparat.com", "namasha.com", "vidio.com"))
+        )
     if kind == "آزمون":
         return any(x in t for x in ("آزمون", "تست", "امتحان"))
     return True
@@ -205,7 +218,11 @@ def results_keyboard(chat_id, page=0):
     size = 8
     rows = []
     for i in range(page * size, min((page + 1) * size, len(items))):
-        rows.append([InlineKeyboardButton(text=("📄 " + items[i]["title"])[:62], callback_data=f"hd:item:{i}")])
+        item = items[i]
+        url = item.get("url", "")
+        path = urlparse(url).path.lower()
+        icon = "📥" if path.endswith(".pdf") else ("🎬" if path.endswith((".mp4", ".m4v", ".webm", ".mov", ".m3u8")) else "📘")
+        rows.append([InlineKeyboardButton(text=(icon + " " + item["title"])[:62], callback_data=f"hd:item:{i}")])
     nav = []
     if page:
         nav.append(InlineKeyboardButton(text="⬅️ قبلی", callback_data=f"hd:page:{page-1}"))
@@ -230,6 +247,61 @@ def short_summary(parser):
     if len(summary) > 950:
         summary = summary[:950].rsplit(" ", 1)[0] + "…"
     return summary or "خلاصهٔ متنی در این صفحه پیدا نشد؛ ممکن است محتوا به شکل تصویر یا فایل باشد."
+
+
+
+
+def resource_type(url, title=""):
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    host = (parsed.hostname or "").lower()
+    label = (title or "").replace("‌", " ").lower()
+    if path.endswith(".pdf") or "application/pdf" in label or "فایل pdf" in label or "پی دی اف" in label:
+        return "pdf"
+    if path.endswith((".mp4", ".m4v", ".webm", ".mov", ".m3u8")):
+        return "video"
+    if any(x in host for x in ("youtube.com", "youtu.be", "aparat.com", "namasha.com", "vidio.com")) or any(x in label for x in ("ویدیو", "ویدئو", "فیلم آموزشی", "پخش ویدئو")):
+        return "link"
+    return None
+
+
+async def send_resource(callback, url, title, kind):
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.hostname.lower() in ("localhost", "127.0.0.1"):
+        return await callback.message.answer("آدرس فایل معتبر نیست.")
+    await callback.answer("در حال دریافت فایل…")
+    try:
+        timeout = aiohttp.ClientTimeout(total=45, connect=10)
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; HamyarDarsBot/1.1)"}
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+            async with session.get(url, allow_redirects=True) as response:
+                if response.status >= 400:
+                    return await callback.message.answer("فایل فعلاً از میزبان دریافت نشد؛ کمی بعد دوباره امتحان کن.")
+                data = await response.content.read(45 * 1024 * 1024 + 1)
+                if len(data) > 45 * 1024 * 1024:
+                    return await callback.message.answer(
+                        "حجم فایل برای ارسال مستقیم از ربات زیاد است. از دکمهٔ دریافت در میزبان فایل استفاده کن.",
+                        reply_markup=keyboard([[InlineKeyboardButton(text="باز کردن فایل", url=url)]])
+                    )
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                if kind == "pdf" and "pdf" not in content_type and not parsed.path.lower().endswith(".pdf"):
+                    return await callback.message.answer("میزبان به‌جای PDF فایل دیگری برگرداند؛ ارسال لغو شد.")
+                filename = parsed.path.rsplit("/", 1)[-1] or ("video.mp4" if kind == "video" else "lesson.pdf")
+                filename = filename.split("?")[0][:120]
+                file = BufferedInputFile(data, filename=filename)
+                if kind == "pdf":
+                    await callback.message.answer_document(file, caption=("📄 " + (title or filename))[:900])
+                elif kind == "video":
+                    await callback.message.answer_video(file, caption=("🎬 " + (title or filename))[:900])
+                else:
+                    await callback.message.answer(
+                        "🎬 برای پخش این آموزش از دکمهٔ زیر استفاده کن.",
+                        reply_markup=keyboard([[InlineKeyboardButton(text="▶️ پخش آموزش", url=url)]])
+                    )
+    except Exception:
+        log.exception("Hamyar resource download failed")
+        await callback.message.answer("دریافت فایل ناموفق بود؛ احتمالاً میزبان دسترسی مستقیم نمی‌دهد.")
+
 
 
 def register_hamyar_handlers(dp):
@@ -332,19 +404,58 @@ def register_hamyar_handlers(dp):
             if index < 0 or index >= len(items):
                 return await c.message.answer("این فهرست قدیمی شده؛ دوباره بخش را باز کن.")
             item = items[index]
+            if urlparse(item["url"]).path.lower().endswith(".pdf"):
+                return await send_resource(c, item["url"], item["title"], "pdf")
             parser = await fetch_page(item["url"])
             excerpt = short_summary(parser)
+            resources, seen = [], set()
+            for link in parser.links:
+                url = link.get("url", "")
+                title = " ".join((link.get("title") or "").split()) or "فایل آموزشی"
+                kind = resource_type(url, title)
+                if kind and url not in seen and urlparse(url).scheme in ("http", "https"):
+                    seen.add(url)
+                    resources.append({"url": url, "title": title[:100], "kind": kind})
+            CHAT_CACHE[f"_resources_{c.message.chat.id}_{index}"] = resources[:12]
+            rows = []
+            for ridx, resource in enumerate(resources[:8]):
+                icon = "📥 PDF" if resource["kind"] == "pdf" else ("🎬 ویدئو" if resource["kind"] == "video" else "▶️ پخش")
+                rows.append([InlineKeyboardButton(text=(icon + " | " + resource["title"])[:62], callback_data=f"hd:resource:{index}:{ridx}")])
+            rows.extend([
+                [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="hd:page:0")],
+                [InlineKeyboardButton(text="🏠 منوی همیار درس", callback_data="hd:home")],
+            ])
             await c.message.answer(
                 f"📘 {item['title']}\n\n{excerpt}\n\n"
-                "این نمایش، خلاصه‌ای کوتاه از مطلب است؛ محتوای کامل اختصاصی سایت بازنشر نمی‌شود.",
-                reply_markup=keyboard([
-                    [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="hd:page:0")],
-                    [InlineKeyboardButton(text="🏠 منوی همیار درس", callback_data="hd:home")],
-                ])
+                ("فایل‌ها و ویدئوهای عمومی پیدا شده‌اند؛ برای دریافت یا پخش، یکی را انتخاب کن."
+                 if resources else "در این صفحه فایل مستقیم عمومی پیدا نشد. می‌توانی نتیجه‌های دیگر را ببینی."),
+                reply_markup=keyboard(rows)
             )
         except Exception:
             log.exception("Hamyar item fetch failed")
             await c.message.answer("این مطلب فعلاً دریافت نشد. کمی بعد دوباره تلاش کن.")
+
+
+    @dp.callback_query(F.data.startswith("hd:resource:"))
+    async def hd_resource(c: CallbackQuery):
+        try:
+            _, _, item_s, resource_s = c.data.split(":")
+            item_index, resource_index = int(item_s), int(resource_s)
+            resources = CHAT_CACHE.get(f"_resources_{c.message.chat.id}_{item_index}", [])
+            if resource_index < 0 or resource_index >= len(resources):
+                return await c.answer("فهرست فایل‌ها قدیمی شده؛ مطلب را دوباره باز کن.", show_alert=True)
+            resource = resources[resource_index]
+            if resource["kind"] in ("pdf", "video"):
+                return await send_resource(c, resource["url"], resource["title"], resource["kind"])
+            await c.answer()
+            await c.message.answer(
+                "🎬 این آموزش در یک پخش‌کنندهٔ خارجی قرار دارد.",
+                reply_markup=keyboard([[InlineKeyboardButton(text="▶️ پخش آموزش", url=resource["url"])],
+                                       [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"hd:item:{item_index}")]])
+            )
+        except Exception:
+            log.exception("Hamyar resource callback failed")
+            await c.answer("دریافت فایل انجام نشد.", show_alert=True)
 
     @dp.message(F.text.regexp(r"(?i)(همیار درس|گام\s*به\s*گام|نمونه\s*سوال|نمونه\s*سؤال|جزوه|درسنامه|آزمون|امتحان|ویدیو|ویدئو|ریاضی|فیزیک|شیمی|زیست|فارسی|نگارش|عربی|انگلیسی|دینی|دین\s*و\s*زندگی|جغرافیا|تاریخ|جامعه\s*شناسی|منطق|اقتصاد|هندسه|آمادگی\s*دفاعی|پایه\s*(اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم)|\b(دهم|یازدهم|دوازدهم|نهم|هشتم|هفتم|ششم|پنجم|چهارم|سوم|دوم|اول)\b))"))
     async def hd_text_search(m: Message):
