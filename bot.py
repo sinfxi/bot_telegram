@@ -12,6 +12,7 @@ from aiogram.types import (
 )
 from aiogram.enums import ChatMemberStatus
 from aiohttp import web
+from hamyar_dars import register_hamyar_handlers
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADM = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x}
@@ -55,6 +56,7 @@ db.commit()
 
 bot = Bot(TOKEN)
 dp = Dispatcher()
+register_hamyar_handlers(dp)
 pending = set()
 pending_admin_actions = {}
 
@@ -90,6 +92,7 @@ def personal_menu():
         [InlineKeyboardButton(text="📖 راهنما", callback_data="u:help"), InlineKeyboardButton(text="👤 پروفایل من", callback_data="u:profile")],
         [InlineKeyboardButton(text="⏰ یادآوری‌ها", callback_data="u:reminders"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="u:tools")],
         [InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="u:faqs")],
+        [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
     ])
 
 async def group_admin(m):
@@ -497,8 +500,7 @@ async def mute(m):
 async def unmute(m):
     if not await group_admin(m): return
     u = target(m)
-    if not u: return await m.answer("کاربر را ریپلای کن.")
-    try:
+    if not u: return await m.answer("کاربر را ریپلای کن.")    try:
         await bot.restrict_chat_member(
             m.chat.id, u.id,
             permissions=ChatPermissions(can_send_messages=True)
@@ -997,8 +999,7 @@ async def profile_cmd(m):
     await m.answer(
         f"👤 پروفایل تو\nنام: {m.from_user.full_name}\nشناسه: <code>{m.from_user.id}</code>\n"
         f"نام کاربری: @{m.from_user.username or 'ندارد'}\nیادآوری‌های فعال: {reminders_n}",
-        parse_mode="HTML"
-    )
+        parse_mode="HTML"    )
 
 @dp.message(Command("reminders"))
 async def reminders_cmd(m):
@@ -1497,8 +1498,7 @@ async def natural_command(m):
             result = safe_calculate(expression)
             await m.answer(f"🧮 نتیجه: <code>{result}</code>", parse_mode="HTML")
         except ZeroDivisionError:
-            await m.answer("🧮 تقسیم بر صفر ممکن نیست.")
-        except Exception:
+            await m.answer("🧮 تقسیم بر صفر ممکن نیست.")        except Exception:
             await m.answer("🧮 عبارت رو ساده و عددی بنویس؛ مثلاً «حساب کن 12 * (4 + 3)».")
         return True
 
