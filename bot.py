@@ -1617,6 +1617,8 @@ async def main():
         runner, "0.0.0.0", int(os.getenv("PORT", "8080"))
     ).start()
 
+    # This bot uses long polling; clear any stale Telegram webhook first.
+    await bot.delete_webhook(drop_pending_updates=False)
     await set_bot_commands()
     maintenance_task = asyncio.create_task(maintenance())
     try:
