@@ -512,7 +512,7 @@ def register_hamyar_handlers(dp):
                 return await c.message.answer("این فهرست قدیمی شده؛ دوباره بخش را باز کن.")
             item = items[index]
             direct_kind = resource_type(item["url"], item["title"])
-            if direct_kind not in ("pdf", "video"):
+            if direct_kind is None:
                 detected_kind, detected_url = await detect_remote_media(item["url"])
                 if detected_kind in ("pdf", "video"):
                     return await send_resource(c, detected_url, item["title"], detected_kind)
@@ -536,6 +536,11 @@ def register_hamyar_handlers(dp):
                 kind = resource_type(url, title)
                 hints = (title + " " + url).lower()
                 media_hints = ("pdf", "دانلود", "دریافت", "فایل", "جزوه", "کتاب", "download", "file", "media", ".mp4", ".webm", ".m3u8")
+                if kind == "link":
+                    if url not in seen:
+                        seen.add(url)
+                        resources.append({"url": url, "title": title[:100], "kind": kind})
+                    continue
                 if kind not in ("pdf", "video") and not any(hint in hints for hint in media_hints):
                     continue
                 if kind not in ("pdf", "video"):
