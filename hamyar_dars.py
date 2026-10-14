@@ -362,7 +362,7 @@ def register_hamyar_handlers(dp):
             _, _, grade_s, kind = c.data.split(":", 3)
             grade = int(grade_s)
             items = await get_grade_items(grade)
-            found = [x for x in items if classify(x["title"], kind)]
+            found = [x for x in items if classify(x["title"], kind, x.get("url", ""))]
             set_visible(c.message.chat.id, found)
             if not found:
                 return await c.message.answer("در این دسته عنوانی پیدا نشد؛ بخش «همهٔ مطالب این پایه» را هم امتحان کن.")
@@ -418,7 +418,6 @@ def register_hamyar_handlers(dp):
             if direct_kind in ("pdf", "video"):
                 return await send_resource(c, item["url"], item["title"], direct_kind)
             if direct_kind == "link":
-                await c.answer()
                 return await c.message.answer(
                     "🎬 آموزش ویدئویی در میزبان پخش قرار دارد.",
                     reply_markup=keyboard([[InlineKeyboardButton(text="▶️ پخش آموزش", url=item["url"])],
@@ -441,6 +440,7 @@ def register_hamyar_handlers(dp):
                 rows.append([InlineKeyboardButton(text=(icon + " | " + resource["title"])[:62], callback_data=f"hd:resource:{index}:{ridx}")])
             rows.extend([
                 [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="hd:page:0")],
+                [InlineKeyboardButton(text="🔎 جست‌وجوی دوباره", callback_data="hd:search")],
                 [InlineKeyboardButton(text="🏠 منوی همیار درس", callback_data="hd:home")],
             ])
             await c.message.answer(
