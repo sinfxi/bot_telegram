@@ -328,7 +328,7 @@ def register_student_handlers(dp, bot, admin_ids):
             await c.message.edit_reply_markup(reply_markup=None)
             await c.message.answer(f"رسید درخواست #{payment_id} رد شد.")
 
-    @dp.message(F.text)
+    @dp.message(F.text.regexp(r"(?i)(رتبه|تراز|انتخاب دانشگاه|دانشگاه کجا|رتبه ندارم|تخمین ندارم|کارنامه ندارم)"))
     async def student_text_features(message: Message):
         if not message.from_user or not message.text:
             return
