@@ -127,6 +127,29 @@ def _request_payment(user_id, product):
     return cur.lastrowid, amount
 
 
+
+async def edit_callback_message(c, text, **kwargs):
+    """Update the current menu message instead of flooding the chat."""
+    message = getattr(c, "message", None)
+    if message is None:
+        return
+    try:
+        if getattr(message, "text", None) is not None:
+            await message.edit_text(text, **kwargs)
+        elif getattr(message, "caption", None) is not None:
+            await message.edit_caption(caption=text, **kwargs)
+        else:
+            await message.answer(text, **kwargs)
+    except Exception as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        logging.debug("Could not edit callback message; sending fallback: %s", exc)
+        try:
+            await message.answer(text, **kwargs)
+        except Exception:
+            logging.exception("Could not display callback result")
+
+
 def register_student_handlers(dp, bot, admin_ids):
     admins = set(admin_ids or [])
     try:
@@ -154,7 +177,7 @@ def register_student_handlers(dp, bot, admin_ids):
     @dp.callback_query(F.data == "sp:menu")
     async def student_menu(c: CallbackQuery):
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             "🎓 مرکز دانش‌آموزی و دانشجویی\n\n"
             "از اینجا می‌توانی ابزارهای رایگان را ببینی، اشتراک بخری یا وضعیت دسترسی‌ها را بررسی کنی.\n"
             "🔴 قفل = اشتراک فعال نیست | 🟢 سبز = دسترسی تأیید شده",
@@ -164,7 +187,7 @@ def register_student_handlers(dp, bot, admin_ids):
     @dp.callback_query(F.data == "sp:about")
     async def about(c: CallbackQuery):
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             "ℹ️ درباره ما\n\n"
             "همیار درس برای ساده‌تر کردن یادگیری ساخته شده است: دسترسی دسته‌بندی‌شده به مطالب درسی، "
             "گام‌به‌گام، فایل‌های آموزشی، تمرین و ابزارهای برنامه‌ریزی.\n\n"
@@ -178,21 +201,21 @@ def register_student_handlers(dp, bot, admin_ids):
         panel, _ = _access(c.from_user.id)
         await c.answer()
         if not panel:
-            return await c.message.answer(
+            return await edit_callback_message(c, 
                 "🔒 لطفاً اشتراک VIP پنل دانش‌آموزی و دانشجویی را بخرید تا این بخش باز شود.",
                 reply_markup=_keyboard([
                     [InlineKeyboardButton(text="💳 خرید اشتراک | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")],
                     [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:menu")],
                 ])
             )
-        await c.message.answer("🟢 پنل دانش‌آموزی و دانشجویی فعال است. یکی از بخش‌ها را انتخاب کن:", reply_markup=_premium_keyboard())
+        await edit_callback_message(c, "🟢 پنل دانش‌آموزی و دانشجویی فعال است. یکی از بخش‌ها را انتخاب کن:", reply_markup=_premium_keyboard())
 
     @dp.callback_query(F.data == "sp:consult")
     async def consult_entry(c: CallbackQuery):
         _, consult = _access(c.from_user.id)
         await c.answer()
         if not consult:
-            return await c.message.answer(
+            return await edit_callback_message(c, 
                 "🔒 برای باز شدن مشاوره انتخاب دانشگاه، اشتراک ۲۰٬۰۰۰ تومانی این بخش را تهیه کن.",
                 reply_markup=_keyboard([
                     [InlineKeyboardButton(text="💳 خرید مشاوره | ۲۰٬۰۰۰ تومان", callback_data="sp:buy:consult")],
@@ -200,7 +223,7 @@ def register_student_handlers(dp, bot, admin_ids):
                     [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:menu")],
                 ])
             )
-        await c.message.answer(
+        await edit_callback_message(c, 
             "🎓 برای دریافت راهنمایی اولیه، اطلاعاتت را در یک پیام بفرست:\n"
             "رشته، رتبه، سهمیه/منطقه، تراز (اگر داری)، معدل و شهرهای موردنظرت.\n\n"
             "نمونه: تجربی | رتبه ۵۲۰۰ | منطقه ۲ | تراز ۸۷۰۰ | معدل ۱۸٫۵ | تهران و کرج\n"
@@ -220,7 +243,7 @@ def register_student_handlers(dp, bot, admin_ids):
     @dp.callback_query(F.data == "sp:rank")
     async def free_rank(c: CallbackQuery):
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             "📊 رتبه و تراز کنکور | رایگان\n\n"
             "گروه آزمایشی را انتخاب کن، سپس رتبه/تراز، منطقه یا سهمیه و سال کنکور را وارد کن. "
             "اگر هنوز کارنامه نداری، راهنمای بدون کارنامه را انتخاب کن.\n\n"
@@ -240,7 +263,7 @@ def register_student_handlers(dp, bot, admin_ids):
     async def rank_group(c: CallbackQuery):
         group = c.data.rsplit(":", 1)[1]
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             f"📊 راهنمای رتبه و تراز | گروه {group}\n\n"
             "اطلاعاتت را در یک پیام بفرست:\n"
             f"گروه: {group} | رتبه: ... | تراز: ... | منطقه/سهمیه: ... | سال کنکور: ...\n\n"
@@ -254,7 +277,7 @@ def register_student_handlers(dp, bot, admin_ids):
     @dp.callback_query(F.data == "sp:rank:manual")
     async def rank_manual(c: CallbackQuery):
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             "📝 اگر هنوز کارنامه نداری، گروه آزمایشی، پایه/سال تحصیل، درس‌های قوی و ضعیف و میانگین ساعت مطالعه را بنویس.\n\n"
             "در کارنامه، رتبه در سهمیه، رتبه کشوری، تراز، سهمیه و سال آزمون را از هم جدا کن. "
             "اطلاعات حساس مثل کد ملی، رمز یا تصویر کامل کارنامه را نفرست.",
@@ -288,7 +311,7 @@ def register_student_handlers(dp, bot, admin_ids):
             lines.append(f"• #{payment_id} | {name} | {amount:,} تومان | {labels.get(status, status)} | {date}")
         if not rows:
             lines.append("هنوز درخواست خریدی ثبت نکرده‌ای.")
-        await c.message.answer(
+        await edit_callback_message(c, 
             "\n".join(lines),
             reply_markup=_keyboard([
                 [InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")],
@@ -302,10 +325,10 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.answer()
         panel, _ = _access(c.from_user.id)
         if not panel:
-            return await c.message.answer("این بخش با اشتراک پنل VIP فعال می‌شود.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]]))
+            return await edit_callback_message(c, "این بخش با اشتراک پنل VIP فعال می‌شود.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]]))
         index = 0
         question, _answer = FLASHCARDS[index]
-        await c.message.answer(
+        await edit_callback_message(c, 
             f"🧠 فلش‌کارت {index + 1} از {len(FLASHCARDS)}\n\n❓ {question}",
             reply_markup=_keyboard([[
                 InlineKeyboardButton(text="👁 دیدن پاسخ", callback_data=f"sp:card:show:{index}"),
@@ -323,12 +346,12 @@ def register_student_handlers(dp, bot, admin_ids):
             index = int(raw_index)
             if action == "show":
                 await c.answer()
-                await c.message.answer(f"✅ پاسخ کارت {index + 1}:\n{FLASHCARDS[index][1]}",
+                await edit_callback_message(c, f"✅ پاسخ کارت {index + 1}:\n{FLASHCARDS[index][1]}",
                     reply_markup=_keyboard([[InlineKeyboardButton(text="➡️ کارت بعد", callback_data=f"sp:card:next:{index}")]]))
             else:
                 index = (index + 1) % len(FLASHCARDS)
                 await c.answer()
-                await c.message.answer(f"🧠 فلش‌کارت {index + 1} از {len(FLASHCARDS)}\n\n❓ {FLASHCARDS[index][0]}",
+                await edit_callback_message(c, f"🧠 فلش‌کارت {index + 1} از {len(FLASHCARDS)}\n\n❓ {FLASHCARDS[index][0]}",
                     reply_markup=_keyboard([[
                         InlineKeyboardButton(text="👁 دیدن پاسخ", callback_data=f"sp:card:show:{index}"),
                         InlineKeyboardButton(text="➡️ کارت بعد", callback_data=f"sp:card:next:{index}")
@@ -341,7 +364,7 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.answer()
         panel, _ = _access(c.from_user.id)
         if not panel:
-            return await c.message.answer(
+            return await edit_callback_message(c, 
                 "🔒 آزمونک تعاملی داخل پنل VIP است.",
                 reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]])
             )
@@ -411,7 +434,7 @@ def register_student_handlers(dp, bot, admin_ids):
         _, options, correct, explanation = quiz[index]
         await c.answer()
         status = "✅ پاسخ درست بود!" if option == correct else f"❌ پاسخ درست: {options[correct]}"
-        await c.message.answer(
+        await edit_callback_message(c, 
             f"{status}\n💡 {explanation}",
             reply_markup=_keyboard([
                 [InlineKeyboardButton(text="➡️ سؤال بعدی", callback_data=f"sp:quiz:next:{index + 1}")],
@@ -424,8 +447,8 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.answer()
         panel, _ = _access(c.from_user.id)
         if not panel:
-            return await c.message.answer("این بخش با اشتراک پنل VIP فعال می‌شود.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]]))
-        await c.message.answer("📐 فرمول‌های درسی — موضوع را انتخاب کن:", reply_markup=_keyboard([
+            return await edit_callback_message(c, "این بخش با اشتراک پنل VIP فعال می‌شود.", reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]]))
+        await edit_callback_message(c, "📐 فرمول‌های درسی — موضوع را انتخاب کن:", reply_markup=_keyboard([
             [InlineKeyboardButton(text="⚙️ فیزیک", callback_data="sp:formula:physics"),
              InlineKeyboardButton(text="📏 ریاضی", callback_data="sp:formula:math")],
             [InlineKeyboardButton(text="🧪 شیمی", callback_data="sp:formula:chemistry"),
@@ -446,7 +469,7 @@ def register_student_handlers(dp, bot, admin_ids):
             "biology": "🧬 زیست‌شناسی | نکته‌های محاسباتی\n• درصد: (مقدار بخش ÷ مقدار کل) × ۱۰۰\n• نسبت: مقدار اول ÷ مقدار دوم\n• بازده درصدی: (مقدار واقعی ÷ مقدار نظری) × ۱۰۰\nدر زیست، قیدهای متن سؤال و شرایط آزمایش را هم بررسی کن."
         }
         await c.answer()
-        await c.message.answer(formulas.get(topic, "موضوع پیدا نشد."), reply_markup=_keyboard([[InlineKeyboardButton(text="⬅️ برگشت به فرمول‌ها", callback_data="sp:formulas")]]))
+        await edit_callback_message(c, formulas.get(topic, "موضوع پیدا نشد."), reply_markup=_keyboard([[InlineKeyboardButton(text="⬅️ برگشت به فرمول‌ها", callback_data="sp:formulas")]]))
 
     @dp.callback_query(F.data.in_({"sp:pdfhelp", "sp:videohelp", "sp:examhelp", "sp:planner"}))
     async def study_shortcuts(c: CallbackQuery):
@@ -455,7 +478,7 @@ def register_student_handlers(dp, bot, admin_ids):
         if action in ("pdfhelp", "videohelp", "examhelp", "planner"):
             panel, _ = _access(c.from_user.id)
             if not panel:
-                return await c.message.answer(
+                return await edit_callback_message(c, 
                     "این ابزار در پنل VIP قرار دارد. ابتدا اشتراک پنل را فعال کن.",
                     reply_markup=_keyboard([[InlineKeyboardButton(text="💳 خرید پنل | ۳۰٬۰۰۰ تومان", callback_data="sp:buy:panel")]])
                 )
@@ -465,7 +488,7 @@ def register_student_handlers(dp, bot, admin_ids):
             "examhelp": "📝 برای یافتن نمونه‌سؤال، پایه و نام درس را در همیار درس جست‌وجو کن؛ از عبارت‌هایی مثل «پایه دهم فیزیک نمونه سوال» استفاده کن.",
             "planner": "🗓 برنامه‌ریزی درسی: در یک پیام پایه، درس‌ها، زمان آزاد روزانه و تاریخ آزمونت را بفرست تا یک برنامه پیشنهادی قابل ویرایش بسازیم."
         }
-        await c.message.answer(messages[action], reply_markup=_keyboard([[InlineKeyboardButton(text="📚 رفتن به همیار درس", callback_data="hd:home")], [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:menu")]]))
+        await edit_callback_message(c, messages[action], reply_markup=_keyboard([[InlineKeyboardButton(text="📚 رفتن به همیار درس", callback_data="hd:home")], [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="sp:menu")]]))
 
     @dp.message(F.photo | F.document)
     async def receipt_upload(message: Message):
@@ -551,7 +574,7 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.answer("پرداخت تأیید و دسترسی فعال شد.")
         if c.message:
             await c.message.edit_reply_markup(reply_markup=None)
-            await c.message.answer(f"تأیید شد: درخواست #{payment_id}، کاربر {user_id}، مبلغ {amount:,} تومان")
+            await edit_callback_message(c, f"تأیید شد: درخواست #{payment_id}، کاربر {user_id}، مبلغ {amount:,} تومان")
 
     @dp.callback_query(F.data.startswith("sp:reject:"))
     async def reject_payment(c: CallbackQuery):
@@ -573,7 +596,7 @@ def register_student_handlers(dp, bot, admin_ids):
         await c.answer("رسید رد شد.")
         if c.message:
             await c.message.edit_reply_markup(reply_markup=None)
-            await c.message.answer(f"رسید درخواست #{payment_id} رد شد.")
+            await edit_callback_message(c, f"رسید درخواست #{payment_id} رد شد.")
 
     @dp.message(F.text.regexp(r"(?i)(رتبه|تراز|انتخاب دانشگاه|دانشگاه کجا|رتبه ندارم|تخمین ندارم|کارنامه ندارم|برنامه.?ریزی|برنامه درسی|زمان آزاد)"))
     async def student_text_features(message: Message):
