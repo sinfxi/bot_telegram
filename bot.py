@@ -91,6 +91,29 @@ def save(m):
 def is_global_admin(uid):
     return uid in ADM
 
+
+async def edit_callback_message(c, text, **kwargs):
+    """Update the current menu message instead of flooding the chat."""
+    message = getattr(c, "message", None)
+    if message is None:
+        return
+    try:
+        if getattr(message, "text", None) is not None:
+            await message.edit_text(text, **kwargs)
+        elif getattr(message, "caption", None) is not None:
+            await message.edit_caption(caption=text, **kwargs)
+        else:
+            await message.answer(text, **kwargs)
+    except Exception as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        logging.debug("Could not edit callback message; sending fallback: %s", exc)
+        try:
+            await message.answer(text, **kwargs)
+        except Exception:
+            logging.exception("Could not display callback result")
+
+
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👥 اعضا", callback_data="mod"), InlineKeyboardButton(text="🛡️ امنیت گروه", callback_data="security")],
@@ -300,7 +323,7 @@ async def personal_menu_callback(c):
         answer = "📚 پاسخ‌های آماده:\n" + ("\n".join("• " + q for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده.")
     else:
         answer = "این بخش در دسترس نیست."
-    await c.message.answer(answer)
+    await edit_callback_message(c, answer)
     await c.answer("انجام شد")
 
 
@@ -884,7 +907,7 @@ async def bc(c):
     if not is_global_admin(c.from_user.id):
         return await c.answer("⛔", show_alert=True)
     pending.add(c.from_user.id)
-    await c.message.answer("📢 پیام همگانی را بفرست. /cancel")
+    await edit_callback_message(c, "📢 پیام همگانی را بفرست. /cancel")
     await c.answer()
 
 @dp.message(Command("broadcast"))
@@ -1666,25 +1689,25 @@ async def root_admin_callbacks(c):
         return await c.answer("⛔ دسترسی ندارید.", show_alert=True)
     parts=c.data.split(":"); action=parts[1]
     if action=="home":
-        await c.message.answer("⚙️ پنل مدیریت اصلی\nمالک اصلی: 6384557276", reply_markup=root_admin_menu())
+        await edit_callback_message(c, "⚙️ پنل مدیریت اصلی\nمالک اصلی: 6384557276", reply_markup=root_admin_menu())
     elif action=="stats":
         users_n=db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         admins_n=db.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
         requests_n=db.execute("SELECT COUNT(*) FROM custom_bot_requests").fetchone()[0]
-        await c.message.answer(f"📊 آمار ربات\nکاربران ثبت‌شده: {users_n}\nمدیران افزوده‌شده: {admins_n}\nدرخواست‌های ربات اختصاصی: {requests_n}")
+        await edit_callback_message(c, f"📊 آمار ربات\nکاربران ثبت‌شده: {users_n}\nمدیران افزوده‌شده: {admins_n}\nدرخواست‌های ربات اختصاصی: {requests_n}")
     elif action=="settings":
-        await c.message.answer("🧰 تنظیمات\n• مالک اصلی: 6384557276\n• برای امنیت، توکن ربات‌های کاربران در این گفتگو دریافت یا ذخیره نمی‌شود.\n• هر ربات اختصاصی باید در سرویس مستقل و با متغیر محرمانه BOT_TOKEN راه‌اندازی شود.")
+        await edit_callback_message(c, "🧰 تنظیمات\n• مالک اصلی: 6384557276\n• برای امنیت، توکن ربات‌های کاربران در این گفتگو دریافت یا ذخیره نمی‌شود.\n• هر ربات اختصاصی باید در سرویس مستقل و با متغیر محرمانه BOT_TOKEN راه‌اندازی شود.")
     elif action=="addadmin":
         ADMIN_FLOW[c.from_user.id]="add_admin"
-        await c.message.answer("شناسه عددی مدیر جدید را بفرست. برای لغو /cancel را بزن.")
+        await edit_callback_message(c, "شناسه عددی مدیر جدید را بفرست. برای لغو /cancel را بزن.")
     elif action=="admins":
         rows=db.execute("SELECT user_id FROM bot_admins ORDER BY created_at DESC LIMIT 50").fetchall()
         buttons=[[InlineKeyboardButton(text=f"👤 {uid} — دسترسی‌ها",callback_data=f"root:editadmin:{uid}")] for (uid,) in rows]
-        if buttons: await c.message.answer("مدیر را انتخاب کن:",reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        else: await c.message.answer("هنوز مدیر افزوده‌شده‌ای وجود ندارد.")
+        if buttons: await edit_callback_message(c, "مدیر را انتخاب کن:",reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        else: await edit_callback_message(c, "هنوز مدیر افزوده‌شده‌ای وجود ندارد.")
     elif action=="editadmin":
         target_uid=int(parts[2])
-        await c.message.answer(f"🔐 دسترسی‌های مدیر {target_uid}",reply_markup=permission_keyboard(target_uid))
+        await edit_callback_message(c, f"🔐 دسترسی‌های مدیر {target_uid}",reply_markup=permission_keyboard(target_uid))
     elif action=="perm":
         target_uid,key=int(parts[2]),parts[3]
         if key not in PERMISSION_LABELS: return await c.answer("دسترسی نامعتبر است.",show_alert=True)
@@ -1703,7 +1726,7 @@ async def root_admin_callbacks(c):
         await c.answer("دسترسی‌ها ذخیره شد.")
     elif action=="bots":
         rows=db.execute("SELECT id,owner_id,status,created_at FROM custom_bot_requests ORDER BY id DESC LIMIT 30").fetchall()
-        await c.message.answer("🤖 درخواست‌های ربات اختصاصی\n"+("\n".join(f"#{i} | سازنده: {owner} | وضعیت: {status}" for i,owner,status,_ in rows) if rows else "درخواستی ثبت نشده است."))
+        await edit_callback_message(c, "🤖 درخواست‌های ربات اختصاصی\n"+("\n".join(f"#{i} | سازنده: {owner} | وضعیت: {status}" for i,owner,status,_ in rows) if rows else "درخواستی ثبت نشده است."))
     await c.answer()
 
 async def process_admin_text_flow(m):
@@ -1734,7 +1757,7 @@ async def factory_start(c):
     db.execute("INSERT INTO custom_bot_requests(owner_id,status,created_at) VALUES(?,?,?)",
                (c.from_user.id,"requested",datetime.utcnow().isoformat()))
     db.commit()
-    await c.message.answer("🤖 درخواست ساخت ربات اختصاصی ثبت شد.\nبرای آنلاین‌کردن واقعی، هر ربات باید در سرویس مستقل اجرا شود و توکن فقط به‌عنوان Secret در همان سرویس قرار بگیرد؛ این ربات توکن را از تو نمی‌خواهد یا ذخیره نمی‌کند.")
+    await edit_callback_message(c, "🤖 درخواست ساخت ربات اختصاصی ثبت شد.\nبرای آنلاین‌کردن واقعی، هر ربات باید در سرویس مستقل اجرا شود و توکن فقط به‌عنوان Secret در همان سرویس قرار بگیرد؛ این ربات توکن را از تو نمی‌خواهد یا ذخیره نمی‌کند.")
     await c.answer("درخواست ثبت شد")
 
 @dp.message(Command("mybots"))
