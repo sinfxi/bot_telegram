@@ -116,13 +116,10 @@ async def edit_callback_message(c, text, **kwargs):
 
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👥 اعضا", callback_data="mod"), InlineKeyboardButton(text="🛡️ امنیت گروه", callback_data="security")],
-        [InlineKeyboardButton(text="👋 خوشامد و قوانین", callback_data="group"), InlineKeyboardButton(text="🧰 ابزارهای کاربردی", callback_data="tools")],
-        [InlineKeyboardButton(text="📊 آمار", callback_data="stats"), InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="users")],
-        [InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports"), InlineKeyboardButton(text="🗂️ فعالیت‌ها", callback_data="logs")],
+        [InlineKeyboardButton(text="📊 آمار ربات", callback_data="stats"), InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="users")],
         [InlineKeyboardButton(text="📣 پیام‌رسانی", callback_data="bc")],
         [InlineKeyboardButton(text="⚙️ مدیریت پیشرفته ربات", callback_data="root:home")],
-        [InlineKeyboardButton(text="🤖 درخواست‌های ربات اختصاصی", callback_data="root:bots")],
+        [InlineKeyboardButton(text="🤖 ربات اختصاصی", callback_data="root:bots")],
         [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
         [InlineKeyboardButton(text="🎒 پنل دانش‌آموزی و دانشجویی", callback_data="sp:menu")],
     ])
@@ -131,9 +128,8 @@ def menu():
 def personal_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📖 راهنما", callback_data="u:help"), InlineKeyboardButton(text="👤 پروفایل من", callback_data="u:profile")],
-        [InlineKeyboardButton(text="⏰ یادآوری‌ها", callback_data="u:reminders"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="u:tools")],
         [InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="u:faqs")],
-        [InlineKeyboardButton(text="🤖 درخواست ربات اختصاصی", callback_data="factory:start")],
+        [InlineKeyboardButton(text="🤖 ساخت ربات اختصاصی", callback_data="factory:start")],
         [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
         [InlineKeyboardButton(text="🎒 پنل دانش‌آموزی و دانشجویی", callback_data="sp:menu")],
     ])
@@ -207,39 +203,8 @@ async def set_bot_commands():
     group_commands = [
         BotCommand(command="start", description="شروع ربات"),
         BotCommand(command="help", description="نمایش همه قابلیت‌ها"),
-        BotCommand(command="ban", description="مسدود کردن کاربر"),
-        BotCommand(command="unban", description="رفع مسدودی"),
-        BotCommand(command="kick", description="اخراج کاربر"),
-        BotCommand(command="mute", description="محدودسازی زمان‌دار"),
-        BotCommand(command="unmute", description="رفع محدودیت"),
-        BotCommand(command="warn", description="ثبت اخطار"),
-        BotCommand(command="warnings", description="مشاهده اخطارها"),
-        BotCommand(command="clearwarn", description="پاک کردن اخطارها"),
-        BotCommand(command="promote", description="دادن دسترسی مدیریت"),
-        BotCommand(command="demote", description="گرفتن دسترسی مدیریت"),
-        BotCommand(command="del", description="حذف پیام"),
-        BotCommand(command="pin", description="سنجاق پیام"),
-        BotCommand(command="unpin", description="برداشتن سنجاق"),
-        BotCommand(command="userinfo", description="اطلاعات کاربر"),
-        BotCommand(command="admins", description="فهرست مدیران گروه"),
-        BotCommand(command="stats", description="آمار گروه"),
-        BotCommand(command="chatinfo", description="اطلاعات گروه"),
-        BotCommand(command="lock", description="قفل کردن ارسال پیام"),
-        BotCommand(command="unlock", description="باز کردن قفل گروه"),
-        BotCommand(command="antilink", description="کنترل لینک"),
-        BotCommand(command="antispam", description="کنترل اسپم"),
-        BotCommand(command="captcha", description="CAPTCHA اعضای جدید"),
-        BotCommand(command="filter", description="افزودن کلمه فیلتر"),
-        BotCommand(command="unfilter", description="حذف کلمه فیلتر"),
-        BotCommand(command="filters", description="لیست فیلترها"),
-        BotCommand(command="welcome", description="فعال/غیرفعال کردن خوشامد"),
-        BotCommand(command="setwelcome", description="تنظیم متن خوشامد"),
-        BotCommand(command="rules", description="نمایش قوانین"),
-        BotCommand(command="setrules", description="تنظیم قوانین"),
-        BotCommand(command="note", description="ذخیره یادداشت"),
-        BotCommand(command="getnote", description="دریافت یادداشت"),
-        BotCommand(command="notes", description="لیست یادداشت‌ها"),
-        BotCommand(command="report", description="گزارش کاربر"),
+        BotCommand(command="stats", description="آمار ربات"),
+        BotCommand(command="question", description="جست‌وجو در پاسخ‌های ذخیره‌شده"),
         BotCommand(command="id", description="نمایش شناسه‌ها"),
         BotCommand(command="dice", description="تاس انداختن"),
         BotCommand(command="coin", description="شیر یا خط"),
@@ -275,7 +240,7 @@ async def set_bot_commands():
 @dp.message(CommandStart())
 async def start(m):
     save(m)
-    text = ("سلام! 🌟\nاز اینجا می‌تونی بخش‌های مختلف رو سریع باز کنی.\nبرای راهنمای کامل /help رو بزن.") if is_global_admin(m.from_user.id) else ("سلام " + (m.from_user.first_name or "دوست من") + " جان! 👋\nمن برای مرتب‌کردن گروه، امنیت، یادآوری‌ها، محاسبات و پاسخ‌های آماده کمکت می‌کنم.\n\nچند نمونه:\n• یادآوری 10 دقیقه بعد آب بخور\n• حساب کن 12 * (4 + 3)\n• قوانین گروه چیه؟\n• راهنمای ربات\n\nبرای دیدن راهنما /help رو بزن.")
+    text = ("سلام! 🌟\nاینجا می‌تونی به بخش‌های آموزشی، پاسخ‌های آماده و مدیریت ربات دسترسی داشته باشی.\nبرای راهنما /help رو بزن.") if is_global_admin(m.from_user.id) else ("سلام " + (m.from_user.first_name or "دوست من") + " جان! 👋\nمن برای مطالعه، استفاده از همیار درس و پنل آموزشی، پاسخ‌های آماده و ساخت ربات اختصاصی کمکت می‌کنم.\n\nاز دکمه‌های پایین، بخشی رو که لازم داری انتخاب کن.\nبرای راهنما /help رو بزن.")
     await m.answer(text, reply_markup=menu() if is_global_admin(m.from_user.id) else personal_menu())
 
 
@@ -290,10 +255,9 @@ async def personal_menu_callback(c):
             "📖 راهنمای ربات\n\n"
             "🎓 همیار درس: جست‌وجوی مطالب آموزشی، گام‌به‌گام، نمونه‌سؤال، جزوه و فایل‌های PDF و ویدئو.\n"
             "🎒 پنل آموزشی: فلش‌کارت، آزمونک، فرمول‌ها و امکانات مطالعه.\n"
-            "⏰ ابزارهای شخصی: یادآوری‌ها، ماشین‌حساب، نظرسنجی و ابزارهای کاربردی.\n"
             "📚 پاسخ‌های آماده: جست‌وجو و مدیریت پاسخ‌های ذخیره‌شده.\n"
-            "👤 پروفایل: مشاهده اطلاعات حساب و شناسه.\n\n"
-            "امکانات مدیریت اعضا و امنیت فقط در گروه و با دسترسی مدیر قابل استفاده‌اند.\n"
+            "👤 پروفایل: مشاهده اطلاعات حساب و شناسه.\n"
+            "🤖 ربات اختصاصی: ثبت درخواست برای ساخت ربات شخصی.\n\n"
             "برای دیدن هر بخش، از دکمه‌های منوی ربات استفاده کن."
         )
     elif section == "profile":
@@ -331,26 +295,22 @@ async def personal_menu_callback(c):
 async def help_cmd(m):
     await m.answer("""📖 راهنمای ربات
 
-🎓 آموزش و مطالعه
-بخش همیار درس برای جست‌وجوی مطالب درسی، گام‌به‌گام، نمونه‌سؤال، جزوه، PDF و ویدئو در دسترس است.
-پنل آموزشی هم ابزارهای مطالعه، فلش‌کارت، آزمونک و فرمول‌ها را ارائه می‌کند.
+🎓 همیار درس
+جست‌وجوی مطالب درسی، گام‌به‌گام، نمونه‌سؤال، جزوه و فایل‌های آموزشی.
 
-👥 مدیریت گروه
-مدیریت اعضا، اخطارها، محدودسازی، حذف و سنجاق پیام‌ها؛ این قابلیت‌ها به دسترسی مدیر گروه نیاز دارند.
+🎒 پنل آموزشی
+فلش‌کارت، آزمونک، فرمول‌ها و ابزارهای مطالعه.
 
-🛡️ امنیت گروه
-تنظیمات ضدلینک، ضداسپم، کپچا، قفل گروه، خوشامدگویی و قوانین گروه.
+📚 پاسخ‌های آماده
+مشاهده و مدیریت پاسخ‌های ذخیره‌شده.
 
-📝 یادداشت و پاسخ آماده
-ذخیره و بازیابی یادداشت‌ها، قوانین و پاسخ‌های پرتکرار.
+🤖 ربات اختصاصی
+ثبت درخواست برای ساخت ربات شخصی.
 
-⏰ ابزارهای شخصی
-یادآوری‌ها، ماشین‌حساب، نظرسنجی، تاس، شیر یا خط، رمز تصادفی و پروفایل.
+⚙️ مدیریت ربات
+ابزارهای مدیریتی برای مالک اصلی و مدیران دارای دسترسی.
 
-📊 اطلاعات و گزارش‌ها
-نمایش شناسه‌ها، آمار گروه، اطلاعات اعضا، گزارش‌ها و سوابق فعالیت.
-
-از منوی ربات یا فرمان‌های تلگرام برای بازکردن بخش‌ها استفاده کن. برای اقدام روی یک عضو، پیام همان فرد را ریپلای کن. برخی قابلیت‌ها فقط در گروه و برای مدیران قابل استفاده‌اند.""")
+از دکمه‌های منو برای ورود به هر بخش استفاده کن؛ با انتخاب بخش‌ها، پیام منو تا حد امکان به‌روزرسانی می‌شود.""")
 
 @dp.message(Command("id"))
 async def ident(m):
@@ -1644,8 +1604,6 @@ PERMISSION_LABELS = {
     "settings": "تنظیمات ربات",
     "users": "مدیریت کاربران",
     "broadcast": "پیام‌رسانی همگانی",
-    "groups": "مدیریت اعضای گروه",
-    "security": "امنیت و ضداسپم",
     "education": "همیار درس و پنل آموزشی",
     "reports": "گزارش‌ها و سوابق",
     "bot_factory": "درخواست ربات اختصاصی",
