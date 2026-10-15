@@ -264,40 +264,40 @@ async def personal_menu_callback(c):
     section = c.data.split(":", 1)[1]
     if section == "help":
         answer = (
-            "📖 راهنمای ربات\\n\\n"
-            "🎓 همیار درس: جست‌وجوی مطالب آموزشی، گام‌به‌گام، نمونه‌سؤال، جزوه و فایل‌های PDF و ویدئو.\\n"
-            "🎒 پنل آموزشی: فلش‌کارت، آزمونک، فرمول‌ها و امکانات مطالعه.\\n"
-            "⏰ ابزارهای شخصی: یادآوری‌ها، ماشین‌حساب، نظرسنجی و ابزارهای کاربردی.\\n"
-            "📚 پاسخ‌های آماده: جست‌وجو و مدیریت پاسخ‌های ذخیره‌شده.\\n"
-            "👤 پروفایل: مشاهده اطلاعات حساب و شناسه.\\n\\n"
-            "امکانات مدیریت اعضا و امنیت فقط در گروه و با دسترسی مدیر قابل استفاده‌اند.\\n"
+            "📖 راهنمای ربات\n\n"
+            "🎓 همیار درس: جست‌وجوی مطالب آموزشی، گام‌به‌گام، نمونه‌سؤال، جزوه و فایل‌های PDF و ویدئو.\n"
+            "🎒 پنل آموزشی: فلش‌کارت، آزمونک، فرمول‌ها و امکانات مطالعه.\n"
+            "⏰ ابزارهای شخصی: یادآوری‌ها، ماشین‌حساب، نظرسنجی و ابزارهای کاربردی.\n"
+            "📚 پاسخ‌های آماده: جست‌وجو و مدیریت پاسخ‌های ذخیره‌شده.\n"
+            "👤 پروفایل: مشاهده اطلاعات حساب و شناسه.\n\n"
+            "امکانات مدیریت اعضا و امنیت فقط در گروه و با دسترسی مدیر قابل استفاده‌اند.\n"
             "برای دیدن هر بخش، از دکمه‌های منوی ربات استفاده کن."
         )
     elif section == "profile":
         reminders_n = db.execute("SELECT COUNT(*) FROM reminders WHERE user=?", (c.from_user.id,)).fetchone()[0]
         answer = (
-            f"👤 پروفایل تو\\nنام: {c.from_user.full_name}\\n"
-            f"شناسه: {c.from_user.id}\\n"
-            f"نام کاربری: @{c.from_user.username or 'ندارد'}\\n"
+            f"👤 پروفایل تو\nنام: {c.from_user.full_name}\n"
+            f"شناسه: {c.from_user.id}\n"
+            f"نام کاربری: @{c.from_user.username or 'ندارد'}\n"
             f"یادآوری فعال: {reminders_n}"
         )
     elif section == "reminders":
         rows = db.execute("SELECT id,text,due FROM reminders WHERE user=? ORDER BY due LIMIT 10", (c.from_user.id,)).fetchall()
-        answer = "⏰ یادآوری‌های تو:\\n" + (
-            "\\n".join(f"• {txt} — حدود {max(0, int((due-time.time())/60))} دقیقه دیگر" for _,txt,due in rows)
+        answer = "⏰ یادآوری‌های تو:\n" + (
+            "\n".join(f"• {txt} — حدود {max(0, int((due-time.time())/60))} دقیقه دیگر" for _,txt,due in rows)
             if rows else "یادآوری فعالی نداری."
         )
     elif section == "tools":
         answer = (
-            "🧰 ابزارهای کاربردی\\n"
-            "• یادآوری 10 دقیقه بعد آب بخور\\n"
-            "• حساب کن 12 * (4 + 3)\\n"
-            "• نظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\\n"
-            "• /dice تاس\\n• /coin شیر یا خط\\n• /joke جوک بگو\\n• /password رمز بساز"
+            "🧰 ابزارهای کاربردی\n"
+            "• یادآوری 10 دقیقه بعد آب بخور\n"
+            "• حساب کن 12 * (4 + 3)\n"
+            "• نظرسنجی بساز | سؤال | گزینه اول | گزینه دوم\n"
+            "• /dice تاس\n• /coin شیر یا خط\n• /joke جوک بگو\n• /password رمز بساز"
         )
     elif section == "faqs":
         rows = db.execute("SELECT question FROM faq WHERE chat=? ORDER BY question LIMIT 20", (c.message.chat.id,)).fetchall()
-        answer = "📚 پاسخ‌های آماده:\\n" + ("\\n".join("• " + q for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده.")
+        answer = "📚 پاسخ‌های آماده:\n" + ("\n".join("• " + q for (q,) in rows) if rows else "هنوز پاسخی ذخیره نشده.")
     else:
         answer = "این بخش در دسترس نیست."
     await c.message.answer(answer)
