@@ -435,11 +435,34 @@ async def send_resource(callback, url, title, kind):
 
 
 
+
+async def edit_callback_message(c, text, **kwargs):
+    """Update the current menu message instead of flooding the chat."""
+    message = getattr(c, "message", None)
+    if message is None:
+        return
+    try:
+        if getattr(message, "text", None) is not None:
+            await message.edit_text(text, **kwargs)
+        elif getattr(message, "caption", None) is not None:
+            await message.edit_caption(caption=text, **kwargs)
+        else:
+            await message.answer(text, **kwargs)
+    except Exception as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        logging.debug("Could not edit callback message; sending fallback: %s", exc)
+        try:
+            await message.answer(text, **kwargs)
+        except Exception:
+            logging.exception("Could not display callback result")
+
+
 def register_hamyar_handlers(dp):
     @dp.callback_query(F.data == "hd:home")
     async def hd_home(c: CallbackQuery):
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             "🎓 همیار درس\n\n"
             "کتاب‌ها و مطالب آموزشی پایه‌های اول تا دوازدهم را از داخل تلگرام پیدا کن. "
             "مطالب در دسته‌های گام‌به‌گام، نمونه‌سؤال، جزوه، ویدیو و آزمون مرتب شده‌اند.\n\n"
@@ -453,14 +476,14 @@ def register_hamyar_handlers(dp):
         grade = int(c.data.rsplit(":", 1)[1])
         try:
             items = await get_grade_items(grade)
-            await c.message.answer(
+            await edit_callback_message(c, 
                 f"🎓 همیار درس | پایه {GRADE_WORDS[grade]}\n"
                 f"در این پایه {len(items)} عنوان آموزشی پیدا شد. دستهٔ موردنظرت را انتخاب کن:",
                 reply_markup=kind_keyboard(grade)
             )
         except Exception:
             log.exception("Hamyar grade fetch failed")
-            await c.message.answer("فعلاً دریافت فهرست این پایه ممکن نشد. کمی بعد دوباره امتحان کن.")
+            await edit_callback_message(c, "فعلاً دریافت فهرست این پایه ممکن نشد. کمی بعد دوباره امتحان کن.")
 
     @dp.callback_query(F.data.startswith("hd:all:"))
     async def hd_all(c: CallbackQuery):
@@ -470,17 +493,17 @@ def register_hamyar_handlers(dp):
             items = await get_grade_items(grade)
             set_visible(c.message.chat.id, items)
             if not items:
-                return await c.message.answer(
+                return await edit_callback_message(c, 
                     "برای این پایه فعلاً عنوانی دریافت نشد. می‌توانی دوباره تلاش کنی یا پایه‌ای دیگر را انتخاب کنی.",
                     reply_markup=keyboard([
                         [InlineKeyboardButton(text="🔄 تلاش دوباره", callback_data=f"hd:all:{grade}")],
                         [InlineKeyboardButton(text="🎓 انتخاب پایه", callback_data="hd:home")]
                     ])
                 )
-            await c.message.answer(f"📚 همهٔ مطالب پایه {GRADE_WORDS[grade]}:", reply_markup=results_keyboard(c.message.chat.id))
+            await edit_callback_message(c, f"📚 همهٔ مطالب پایه {GRADE_WORDS[grade]}:", reply_markup=results_keyboard(c.message.chat.id))
         except Exception:
             log.exception("Hamyar all items failed")
-            await c.message.answer("فهرست این پایه فعلاً در دسترس نیست.")
+            await edit_callback_message(c, "فهرست این پایه فعلاً در دسترس نیست.")
 
     @dp.callback_query(F.data.startswith("hd:kind:"))
     async def hd_kind(c: CallbackQuery):
@@ -498,7 +521,7 @@ def register_hamyar_handlers(dp):
                 found = list(by_url.values())
             set_visible(c.message.chat.id, found)
             if not found:
-                return await c.message.answer(
+                return await edit_callback_message(c, 
                     f"در این پایه فعلاً مورد مستقیمی برای «{kind}» پیدا نشد. می‌توانی همهٔ مطالب پایه را ببینی یا پایه دیگری را انتخاب کنی.",
                     reply_markup=keyboard([
                         [InlineKeyboardButton(text="📚 همهٔ مطالب این پایه", callback_data=f"hd:all:{grade}")],
@@ -506,13 +529,13 @@ def register_hamyar_handlers(dp):
                         [InlineKeyboardButton(text="🎓 انتخاب پایه", callback_data="hd:home")]
                     ])
                 )
-            await c.message.answer(
+            await edit_callback_message(c, 
                 f"📚 همیار درس — {kind}\n{len(found)} عنوان پیدا شد. یک مورد را انتخاب کن:",
                 reply_markup=results_keyboard(c.message.chat.id)
             )
         except Exception:
             log.exception("Hamyar category failed")
-            await c.message.answer("دسته‌بندی مطالب فعلاً در دسترس نیست.")
+            await edit_callback_message(c, "دسته‌بندی مطالب فعلاً در دسترس نیست.")
 
     @dp.callback_query(F.data == "hd:latest")
     async def hd_latest(c: CallbackQuery):
@@ -525,15 +548,15 @@ def register_hamyar_handlers(dp):
                     seen.add(x["url"])
                     items.append({"title": x["title"][:180], "url": x["url"], "grade": 0})
             set_visible(c.message.chat.id, items[:60])
-            await c.message.answer("🆕 تازه‌های آموزشی:", reply_markup=results_keyboard(c.message.chat.id))
+            await edit_callback_message(c, "🆕 تازه‌های آموزشی:", reply_markup=results_keyboard(c.message.chat.id))
         except Exception:
             log.exception("Hamyar latest failed")
-            await c.message.answer("تازه‌های آموزشی فعلاً دریافت نشد.")
+            await edit_callback_message(c, "تازه‌های آموزشی فعلاً دریافت نشد.")
 
     @dp.callback_query(F.data == "hd:search")
     async def hd_search(c: CallbackQuery):
         await c.answer()
-        await c.message.answer(
+        await edit_callback_message(c, 
             "🔎 برای جست‌وجو، عبارتت را همین‌جا بفرست؛ بهتر است پایه و نام درس را هم بنویسی.\n"
             "مثال: «پایه دهم فیزیک نمونه سوال»، «گام به گام ریاضی هشتم»، «جزوه شیمی دهم».\n"
             "برای جست‌وجوی گسترده‌تر، اول پایه را انتخاب کن تا نتایج دقیق‌تر شوند."
@@ -543,7 +566,7 @@ def register_hamyar_handlers(dp):
     async def hd_page(c: CallbackQuery):
         await c.answer()
         page = max(0, int(c.data.rsplit(":", 1)[1]))
-        await c.message.answer("📚 ادامهٔ فهرست:", reply_markup=results_keyboard(c.message.chat.id, page))
+        await edit_callback_message(c, "📚 ادامهٔ فهرست:", reply_markup=results_keyboard(c.message.chat.id, page))
 
     @dp.callback_query(F.data.startswith("hd:item:"))
     async def hd_item(c: CallbackQuery):
@@ -552,7 +575,7 @@ def register_hamyar_handlers(dp):
             index = int(c.data.rsplit(":", 1)[1])
             items = get_visible(c.message.chat.id)
             if index < 0 or index >= len(items):
-                return await c.message.answer("این فهرست قدیمی شده؛ دوباره بخش را باز کن.")
+                return await edit_callback_message(c, "این فهرست قدیمی شده؛ دوباره بخش را باز کن.")
             item = items[index]
             direct_kind = resource_type(item["url"], item["title"])
             if direct_kind is None:
@@ -562,7 +585,7 @@ def register_hamyar_handlers(dp):
             if direct_kind in ("pdf", "video"):
                 return await send_resource(c, item["url"], item["title"], direct_kind)
             if direct_kind == "link":
-                return await c.message.answer(
+                return await edit_callback_message(c, 
                     "🎬 آموزش ویدئویی در میزبان پخش قرار دارد.",
                     reply_markup=keyboard([[InlineKeyboardButton(text="▶️ پخش آموزش", url=item["url"])],
                                            [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="hd:page:0")]])
@@ -607,10 +630,10 @@ def register_hamyar_handlers(dp):
                 + ("✅ فایل واقعی PDF یا ویدئو شناسایی شد؛ برای دریافت یا پخش، یکی را انتخاب کن."
                    if resources else "⚠️ در این صفحه لینک مستقیم PDF قابل دریافت پیدا نشد؛ ممکن است پاسخ‌ها داخل متن یا تصویر باشند. از دکمه‌های زیر برای دیدن مطالب دیگر استفاده کن.")
             )
-            await c.message.answer(detail_text, reply_markup=keyboard(rows))
+            await edit_callback_message(c, detail_text, reply_markup=keyboard(rows))
         except Exception:
             log.exception("Hamyar item fetch failed")
-            await c.message.answer("این مطلب فعلاً دریافت نشد. کمی بعد دوباره تلاش کن.")
+            await edit_callback_message(c, "این مطلب فعلاً دریافت نشد. کمی بعد دوباره تلاش کن.")
 
 
     @dp.callback_query(F.data.startswith("hd:resource:"))
@@ -625,7 +648,7 @@ def register_hamyar_handlers(dp):
             if resource["kind"] in ("pdf", "video"):
                 return await send_resource(c, resource["url"], resource["title"], resource["kind"])
             await c.answer()
-            await c.message.answer(
+            await edit_callback_message(c, 
                 "🎬 این آموزش در یک پخش‌کنندهٔ خارجی قرار دارد.",
                 reply_markup=keyboard([[InlineKeyboardButton(text="▶️ پخش آموزش", url=resource["url"])],
                                        [InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"hd:item:{item_index}")]])
