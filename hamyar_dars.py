@@ -105,7 +105,7 @@ async def fetch_page(url):
             parser.feed(body)
             # Also inspect raw HTML/embedded JSON: some download buttons are populated by scripts
             # and therefore do not appear as ordinary anchor tags in the parsed DOM.
-            raw = body.replace(r"\\/", "/").replace(r"\\u002F", "/").replace("&amp;", "&")
+            raw = body.replace("\\/", "/").replace("\\u002F", "/").replace("&amp;", "&")
             pattern = re.compile(
                 r"""["'](?:href|src|url|file|pdf|download|download_url|file_url|contentUrl)["']\s*:\s*["']([^"'<>]+)["']|"""
                 r"""(?:href|src|data-href|data-src|data-pdf|data-file|data-download-url)\s*=\s*["']([^"'<>]+)["']""",
@@ -242,10 +242,18 @@ async def collect_grade_resources(grade, kind, limit=16):
     wanted = {"pdf"} if kind == "PDF" else {"video", "link"}
     collected, seen = [], set()
     for item in items:
-        direct = resource_type(item.get("url", ""), item.get("title", ""))
-        if direct in wanted and item.get("url") not in seen:
-            seen.add(item["url"])
-            collected.append({"title": item.get("title", "فایل آموزشی")[:160], "url": item["url"], "grade": grade})
+        url = item.get("url", "")
+        direct = resource_type(url, item.get("title", ""))
+        if direct not in wanted or url in seen:
+            continue
+        # A title containing "PDF" is not proof that the page URL is a PDF.
+        if direct == "pdf" and not urlparse(url).path.lower().endswith(".pdf"):
+            detected, final_url = await detect_remote_media(url)
+            if detected != "pdf":
+                continue
+            url = final_url or url
+        seen.add(url)
+        collected.append({"title": item.get("title", "فایل آموزشی")[:160], "url": url, "grade": grade})
 
     semaphore = asyncio.Semaphore(4)
 
