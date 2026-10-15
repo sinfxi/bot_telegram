@@ -103,6 +103,24 @@ async def fetch_page(url):
             body = await response.text(errors="replace")
             parser = PageParser()
             parser.feed(body)
+            # Also inspect raw HTML/embedded JSON: some download buttons are populated by scripts
+            # and therefore do not appear as ordinary anchor tags in the parsed DOM.
+            raw = body.replace(r"\\/", "/").replace(r"\\u002F", "/").replace("&amp;", "&")
+            pattern = re.compile(
+                r"""["'](?:href|src|url|file|pdf|download|download_url|file_url|contentUrl)["']\s*:\s*["']([^"'<>]+)["']|"""
+                r"""(?:href|src|data-href|data-src|data-pdf|data-file|data-download-url)\s*=\s*["']([^"'<>]+)["']""",
+                re.IGNORECASE,
+            )
+            existing = {x.get("url") for x in parser.links}
+            for match in pattern.finditer(raw):
+                candidate = next((g for g in match.groups() if g), "").strip()
+                if not candidate or candidate.startswith(("javascript:", "mailto:", "#", "data:")):
+                    continue
+                full_url = urljoin(url, candidate)
+                hint = (candidate + " " + match.group(0)).lower()
+                if full_url not in existing and any(k in hint for k in ("pdf", "download", "file", "دانلود", "دریافت", ".mp4", ".webm", ".m3u8")):
+                    parser.links.append({"title": "لینک فایل آموزشی", "url": full_url})
+                    existing.add(full_url)
             return parser
 
 
@@ -237,15 +255,27 @@ async def collect_grade_resources(grade, kind, limit=16):
                 parser = await fetch_page(item["url"])
             except Exception:
                 return []
-            found = []
+            found, local_seen = [], set()
+            likely = []
             for link in parser.links:
                 url = link.get("url", "")
                 title = " ".join((link.get("title") or "").split()) or item.get("title", "منبع آموزشی")
-                if urlparse(url).scheme not in ("http", "https"):
+                if urlparse(url).scheme not in ("http", "https") or url in local_seen:
                     continue
+                local_seen.add(url)
                 media = resource_type(url, title)
+                hints = (title + " " + url).lower()
+                signals = ("pdf", "دانلود", "دریافت", "فایل", "جزوه", "کتاب", "download", "file", "attachment", ".mp4", ".webm", ".m3u8")
                 if media in wanted:
                     found.append({"title": (item.get("title", "") + " — " + title)[:180], "url": url, "grade": grade})
+                elif any(signal in hints for signal in signals):
+                    likely.append((url, title))
+            # Many sites use a PHP/download endpoint without a .pdf suffix.
+            # Probe only links whose labels/URLs look like downloads, with a strict per-page cap.
+            for url, title in likely[:6]:
+                detected, final_url = await detect_remote_media(url)
+                if detected in wanted:
+                    found.append({"title": (item.get("title", "") + " — " + title)[:180], "url": final_url or url, "grade": grade})
             return found
 
     inspected = await asyncio.gather(*(inspect(item) for item in items[:limit]), return_exceptions=True)
@@ -370,12 +400,17 @@ async def send_resource(callback, url, title, kind):
                     )
                 content_type = (response.headers.get("Content-Type") or "").lower()
                 is_pdf_bytes = data.startswith(b"%PDF-")
-                if kind == "pdf" and "pdf" not in content_type and not parsed.path.lower().endswith(".pdf") and not is_pdf_bytes:
-                    return await callback.message.answer("میزبان به‌جای PDF فایل دیگری برگرداند؛ ارسال لغو شد.")
-                if kind == "pdf" and not is_pdf_bytes and "pdf" not in content_type and parsed.path.lower().endswith(".pdf"):
-                    return await callback.message.answer("فایل دریافتی PDF معتبر به نظر نمی‌رسد؛ ارسال لغو شد.")
-                filename = parsed.path.rsplit("/", 1)[-1] or ("video.mp4" if kind == "video" else "lesson.pdf")
+                if kind == "pdf" and not is_pdf_bytes:
+                    return await callback.message.answer("⛔ پاسخ میزبان یک PDF واقعی نبود؛ فایل ارسال نشد. ممکن است سایت دانلود مستقیم را مسدود کرده باشد.")
+                if kind == "video" and not (content_type.startswith("video/") or data[4:8] == b"ftyp" or parsed.path.lower().endswith((".mp4", ".m4v", ".webm", ".mov"))):
+                    return await callback.message.answer("⛔ میزبان به‌جای فایل ویدئویی، صفحه یا محتوای دیگری برگرداند.")
+                final_path = urlparse(str(response.url)).path
+                filename = final_path.rsplit("/", 1)[-1] or ("video.mp4" if kind == "video" else "lesson.pdf")
                 filename = filename.split("?")[0][:120]
+                if kind == "pdf" and not filename.lower().endswith(".pdf"):
+                    filename = "lesson.pdf"
+                if kind == "video" and not filename.lower().endswith((".mp4", ".m4v", ".webm", ".mov")):
+                    filename = "lesson.mp4"
                 file = BufferedInputFile(data, filename=filename)
                 if kind == "pdf":
                     await callback.message.answer_document(file, caption=("📄 " + (title or filename))[:900])
