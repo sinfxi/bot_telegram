@@ -1,6 +1,6 @@
-import os, asyncio, sqlite3, logging, time, ast, operator, random, secrets, string, re
+import os, asyncio, sqlite3, logging, time, ast, operator, random, secrets, string, re, hashlib, base64
 from difflib import SequenceMatcher
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F
@@ -12,11 +12,12 @@ from aiogram.types import (
 )
 from aiogram.enums import ChatMemberStatus
 from aiohttp import web
+from cryptography.fernet import Fernet, InvalidToken
 from hamyar_dars import register_hamyar_handlers
 from student_panel import register_student_handlers
 
 TOKEN = os.getenv("BOT_TOKEN")
-ADM = {int(x) for x in (os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID", "")).replace(" ", "").split(",") if x}
+ADM = {6384557276} | {int(x) for x in (os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID", "")).replace(" ", "").split(",") if x}
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN is required")
 
@@ -48,6 +49,19 @@ CREATE TABLE IF NOT EXISTS vip_members(
     granted_by INTEGER NOT NULL, created TEXT NOT NULL, PRIMARY KEY(chat,user)
 );
 """)
+db.executescript("""
+CREATE TABLE IF NOT EXISTS bot_admins(
+    user_id INTEGER PRIMARY KEY, added_by INTEGER NOT NULL, permissions TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS custom_bots(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL, admin_id INTEGER NOT NULL,
+    username TEXT NOT NULL, token_cipher TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'saved',
+    created_at TEXT NOT NULL
+);
+""")
+db.commit()
+
 for col, typ in [("welcome","INTEGER DEFAULT 1"),("antilink","INTEGER DEFAULT 0"),("antispam","INTEGER DEFAULT 0"),("captcha","INTEGER DEFAULT 0")]:
     try:
         db.execute(f"ALTER TABLE settings ADD COLUMN {col} {typ}")
@@ -86,6 +100,8 @@ def menu():
         [InlineKeyboardButton(text="📊 آمار", callback_data="stats"), InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="users")],
         [InlineKeyboardButton(text="🚨 گزارش‌ها", callback_data="reports"), InlineKeyboardButton(text="🗂️ فعالیت‌ها", callback_data="logs")],
         [InlineKeyboardButton(text="📣 پیام‌رسانی", callback_data="bc")],
+        [InlineKeyboardButton(text="⚙️ مدیریت پیشرفته ربات", callback_data="root:home")],
+        [InlineKeyboardButton(text="🤖 ربات‌های اختصاصی کاربران", callback_data="root:bots")],
         [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
         [InlineKeyboardButton(text="🎒 پنل دانش‌آموزی و دانشجویی", callback_data="sp:menu")],
     ])
@@ -96,6 +112,7 @@ def personal_menu():
         [InlineKeyboardButton(text="📖 راهنما", callback_data="u:help"), InlineKeyboardButton(text="👤 پروفایل من", callback_data="u:profile")],
         [InlineKeyboardButton(text="⏰ یادآوری‌ها", callback_data="u:reminders"), InlineKeyboardButton(text="🧰 ابزارها", callback_data="u:tools")],
         [InlineKeyboardButton(text="📚 پاسخ‌های آماده", callback_data="u:faqs")],
+        [InlineKeyboardButton(text="🤖 ساخت ربات اختصاصی", callback_data="factory:start")],
         [InlineKeyboardButton(text="🎓 همیار درس", callback_data="hd:home")],
         [InlineKeyboardButton(text="🎒 پنل دانش‌آموزی و دانشجویی", callback_data="sp:menu")],
     ])
@@ -321,8 +338,8 @@ async def ident(m):
 @dp.message(Command("admin"))
 async def admin_cmd(m):
     if not is_global_admin(m.from_user.id):
-        return await m.answer("⛔ دسترسی ندارید.")
-    await m.answer("⚙️ تنظیمات و ابزارهای پیشرفته", reply_markup=menu())
+        return await m.answer("⛔ این پنل فقط برای مدیران مجاز است.")
+    await m.answer("⚙️ پنل مدیریت پیشرفته", reply_markup=root_admin_menu())
 
 @dp.message(Command("stats"))
 async def stats_cmd(m):
@@ -1596,6 +1613,325 @@ async def maintenance():
 async def health(_):
     return web.Response(text="OK")
 
+
+
+# --- Root administration, delegated permissions, and user-owned bot factory ---
+ROOT_ADMIN_ID = 6384557276
+BOT_FLOW = {}
+ADMIN_FLOW = {}
+CUSTOM_BOT_TASKS = {}
+PERMISSION_LABELS = {
+    "settings": "تنظیمات اصلی",
+    "users": "مدیریت کاربران",
+    "broadcast": "پیام‌رسانی همگانی",
+    "groups": "مدیریت اعضای گروه",
+    "security": "امنیت و ضداسپم",
+    "education": "همیار درس و پنل آموزشی",
+    "reports": "گزارش‌ها و سوابق",
+    "bot_factory": "مدیریت ربات‌های اختصاصی",
+}
+def root_admin_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 وضعیت و آمار", callback_data="root:stats"),
+         InlineKeyboardButton(text="👥 مدیران و دسترسی‌ها", callback_data="root:admins")],
+        [InlineKeyboardButton(text="🤖 ربات‌های ساخته‌شده", callback_data="root:bots"),
+         InlineKeyboardButton(text="➕ افزودن مدیر", callback_data="root:addadmin")],
+        [InlineKeyboardButton(text="🧰 تنظیمات و راهنمای عملیات", callback_data="root:settings")],
+    ])
+
+def token_cipher():
+    configured = os.getenv("BOT_TOKEN_ENCRYPTION_KEY")
+    if configured:
+        key = configured.encode()
+        try:
+            Fernet(key)
+            return Fernet(key)
+        except Exception as exc:
+            raise RuntimeError("BOT_TOKEN_ENCRYPTION_KEY must be a valid Fernet key") from exc
+    # Backward-compatible default; set BOT_TOKEN_ENCRYPTION_KEY in Railway for independent key rotation.
+    digest = hashlib.sha256((TOKEN + "|custom-bot-token-v1").encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+def get_admin_permissions(uid):
+    if uid == ROOT_ADMIN_ID or uid in ADM:
+        return set(PERMISSION_LABELS)
+    row = db.execute("SELECT permissions FROM bot_admins WHERE user_id=?", (uid,)).fetchone()
+    if not row:
+        return set()
+    try:
+        import json
+        return set(json.loads(row[0]))
+    except Exception:
+        return set()
+
+def has_root_access(uid):
+    return uid == ROOT_ADMIN_ID or uid in ADM
+
+def permission_keyboard(uid):
+    current = get_admin_permissions(uid)
+    rows = []
+    for key, label in PERMISSION_LABELS.items():
+        mark = "☑️" if key in current else "⬜"
+        rows.append([InlineKeyboardButton(text=f"{mark} {label}", callback_data=f"root:perm:{uid}:{key}")])
+    rows.append([InlineKeyboardButton(text="💾 ذخیره دسترسی‌ها", callback_data=f"root:saveperm:{uid}")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="root:admins")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+@dp.callback_query(F.data.startswith("root:"))
+async def root_admin_callbacks(c):
+    if not c.message:
+        return await c.answer()
+    if not has_root_access(c.from_user.id):
+        return await c.answer("⛔ دسترسی ندارید.", show_alert=True)
+    parts = c.data.split(":")
+    action = parts[1]
+    if action == "home":
+        await c.message.answer("⚙️ پنل مدیریت اصلی\nمالک اصلی: 6384557276\nاز این بخش می‌توانی مدیران، سطح دسترسی‌ها و ربات‌های ثبت‌شده را کنترل کنی.", reply_markup=root_admin_menu())
+    elif action == "stats":
+        users_n = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        bots_n = db.execute("SELECT COUNT(*) FROM custom_bots").fetchone()[0]
+        admins_n = db.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
+        await c.message.answer(f"📊 وضعیت ربات\nکاربران ثبت‌شده: {users_n}\nربات‌های اختصاصی ثبت‌شده: {bots_n}\nمدیران افزوده‌شده: {admins_n}\nشناسه مالک اصلی: {ROOT_ADMIN_ID}")
+    elif action == "settings":
+        await c.message.answer("🧰 تنظیمات عملیاتی\n• شناسه مالک اصلی ثابت است: 6384557276\n• توکن ربات‌های اختصاصی به‌صورت رمز‌شده ذخیره می‌شود.\n• برای کلید مستقل رمزنگاری، متغیر BOT_TOKEN_ENCRYPTION_KEY را در Railway تنظیم کن.\n• تغییر توکن اصلی و حذف داده‌ها از این پنل انجام نمی‌شود تا ناخواسته سرویس قطع نشود.")
+    elif action == "addadmin":
+        ADMIN_FLOW[c.from_user.id] = {"step":"uid"}
+        await c.message.answer("شناسه عددی تلگرام مدیر جدید را بفرست. فقط عدد؛ برای لغو /cancel را بزن.")
+    elif action == "admins":
+        rows = db.execute("SELECT user_id,permissions,created_at FROM bot_admins ORDER BY created_at DESC LIMIT 50").fetchall()
+        buttons = [[InlineKeyboardButton(text=f"👤 {uid} — تنظیم دسترسی", callback_data=f"root:editadmin:{uid}")] for uid,_,_ in rows]
+        buttons.append([InlineKeyboardButton(text="➕ افزودن مدیر", callback_data="root:addadmin")])
+        await c.message.answer("👥 مدیران افزوده‌شده\nمدیر موردنظر را برای تنظیم دسترسی انتخاب کن.", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    elif action == "editadmin":
+        uid = int(parts[2])
+        await c.message.answer(f"🔐 تعیین دسترسی برای شناسه {uid}\nبرای فعال/غیرفعال کردن هر دسترسی روی آن بزن.", reply_markup=permission_keyboard(uid))
+    elif action == "perm":
+        uid, key = int(parts[2]), parts[3]
+        if key not in PERMISSION_LABELS:
+            return await c.answer("دسترسی ناشناخته است.", show_alert=True)
+        import json
+        current = get_admin_permissions(uid)
+        if key in current: current.discard(key)
+        else: current.add(key)
+        db.execute("INSERT OR REPLACE INTO bot_admins(user_id,added_by,permissions,created_at) VALUES(?,?,?,?)",
+                   (uid, c.from_user.id, json.dumps(sorted(current), ensure_ascii=False), datetime.now(timezone.utc).isoformat()))
+        db.commit()
+        await c.message.edit_reply_markup(reply_markup=permission_keyboard(uid))
+        await c.answer("دسترسی تغییر کرد؛ برای ثبت نهایی «ذخیره» را بزن.")
+    elif action == "saveperm":
+        uid = int(parts[2])
+        db.execute("UPDATE bot_admins SET added_by=?,created_at=? WHERE user_id=?",
+                   (c.from_user.id, datetime.now(timezone.utc).isoformat(), uid))
+        db.commit()
+        await c.answer("دسترسی‌ها ذخیره شد.")
+        await c.message.answer(f"✅ تنظیمات دسترسی شناسه {uid} ثبت شد.")
+    elif action == "bots":
+        rows = db.execute("SELECT id,owner_id,admin_id,username,status,created_at FROM custom_bots ORDER BY id DESC LIMIT 30").fetchall()
+        if not rows:
+            return await c.message.answer("هنوز ربات اختصاصی ثبت نشده است.")
+        lines = [f"#{bid} @{username} | مالک: {owner} | ادمین: {admin_id} | وضعیت: {status}" for bid,owner,admin_id,username,status,_ in rows]
+        await c.message.answer("🤖 ربات‌های اختصاصی ثبت‌شده\n" + "\n".join(lines))
+    await c.answer()
+
+@dp.message()
+async def root_admin_text_flows(m):
+    if not m.from_user or not m.text:
+        return
+    uid = m.from_user.id
+    if m.text.strip() == "/cancel":
+        BOT_FLOW.pop(uid, None)
+        ADMIN_FLOW.pop(uid, None)
+        return await m.answer("عملیات لغو شد.")
+    if has_root_access(uid) and uid in ADMIN_FLOW:
+        flow = ADMIN_FLOW[uid]
+        if flow["step"] == "uid":
+            value = m.text.strip()
+            if not value.isdigit() or int(value) <= 0:
+                return await m.answer("شناسه معتبر نیست؛ فقط شناسه عددی تلگرام را بفرست.")
+            target_uid = int(value)
+            if target_uid == ROOT_ADMIN_ID:
+                ADMIN_FLOW.pop(uid, None)
+                return await m.answer("این شناسه مالک اصلی است و نیازی به افزودن ندارد.")
+            import json
+            db.execute("INSERT OR IGNORE INTO bot_admins(user_id,added_by,permissions,created_at) VALUES(?,?,?,?)",
+                       (target_uid, uid, "[]", datetime.now(timezone.utc).isoformat()))
+            db.commit()
+            ADMIN_FLOW.pop(uid, None)
+            return await m.answer(f"✅ مدیر {target_uid} اضافه شد. حالا دسترسی‌ها را تیک بزن:", reply_markup=permission_keyboard(target_uid))
+    if uid in BOT_FLOW:
+        flow = BOT_FLOW[uid]
+        if flow["step"] == "token":
+            token_value = m.text.strip()
+            # Delete the message containing the bot token as soon as possible.
+            try: await m.delete()
+            except Exception: pass
+            if len(token_value) < 30 or ":" not in token_value:
+                BOT_FLOW.pop(uid, None)
+                return await bot.send_message(uid, "توکن معتبر به نظر نمی‌رسد. از BotFather توکن را دوباره بگیر و از «ساخت ربات اختصاصی» شروع کن.")
+            candidate = Bot(token_value)
+            try:
+                me = await candidate.get_me()
+                if not me.username:
+                    raise ValueError("Bot username is missing")
+            except Exception:
+                await candidate.session.close()
+                BOT_FLOW.pop(uid, None)
+                return await bot.send_message(uid, "❌ توکن تأیید نشد. پیام توکن حذف شد؛ توکن درست را از BotFather بگیر و دوباره شروع کن.")
+            await candidate.session.close()
+            flow["token_cipher"] = token_cipher().encrypt(token_value.encode()).decode()
+            flow["username"] = me.username
+            flow["step"] = "admin_id"
+            return await bot.send_message(uid, f"✅ توکن @{me.username} تأیید شد.\nحالا شناسه عددی ادمین این ربات را بفرست.")
+        if flow["step"] == "admin_id":
+            value = m.text.strip()
+            if not value.isdigit() or int(value) <= 0:
+                return await m.answer("شناسه ادمین باید یک عدد معتبر باشد.")
+            admin_id = int(value)
+            if admin_id != uid and not has_root_access(uid):
+                return await m.answer("برای امنیت، فقط سازنده یا مالک اصلی می‌تواند ثبت را ادامه دهد.")
+            token_value = token_cipher().decrypt(flow["token_cipher"].encode()).decode()
+            cipher = flow["token_cipher"]
+            username = flow["username"]
+            try:
+                custom_bot = Bot(token_value)
+                custom_me = await custom_bot.get_me()
+                await custom_bot.delete_webhook(drop_pending_updates=False)
+                await custom_bot.session.close()
+            except Exception:
+                BOT_FLOW.pop(uid, None)
+                return await m.answer("❌ اتصال ربات ناموفق بود. توکن را بررسی کن و دوباره شروع کن.")
+            db.execute("INSERT INTO custom_bots(owner_id,admin_id,username,token_cipher,status,created_at) VALUES(?,?,?,?,?,?)",
+                       (uid, admin_id, username, cipher, "saved", datetime.now(timezone.utc).isoformat()))
+            db.commit()
+            BOT_FLOW.pop(uid, None)
+            await m.answer(f"✅ ربات @{username} ثبت شد. در حال راه‌اندازی است؛ اگر سرویس ری‌استارت شود، از فهرست ثبت‌شده‌ها دوباره بارگذاری می‌شود.")
+            await start_custom_bot_from_row(db.execute("SELECT id,owner_id,admin_id,username,token_cipher FROM custom_bots WHERE username=? ORDER BY id DESC LIMIT 1", (username,)).fetchone())
+            return
+
+@dp.callback_query(F.data == "factory:start")
+async def factory_start(c):
+    if not c.message:
+        return await c.answer()
+    if c.message.chat.type != "private":
+        return await c.answer("این کار را در گفتگوی خصوصی با ربات انجام بده.", show_alert=True)
+    BOT_FLOW[c.from_user.id] = {"step":"token"}
+    await c.message.answer("🤖 ساخت ربات اختصاصی\n۱) در BotFather ربات بساز و توکن را دریافت کن.\n۲) توکن را همین‌جا بفرست؛ پیام حاوی توکن فوراً حذف می‌شود.\n۳) سپس شناسه عددی ادمین ربات را وارد کن.\n⚠️ توکن را برای هیچ شخص دیگری ارسال نکن. برای لغو /cancel را بزن.")
+    await c.answer()
+
+@dp.message(Command("mybots"))
+async def my_bots_command(m):
+    rows = db.execute("SELECT id,username,status,admin_id FROM custom_bots WHERE owner_id=? ORDER BY id DESC", (m.from_user.id,)).fetchall()
+    if not rows:
+        return await m.answer("🤖 هنوز ربات اختصاصی نساخته‌ای. از منوی ربات «ساخت ربات اختصاصی» را انتخاب کن.")
+    await m.answer("🤖 ربات‌های تو:\n" + "\n".join(f"#{bid} @{username} — وضعیت: {status} — ادمین: {admin_id}" for bid,username,status,admin_id in rows))
+
+async def start_custom_bot_from_row(row):
+    if not row:
+        return
+    bot_id, owner_id, admin_id, username, encrypted = row
+    if bot_id in CUSTOM_BOT_TASKS and not CUSTOM_BOT_TASKS[bot_id].done():
+        return
+    try:
+        token_value = token_cipher().decrypt(encrypted.encode()).decode()
+        custom_bot = Bot(token_value)
+        custom_dp = Dispatcher()
+
+        @custom_dp.message(CommandStart())
+        async def custom_start(m):
+            await m.answer(f"سلام! 👋 من @{username} هستم.\nبرای راهنما /help را بزن.")
+
+        @custom_dp.message(Command("help"))
+        async def custom_help(m):
+            await m.answer("📖 راهنمای ربات اختصاصی\nابزارهای پایه: شناسه، ماشین‌حساب، تاس، شیر یا خط، پروفایل و فرمان‌های مدیریت گروه.\nبرای مدیریت اعضا، ربات را ادمین گروه کن و فرمان‌ها را از داخل گروه اجرا کن.")
+
+        @custom_dp.message(Command("id"))
+        async def custom_id(m):
+            await m.answer(f"شناسه کاربر: {m.from_user.id}\nشناسه گفتگو: {m.chat.id}")
+
+        @custom_dp.message(Command("dice"))
+        async def custom_dice(m):
+            await m.answer(f"🎲 نتیجه تاس: {random.randint(1,6)}")
+
+        @custom_dp.message(Command("coin"))
+        async def custom_coin(m):
+            await m.answer("🪙 " + random.choice(["شیر","خط"]))
+
+        @custom_dp.message(Command("calc"))
+        async def custom_calc(m):
+            parts = (m.text or "").split(maxsplit=1)
+            if len(parts) < 2:
+                return await m.answer("قالب: /calc 12*(4+3)")
+            try:
+                await m.answer(f"🧮 نتیجه: {safe_calculate(parts[1])}")
+            except Exception:
+                await m.answer("عبارت ریاضی نامعتبر است.")
+
+        async def custom_group_admin(m):
+            if m.chat.type == "private":
+                await m.answer("این فرمان فقط داخل گروه اجرا می‌شود.")
+                return False
+            if m.from_user.id == admin_id:
+                return True
+            try:
+                member = await custom_bot.get_chat_member(m.chat.id, m.from_user.id)
+                if member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR}:
+                    return True
+            except Exception:
+                pass
+            await m.answer("⛔ این عملیات فقط برای ادمین ربات یا مدیر گروه مجاز است.")
+            return False
+
+        @custom_dp.message(Command("ban"))
+        async def custom_ban(m):
+            if not await custom_group_admin(m): return
+            target_user = m.reply_to_message.from_user if m.reply_to_message else None
+            if not target_user: return await m.answer("برای بن، پیام کاربر را ریپلای کن.")
+            try:
+                await custom_bot.ban_chat_member(m.chat.id, target_user.id)
+                await m.answer("🚫 کاربر مسدود شد.")
+            except Exception:
+                await m.answer("عملیات ناموفق بود؛ دسترسی Ban را به ربات بده.")
+
+        @custom_dp.message(Command("kick"))
+        async def custom_kick(m):
+            if not await custom_group_admin(m): return
+            target_user = m.reply_to_message.from_user if m.reply_to_message else None
+            if not target_user: return await m.answer("برای اخراج، پیام کاربر را ریپلای کن.")
+            try:
+                await custom_bot.ban_chat_member(m.chat.id, target_user.id)
+                await custom_bot.unban_chat_member(m.chat.id, target_user.id, only_if_banned=True)
+                await m.answer("👢 کاربر از گروه اخراج شد.")
+            except Exception:
+                await m.answer("عملیات ناموفق بود؛ دسترسی مدیریت اعضا را بررسی کن.")
+
+        @custom_dp.message()
+        async def custom_default(m):
+            if m.text and not m.text.startswith("/"):
+                await m.answer("سلام! برای راهنمای قابلیت‌های این ربات /help را بزن.")
+
+        async def runner():
+            try:
+                await custom_bot.delete_webhook(drop_pending_updates=False)
+                await custom_dp.start_polling(custom_bot)
+            finally:
+                await custom_bot.session.close()
+        task = asyncio.create_task(runner(), name=f"custom-bot-{bot_id}")
+        CUSTOM_BOT_TASKS[bot_id] = task
+        db.execute("UPDATE custom_bots SET status='online' WHERE id=?", (bot_id,))
+        db.commit()
+        logging.info("Custom bot @%s started for owner %s", username, owner_id)
+    except (InvalidToken, Exception):
+        logging.exception("Could not start custom bot id=%s", bot_id)
+        db.execute("UPDATE custom_bots SET status='error' WHERE id=?", (bot_id,))
+        db.commit()
+
+async def start_saved_custom_bots():
+    rows = db.execute("SELECT id,owner_id,admin_id,username,token_cipher FROM custom_bots ORDER BY id").fetchall()
+    for row in rows:
+        await start_custom_bot_from_row(row)
+        await asyncio.sleep(0.25)
+
+
 async def main():
     app = web.Application()
     app.router.add_get("/", health)
@@ -1612,11 +1948,14 @@ async def main():
     # Starting getUpdates too early makes old/new deployments fight over the same bot token.
     await asyncio.sleep(15)
     await set_bot_commands()
+    await start_saved_custom_bots()
     maintenance_task = asyncio.create_task(maintenance())
     try:
         await dp.start_polling(bot)
     finally:
         maintenance_task.cancel()
+        for task in CUSTOM_BOT_TASKS.values():
+            task.cancel()
         await bot.session.close()
         db.close()
 
