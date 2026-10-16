@@ -14,6 +14,7 @@ from aiogram.enums import ChatMemberStatus
 from aiohttp import web
 from hamyar_dars import register_hamyar_handlers
 from student_panel import register_student_handlers
+from ddper_player import register_ddper_handlers
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADM = {6384557276} | {int(x) for x in (os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID", "")).replace(" ", "").split(",") if x}
@@ -71,6 +72,7 @@ bot = Bot(TOKEN)
 dp = Dispatcher()
 register_hamyar_handlers(dp)
 register_student_handlers(dp, bot, ADM)
+register_ddper_handlers(dp)
 pending = set()
 pending_admin_actions = {}
 
