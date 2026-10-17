@@ -14,7 +14,10 @@ import httpx
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
 )
@@ -156,6 +159,26 @@ def get_shopping(telegram_id: int) -> list[ShoppingItem]:
     with SessionLocal() as db:
         return list(db.scalars(select(ShoppingItem).where(ShoppingItem.telegram_id == telegram_id).order_by(ShoppingItem.id.desc()).limit(40)).all())
 
+def is_admin(telegram_id: int | None) -> bool:
+    return bool(ADMIN_ID and telegram_id == ADMIN_ID)
+
+def admin_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 آمار", callback_data="admin:stats"),
+         InlineKeyboardButton(text="📚 مدیریت غذاها", callback_data="admin:recipes")],
+        [InlineKeyboardButton(text="➕ افزودن غذا", callback_data="admin:add")],
+        [InlineKeyboardButton(text="⬅️ منوی اصلی", callback_data="home")],
+    ])
+
+class AddRecipeFlow(StatesGroup):
+    name = State()
+    country = State()
+    category = State()
+    minutes = State()
+    servings = State()
+    ingredients = State()
+    steps = State()
+
 def main_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="🍽 پیشنهاد غذا", callback_data="recommend"), InlineKeyboardButton(text="🌍 کشف غذا", callback_data="discover")],
@@ -185,18 +208,155 @@ def recipe_text(r: Recipe) -> str:
             f"📚 منبع: {source} ({status})\n"
             "⚠️ ارزش غذایی و آلرژن‌ها تا زمانی که داده معتبر ثبت نشده باشد، تأییدشده محسوب نمی‌شوند.")
 
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 bot_instance: Bot | None = None
 
 @dp.message(CommandStart())
 async def start(message: Message):
     if message.from_user:
         remember_user(message.from_user.id, message.from_user.full_name)
-    await message.answer("سلام! به <b>FoodMind AI</b> خوش اومدی 🍲\nاز اینجا غذاهای جهان رو جست‌وجو کن، دستور پخت ببین یا با مواد داخل خونه غذا پیدا کن.", reply_markup=main_keyboard())
+    keyboard = main_keyboard()
+    if message.from_user and is_admin(message.from_user.id):
+        keyboard = InlineKeyboardMarkup(inline_keyboard=main_keyboard().inline_keyboard + [[InlineKeyboardButton(text="🛠 پنل ادمین", callback_data="admin:menu")]])
+    await message.answer("سلام! به <b>FoodMind AI</b> خوش اومدی 🍲\\nاز اینجا غذاهای جهان رو جست‌وجو کن، دستور پخت ببین یا با مواد داخل خونه غذا پیدا کن.", reply_markup=keyboard)
 
 @dp.message(Command("help"))
 async def help_cmd(message: Message):
     await message.answer("برای جست‌وجو نام غذا را بفرست. برای جست‌وجوی مواد، مثلاً بنویس: «با سیب‌زمینی».\nاز دکمه‌های منو برای پیشنهاد، کشف غذا، علاقه‌مندی و فهرست خرید استفاده کن.", reply_markup=main_keyboard())
+
+@dp.message(Command("admin"))
+async def admin_command(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await message.answer("⛔ این بخش فقط برای مدیر ربات است.")
+        return
+    await state.clear()
+    await message.answer("🛠 <b>پنل مدیریت FoodMind AI</b>", reply_markup=admin_keyboard())
+
+@dp.callback_query(F.data == "admin:menu")
+async def admin_menu(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("دسترسی غیرمجاز", show_alert=True); return
+    await state.clear(); await call.answer()
+    if call.message: await call.message.answer("🛠 <b>پنل مدیریت FoodMind AI</b>", reply_markup=admin_keyboard())
+
+@dp.callback_query(F.data == "admin:stats")
+async def admin_stats(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("دسترسی غیرمجاز", show_alert=True); return
+    await call.answer()
+    with SessionLocal() as db:
+        users = int(db.scalar(select(func.count(User.id))) or 0)
+        recipes = int(db.scalar(select(func.count(Recipe.id))) or 0)
+        favorites = int(db.scalar(select(func.count(Favorite.id))) or 0)
+        unreviewed = int(db.scalar(select(func.count(Recipe.id)).where(Recipe.source_status.in_(["sample_unverified", "imported_unreviewed"]))) or 0)
+    if call.message:
+        await call.message.answer(f"📊 <b>آمار مدیریتی</b>\n🍽 دستورها: {recipes}\n👤 کاربران ثبت‌شده: {users}\n❤️ ذخیره‌ها: {favorites}\n🔎 نیازمند بررسی منبع: {unreviewed}")
+
+@dp.callback_query(F.data == "admin:recipes")
+async def admin_recipes(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("دسترسی غیرمجاز", show_alert=True); return
+    await call.answer()
+    rows = search_recipes(limit=15)
+    buttons = [[InlineKeyboardButton(text=f"🍽 {r.name_fa}", callback_data=f"recipe:{r.id}"), InlineKeyboardButton(text="🗑 حذف", callback_data=f"admin:delete:{r.id}")] for r in rows]
+    buttons.append([InlineKeyboardButton(text="⬅️ پنل ادمین", callback_data="admin:menu")])
+    if call.message: await call.message.answer("📚 <b>مدیریت غذاها</b>\nبرای حذف هر غذا دکمه حذف را بزن:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@dp.callback_query(F.data.startswith("admin:delete:"))
+async def admin_delete_recipe(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("دسترسی غیرمجاز", show_alert=True); return
+    recipe_id = int(call.data.rsplit(":", 1)[1])
+    with SessionLocal() as db:
+        recipe = db.get(Recipe, recipe_id)
+        if recipe:
+            db.delete(recipe); db.commit(); result = "غذا حذف شد."
+        else: result = "غذا پیدا نشد."
+    await call.answer(result, show_alert=True)
+
+@dp.callback_query(F.data == "admin:add")
+async def admin_add_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        await call.answer("دسترسی غیرمجاز", show_alert=True); return
+    await state.set_state(AddRecipeFlow.name); await call.answer()
+    if call.message: await call.message.answer("نام غذا را بفرست. برای لغو /cancel را ارسال کن.")
+
+@dp.message(Command("cancel"), StateFilter("*"))
+async def admin_cancel(message: Message, state: FSMContext):
+    await state.clear(); await message.answer("عملیات لغو شد.")
+
+@dp.message(AddRecipeFlow.name)
+async def admin_add_name(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    await state.update_data(name=(message.text or "").strip()[:180]); await state.set_state(AddRecipeFlow.country)
+    await message.answer("کشور یا منطقهٔ این غذا؟")
+
+@dp.message(AddRecipeFlow.country)
+async def admin_add_country(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    await state.update_data(country=(message.text or "نامشخص").strip()[:100]); await state.set_state(AddRecipeFlow.category)
+    await message.answer("دسته‌بندی غذا؟ مثلاً غذای اصلی، صبحانه، دسر یا نوشیدنی")
+
+@dp.message(AddRecipeFlow.category)
+async def admin_add_category(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    await state.update_data(category=(message.text or "غذای اصلی").strip()[:80]); await state.set_state(AddRecipeFlow.minutes)
+    await message.answer("زمان آماده‌سازی به دقیقه؟ فقط عدد بفرست.")
+
+@dp.message(AddRecipeFlow.minutes)
+async def admin_add_minutes(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    try:
+        minutes = int((message.text or "").strip())
+        if not 1 <= minutes <= 1440: raise ValueError()
+    except ValueError:
+        await message.answer("یک عدد بین ۱ تا ۱۴۴۰ وارد کن."); return
+    await state.update_data(minutes=minutes); await state.set_state(AddRecipeFlow.servings)
+    await message.answer("این دستور برای چند نفر است؟ فقط عدد بفرست.")
+
+@dp.message(AddRecipeFlow.servings)
+async def admin_add_servings(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    try:
+        servings = int((message.text or "").strip())
+        if not 1 <= servings <= 100: raise ValueError()
+    except ValueError:
+        await message.answer("یک عدد بین ۱ تا ۱۰۰ وارد کن."); return
+    await state.update_data(servings=servings); await state.set_state(AddRecipeFlow.ingredients)
+    await message.answer("مواد اولیه را بفرست؛ هر ماده را در یک خط بنویس.")
+
+@dp.message(AddRecipeFlow.ingredients)
+async def admin_add_ingredients(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    ingredients = (message.text or "").strip()
+    if len(ingredients) < 3:
+        await message.answer("لطفاً مواد اولیه را کامل‌تر وارد کن."); return
+    await state.update_data(ingredients=ingredients[:10000]); await state.set_state(AddRecipeFlow.steps)
+    await message.answer("مراحل پخت را بفرست؛ هر مرحله را در یک خط بنویس.")
+
+@dp.message(AddRecipeFlow.steps)
+async def admin_add_steps(message: Message, state: FSMContext):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await state.clear(); await message.answer("⛔ دسترسی غیرمجاز."); return
+    steps = (message.text or "").strip()
+    if len(steps) < 5:
+        await message.answer("مراحل پخت را کامل‌تر وارد کن."); return
+    data = await state.get_data()
+    with SessionLocal() as db:
+        recipe = Recipe(name_fa=data["name"], country=data["country"], category=data["category"],
+            description="دستور ثبت‌شده توسط مدیر.", ingredients_text=data["ingredients"],
+            steps_text=steps[:15000], minutes=data["minutes"], servings=data["servings"],
+            difficulty="نامشخص", source_name="ثبت‌شده توسط مدیر", source_status="admin_entered")
+        db.add(recipe); db.commit(); db.refresh(recipe)
+        recipe_id, recipe_name = recipe.id, recipe.name_fa
+    await state.clear()
+    await message.answer(f"✅ دستور «{html.escape(recipe_name)}» با شناسه {recipe_id} ثبت شد.", reply_markup=admin_keyboard())
 
 @dp.message(Command("search"))
 async def search_cmd(message: Message):
