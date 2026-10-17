@@ -21,7 +21,7 @@ from aiogram.types import (
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import (
-    Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine,
+    BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine,
     func, or_, select,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
@@ -69,14 +69,14 @@ class Recipe(Base):
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(160), default="")
-    created_at: Mapped[str] = mapped_column(String(40), server_default=func.datetime("now"))
+    created_at: Mapped[str] = mapped_column(String(40), server_default=func.now())
 
 class Favorite(Base):
     __tablename__ = "favorites"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, index=True)
     recipe_id: Mapped[int] = mapped_column(ForeignKey("recipes.id", ondelete="CASCADE"))
     recipe: Mapped[Recipe] = relationship(back_populates="favorites")
     __table_args__ = (UniqueConstraint("telegram_id", "recipe_id", name="uq_favorite_user_recipe"),)
