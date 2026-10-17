@@ -1,0 +1,1 @@
+\n## Railway build configuration\n\nThe application image is built from the repository-root `Dockerfile`; the web health check is `GET /health`. The Telegram polling worker starts only when `BOT_TOKEN` is configured.\n
