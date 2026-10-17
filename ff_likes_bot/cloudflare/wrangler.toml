@@ -1,8 +1,0 @@
-name = "iranff-request-bot"
-main = "worker.js"
-compatibility_date = "2026-10-11"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "iranff-request-bot-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"

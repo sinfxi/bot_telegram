@@ -1,17 +1,12 @@
-# Python
+.env
+.env.*
+!.env.example
 __pycache__/
 *.py[cod]
-*.db
-*.sqlite
-*.sqlite3
-.env
+.pytest_cache/
 .venv/
 venv/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
+foodmind.db
+*.sqlite
+*.sqlite3
 .DS_Store
-Thumbs.db
