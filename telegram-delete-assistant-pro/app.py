@@ -19,10 +19,10 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 DB_PATH = Path(os.getenv("DB_PATH", "/data/bot.sqlite3"))
 PORT = int(os.getenv("PORT", "8000"))
 DELETE_URL = "https://my.telegram.org/auth?to=delete"
-if not BOT_TOKEN: raise RuntimeError("Set BOT_TOKEN in environment variables.")
-if not ADMIN_PASSWORD: raise RuntimeError("Set a strong ADMIN_PASSWORD in environment variables.")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("delete-assistant")
+if not ADMIN_PASSWORD:
+    raise RuntimeError("Set a strong ADMIN_PASSWORD in environment variables.")
 
 def connect():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +50,14 @@ def stats():
         recent = db.execute("SELECT event_type,created_at FROM events ORDER BY id DESC LIMIT 12").fetchall()
     return users, active, counts, recent
 
-bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = None
+if BOT_TOKEN:
+    try:
+        bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    except Exception:
+        log.exception("BOT_TOKEN is not valid; Telegram polling will remain disabled until a valid token is configured.")
+else:
+    log.warning("BOT_TOKEN is not configured; web dashboard will run, but Telegram bot polling is disabled.")
 dp = Dispatcher()
 def keyboard(rows): return InlineKeyboardMarkup(inline_keyboard=rows)
 def home_kb(): return keyboard([[InlineKeyboardButton(text="🗑 راهنمای حذف حساب",callback_data="delete:start")],[InlineKeyboardButton(text="🔐 امنیت",callback_data="security"),InlineKeyboardButton(text="❓ راهنما",callback_data="help")]])
@@ -144,21 +151,27 @@ def admin_auth(creds: HTTPBasicCredentials = Depends(auth)):
     return creds.username
 
 async def bot_runner():
+    if bot is None:
+        log.error("Telegram bot is offline: set a valid BOT_TOKEN in the hosting environment.")
+        return
     await bot.delete_webhook(drop_pending_updates=False)
     await dp.start_polling(bot,allowed_updates=dp.resolve_used_update_types())
 @asynccontextmanager
 async def lifespan(app):
     init_db()
-    task = asyncio.create_task(bot_runner())
+    task = asyncio.create_task(bot_runner()) if bot is not None else None
     app.state.bot_task = task
     yield
-    task.cancel()
-    try: await task
-    except asyncio.CancelledError: pass
-    await bot.session.close()
+    if task is not None:
+        task.cancel()
+        try: await task
+        except asyncio.CancelledError: pass
+    if bot is not None:
+        await bot.session.close()
 app = FastAPI(title="Telegram Delete Assistant",lifespan=lifespan)
 @app.get("/health",response_class=PlainTextResponse)
-async def health(): return "ok"
+async def health():
+    return "ok; telegram_bot=" + ("configured" if bot is not None else "not_configured")
 @app.get("/",response_class=HTMLResponse)
 async def dashboard(_=Depends(admin_auth)):
     u,a,c,recent = stats()
