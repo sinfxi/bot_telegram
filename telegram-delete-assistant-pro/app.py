@@ -300,7 +300,7 @@ async def bot_runner():
 async def scheduler_runner():
     while True:
         try:
-            if user_client and user_client.is_connected():
+            if user_client and user_client.is_connected() and get_setting("automation_enabled", "0") == "1":
                 now = int(time.time())
                 with closing(db_connect()) as db:
                     due = db.execute("SELECT * FROM scheduled_messages WHERE enabled=1 AND send_at<=? ORDER BY send_at LIMIT 10", (now,)).fetchall()
@@ -649,12 +649,20 @@ async def schedule_page():
 async def schedule_add(request: Request):
     from datetime import datetime, timezone
     form = await parse_form(request)
-    peer = form.get("peer", "").strip()
+    peer_input = form.get("peer", "").strip()
     message = form.get("message", "").strip()
     date_value = form.get("send_at", "").strip()
     try:
-        if not peer or not message or len(message) > 3000:
+        if not peer_input or not message or len(message) > 3000:
             raise ValueError()
+        if not user_client or not user_client.is_connected():
+            return page("حساب متصل نیست", '<section class="card">ابتدا حساب شخصی را متصل کن.</section>')
+        entity = await user_client.get_entity(peer_input)
+        peer_id = int(entity.id)
+        with closing(db_connect()) as db:
+            allowed = db.execute("SELECT allowed FROM contacts WHERE peer_id=?", (peer_id,)).fetchone()
+        if not allowed or not allowed["allowed"]:
+            return page("مخاطب مجاز نیست", '<section class="card">ابتدا مخاطب را در بخش مخاطب‌ها همگام‌سازی و به‌صورت دستی مجاز کن.</section>')
         parsed = datetime.fromisoformat(date_value)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
@@ -663,9 +671,9 @@ async def schedule_add(request: Request):
             return page("زمان نامعتبر", '<section class="card">زمان ارسال باید حداقل ۳۰ ثانیه در آینده باشد.</section>')
         with closing(db_connect()) as db:
             db.execute("INSERT INTO scheduled_messages(peer,message,send_at,enabled,created_at) VALUES(?,?,?,?,?)",
-                       (peer, message, send_at, 1, int(time.time())))
+                       (str(peer_id), message, send_at, 1, int(time.time())))
             db.commit()
-        record("schedule_added", f"peer={peer[:80]}")
+        record("schedule_added", f"peer_id={peer_id}")
     except Exception:
         return page("اطلاعات نامعتبر", '<section class="card">مخاطب، متن و زمان را بررسی کن. تاریخ باید معتبر باشد.</section>')
     return RedirectResponse("/schedule", status_code=303)
