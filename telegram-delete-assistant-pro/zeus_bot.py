@@ -19,7 +19,7 @@ log = logging.getLogger("fxi-ai-chat")
 
 BOT_TOKEN = os.getenv("ZEUS_BOT_TOKEN", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-AI_MODEL = os.getenv("AI_MODEL", "llama-3.3-70b-versatile").strip()
+AI_MODEL = os.getenv("AI_MODEL", "openai/gpt-oss-120b").strip()
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 SYSTEM_PROMPT = os.getenv(
     "AI_SYSTEM_PROMPT",
