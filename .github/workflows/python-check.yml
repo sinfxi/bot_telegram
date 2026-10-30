@@ -1,0 +1,29 @@
+name: Python validation
+
+on:
+  push:
+    branches:
+      - feature/personal-account-automation
+  pull_request:
+    paths:
+      - "telegram-delete-assistant-pro/**"
+      - ".github/workflows/python-check.yml"
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r telegram-delete-assistant-pro/requirements.txt
+      - name: Compile Python files
+        run: python -m compileall -q telegram-delete-assistant-pro
+      - name: Import app module
+        working-directory: telegram-delete-assistant-pro
+        env:
+          ADMIN_PASSWORD: "ci-only-placeholder"
+          DB_PATH: "/tmp/fxi-test.sqlite3"
+        run: python -c "import app; print('app import ok')"
