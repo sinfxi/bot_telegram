@@ -559,10 +559,13 @@ async def dashboard(_: str = Depends(admin_auth)):
     enabled = setting("automation_enabled", "1") == "1"
     status = "روشن 🟢" if enabled else "خاموش 🔴"
     rules = list_rules()
-    table_rows = "".join(
-        f'<tr><td>#{r["id"]}</td><td>{html.escape(r["keyword"])}</td><td>{"دقیق" if r["match_type"] == "exact" else "شامل عبارت"}</td><td>{"روشن" if r["enabled"] else "خاموش"}</td><td>{html.escape(r["response"][:300])}</td></tr>'
-        for r in rules
-    )
+    def render_rule_row(rule):
+        mode = "دقیق" if rule["match_type"] == "exact" else "شامل عبارت"
+        status = "روشن" if rule["enabled"] else "خاموش"
+        return "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            rule["id"], html.escape(rule["keyword"]), mode, status, html.escape(rule["response"][:300])
+        )
+    table_rows = "".join(render_rule_row(rule) for rule in rules)
     body = f"""
     <!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
