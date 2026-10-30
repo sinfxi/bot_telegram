@@ -53,6 +53,11 @@ PROVIDERS = {
         "key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
         "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip(),
     },
+    "grok": {
+        "label": "⚡ Grok (xAI)",
+        "key": os.getenv("XAI_API_KEY", "").strip(),
+        "model": os.getenv("XAI_MODEL", "grok-3-mini").strip(),
+    },
 }
 
 # Runtime state: histories are isolated by both user and provider.
@@ -124,6 +129,7 @@ async def choose_provider(callback: CallbackQuery):
             "gemini": "GEMINI_API_KEY",
             "claude": "ANTHROPIC_API_KEY",
             "deepseek": "DEEPSEEK_API_KEY",
+            "grok": "XAI_API_KEY",
         }[provider_id]
         await callback.answer("این سرویس هنوز فعال نشده؛ مدیر باید کلید API را در Render تنظیم کند.", show_alert=True)
         if callback.message:
@@ -243,6 +249,19 @@ async def ask_claude(history: list, user_text: str) -> tuple[int, dict]:
     )
 
 
+async def ask_grok(history: list, user_text: str) -> tuple[int, dict]:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend({"role": item["role"], "content": item["content"]}
+                    for item in history[-MAX_HISTORY_MESSAGES:])
+    messages.append({"role": "user", "content": user_text})
+    return await post_json(
+        "https://api.x.ai/v1/chat/completions",
+        {"Authorization": f"Bearer {PROVIDERS['grok']['key']}", "Content-Type": "application/json"},
+        {"model": PROVIDERS["grok"]["model"], "messages": messages,
+         "temperature": 0.7, "max_tokens": 1800},
+    )
+
+
 async def ask_deepseek(history: list, user_text: str) -> tuple[int, dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": item["role"], "content": item["content"]}
@@ -291,8 +310,10 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
                 status, data = await ask_gemini(history, user_text)
             elif provider_id == "claude":
                 status, data = await ask_claude(history, user_text)
-            else:
+            elif provider_id == "deepseek":
                 status, data = await ask_deepseek(history, user_text)
+            else:
+                status, data = await ask_grok(history, user_text)
             if status >= 400:
                 return api_error(provider_id, status, data)
             answer = extract_answer(provider_id, data)
