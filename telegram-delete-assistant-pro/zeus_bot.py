@@ -15,12 +15,12 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("fxi-ai-chat")
+log = logging.getLogger("fxi-gemini-chat")
 
 BOT_TOKEN = os.getenv("ZEUS_BOT_TOKEN", "").strip()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
-AI_MODEL = os.getenv("AI_MODEL", "openai/gpt-oss-120b").strip()
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+AI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 SYSTEM_PROMPT = os.getenv(
     "AI_SYSTEM_PROMPT",
     "تو یک دستیار هوش مصنوعی فارسی‌زبان، دقیق، مفید و صمیمی هستی. "
@@ -67,47 +67,62 @@ async def reset_chat(message: Message):
 
 
 async def ask_ai(user_id: int, user_text: str) -> str:
-    if not GROQ_API_KEY:
-        return "⚠️ کلید هوش مصنوعی تنظیم نشده است. مدیر باید GROQ_API_KEY را در Environment سرویس Render اضافه کند."
+    if not GEMINI_API_KEY:
+        return "⚠️ کلید هوش مصنوعی تنظیم نشده است. مدیر باید GEMINI_API_KEY را در Environment سرویس Render اضافه کند."
 
     async with history_locks[user_id]:
         history = histories[user_id]
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(history[-MAX_HISTORY_MESSAGES:])
-        messages.append({"role": "user", "content": user_text})
+        contents = []
+        for item in history[-MAX_HISTORY_MESSAGES:]:
+            contents.append({
+                "role": "user" if item["role"] == "user" else "model",
+                "parts": [{"text": item["content"]}],
+            })
+        contents.append({"role": "user", "parts": [{"text": user_text}]})
+
         timeout = aiohttp.ClientTimeout(total=75, connect=15)
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-        payload = {"model": AI_MODEL, "messages": messages, "temperature": 0.7, "max_tokens": 1800}
+        headers = {"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"}
+        payload = {
+            "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": contents,
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1800},
+        }
+        url = f"{GEMINI_URL}/{AI_MODEL}:generateContent"
 
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(GROQ_URL, headers=headers, json=payload) as response:
+                async with session.post(url, headers=headers, json=payload) as response:
                     data = await response.json(content_type=None)
-                    if response.status == 401:
-                        log.error("Groq API authentication failed (401)")
-                        return "⚠️ کلید API معتبر نیست؛ مدیر باید GROQ_API_KEY را بررسی کند."
+                    if response.status in (401, 403):
+                        log.error("Gemini API authentication/permission failure: HTTP %s", response.status)
+                        return "⚠️ کلید Gemini معتبر نیست یا دسترسی API فعال نیست. مدیر باید GEMINI_API_KEY و تنظیمات Google AI Studio را بررسی کند."
                     if response.status == 429:
-                        return "⏳ محدودیت درخواست سرویس هوش مصنوعی فعال شده؛ کمی بعد دوباره تلاش کن."
+                        log.warning("Gemini API quota/rate limit reached")
+                        return "⏳ سهمیه یا محدودیت درخواست Gemini فعلاً پر شده؛ کمی بعد دوباره تلاش کن."
                     if response.status >= 400:
-                        err = data.get("error", {}) if isinstance(data, dict) else {}
-                        detail = err.get("message", "") if isinstance(err, dict) else ""
-                        log.error("Groq API returned HTTP %s: %s", response.status, detail[:300])
-                        return f"⚠️ سرویس هوش مصنوعی خطا داد (کد {response.status}). کمی بعد دوباره تلاش کن."
-                    choices = data.get("choices") or []
-                    answer = (choices[0].get("message") or {}).get("content", "").strip() if choices else ""
+                        error = data.get("error", {}) if isinstance(data, dict) else {}
+                        detail = error.get("message", "") if isinstance(error, dict) else ""
+                        log.error("Gemini API returned HTTP %s: %s", response.status, detail[:300])
+                        return f"⚠️ سرویس Gemini خطا داد (کد {response.status}). مدل یا تنظیمات API را بررسی کن."
+                    candidates = data.get("candidates") or []
+                    parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+                    answer = "\n".join(part.get("text", "") for part in parts if part.get("text")).strip()
                     if not answer:
-                        return "پاسخی دریافت نکردم؛ لطفاً دوباره بپرس."
-                    history.extend([{"role": "user", "content": user_text},
-                                    {"role": "assistant", "content": answer}])
+                        log.warning("Gemini returned no text; response keys=%s", list(data.keys()) if isinstance(data, dict) else [])
+                        return "پاسخی دریافت نکردم؛ لطفاً سؤال را دوباره بفرست."
+                    history.extend([
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": answer},
+                    ])
                     del history[:-MAX_HISTORY_MESSAGES]
                     return answer
         except asyncio.TimeoutError:
             return "⏳ پاسخ‌گویی طول کشید؛ دوباره تلاش کن."
         except aiohttp.ClientError:
-            log.exception("Network error calling Groq API")
-            return "⚠️ اتصال به سرویس هوش مصنوعی مشکل دارد؛ کمی بعد دوباره تلاش کن."
+            log.exception("Network error calling Gemini API")
+            return "⚠️ اتصال به سرویس Gemini مشکل دارد؛ کمی بعد دوباره تلاش کن."
         except Exception:
-            log.exception("Unexpected error handling AI request")
+            log.exception("Unexpected error handling Gemini request")
             return "⚠️ خطای پیش‌بینی‌نشده رخ داد. دوباره تلاش کن."
 
 
@@ -127,8 +142,8 @@ async def chat(message: Message):
     if len(user_text) > MAX_MESSAGE_CHARS:
         await message.answer("پیامت خیلی طولانیه؛ لطفاً کوتاه‌ترش کن.")
         return
-    if not GROQ_API_KEY:
-        await message.answer("⚠️ ربات فعال است، اما GROQ_API_KEY در Environment سرویس Render تنظیم نشده.")
+    if not GEMINI_API_KEY:
+        await message.answer("⚠️ ربات فعال است، اما GEMINI_API_KEY در Environment سرویس Render تنظیم نشده.")
         return
     await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
     await send_long_message(message, await ask_ai(message.from_user.id, user_text))
@@ -140,11 +155,11 @@ async def lifespan(app: FastAPI):
     if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
-        log.info("AI chat Telegram polling started; model=%s", AI_MODEL)
+        log.info("Gemini AI chat Telegram polling started; model=%s", AI_MODEL)
     else:
         log.error("Telegram bot is inactive: ZEUS_BOT_TOKEN is missing")
-    if not GROQ_API_KEY:
-        log.warning("AI chat has no GROQ_API_KEY; AI replies are disabled")
+    if not GEMINI_API_KEY:
+        log.warning("Gemini AI chat has no GEMINI_API_KEY; AI replies are disabled")
     yield
     if polling_task:
         polling_task.cancel()
@@ -158,21 +173,21 @@ async def lifespan(app: FastAPI):
         await bot.session.close()
 
 
-app = FastAPI(title="FXI AI Chat Bot", version="2.0.1", lifespan=lifespan)
+app = FastAPI(title="FXI Gemini AI Chat Bot", version="3.0.0", lifespan=lifespan)
 
 
 @app.get("/")
 async def root():
-    return {"service": "fxi-ai-chat-bot", "status": "ok",
-            "telegram_configured": bool(BOT_TOKEN), "ai_configured": bool(GROQ_API_KEY),
-            "model": AI_MODEL}
+    return {"service": "fxi-gemini-ai-chat-bot", "status": "ok",
+            "telegram_configured": bool(BOT_TOKEN), "ai_configured": bool(GEMINI_API_KEY),
+            "provider": "Google Gemini", "model": AI_MODEL}
 
 
 @app.get("/health")
 async def health():
-    configured = bool(BOT_TOKEN and GROQ_API_KEY)
+    configured = bool(BOT_TOKEN and GEMINI_API_KEY)
     return JSONResponse(status_code=200 if configured else 503, content={
         "status": "ok" if configured else "needs_configuration",
-        "telegram_configured": bool(BOT_TOKEN), "ai_configured": bool(GROQ_API_KEY),
-        "model": AI_MODEL,
+        "telegram_configured": bool(BOT_TOKEN), "ai_configured": bool(GEMINI_API_KEY),
+        "provider": "Google Gemini", "model": AI_MODEL,
     })
