@@ -1,33 +1,62 @@
-# Telegram Account Deletion Assistant
+# ربات خودکارسازی گفت‌وگو در تلگرام
 
-Persian Telegram guide bot with a password-protected web dashboard.
+نسخه‌ای کاملاً بازطراحی‌شده برای ساخت قوانین پاسخ‌گویی خودکار در **خودِ ربات تلگرام**، همراه با پنل آماری محافظت‌شده.
 
-## Safety and limitations
-- Telegram Bot API cannot delete a personal Telegram account.
-- Users complete the process themselves on the official site: https://my.telegram.org/auth?to=delete
-- Never ask for or store login codes, passwords, or two-step verification credentials.
-- Dashboard counts represent interactions with this bot, not confirmed account deletions.
+## قابلیت‌ها
 
-## Features
-- Persian bot menu, cancel/back flows, security guidance
-- SQLite event/user metrics
-- HTTP Basic protected admin dashboard
-- /health endpoint
-- /stats command restricted to ADMIN_ID
+- ساخت قانون با عبارت محرک و پاسخ دلخواه
+- دو شیوه تطبیق: «شامل عبارت» یا «تطبیق دقیق»
+- روشن/خاموش کردن هر قانون به‌صورت جداگانه
+- توقف یا فعال‌سازی کلی خودکارسازی با `/pause` و `/resume`
+- مدیریت قوانین از منوی تلگرام و فرمان‌های مدیریتی
+- ثبت آمار کاربران، پیام‌ها و پاسخ‌های خودکار
+- پنل وب با HTTP Basic Authentication و مسیر سلامت `/health`
+- ذخیره‌سازی SQLite؛ با تنظیم `DB_PATH` و اتصال فضای پایدار میزبان
+- رابط فارسی و کنترل مدیریت محدود به شناسه مدیر
 
-## Environment variables
-- BOT_TOKEN (required)
-- ADMIN_PASSWORD (required; use a strong unique password)
-- ADMIN_USER (optional, default admin)
-- ADMIN_ID (optional; numeric Telegram ID for /stats)
-- DB_PATH (default /data/bot.sqlite3)
-- PORT (provided by host, default 8000)
+## محدودیت مهم Telegram Bot API
 
-## Run locally
-Install dependencies with `python -m pip install -r requirements.txt`, then set environment variables and run `python app.py`.
-Open `http://127.0.0.1:8000/` and enter the admin credentials.
+این پروژه یک **ربات خودکار پاسخ‌گو** است، نه ابزار کنترل اکانت شخصی. ربات فقط پیام‌هایی را می‌بیند که مستقیماً برای خودش ارسال می‌شوند و نمی‌تواند پیام‌های خصوصی اکانت شخصی، گفت‌وگوهای دیگر ربات‌ها یا پیام‌های خارج از دسترسی API را بخواند. وارد کردن آیدی یک ربات دیگر نیز دسترسی مدیریتی به آن ایجاد نمی‌کند.
 
-## Railway notes
-Set the service root directory to `/telegram-delete-assistant-pro`. Set all required variables in Railway's Variables panel. Attach a persistent volume at `/data` to preserve SQLite data across restarts. Keep one replica because Telegram polling should not run in multiple instances. Use HTTPS for the public dashboard.
+این نسخه پاسخ‌ها را بر اساس قوانین تعریف‌شده ارسال می‌کند؛ هوش مصنوعی، خواندن گفت‌وگوهای حساب شخصی، ارسال پیام به افراد از طرف حساب شخصی و زمان‌بندی پیشرفته در این نسخه پیاده‌سازی نشده‌اند.
 
-For production/multiple replicas, use PostgreSQL and separate the bot worker from the web process.
+## فرمان‌ها
+
+- `/start` — منوی اصلی
+- `/help` — راهنما
+- `/status` — وضعیت خودکارسازی
+- `/rules` — فهرست قوانین (مدیر)
+- `/add` — ساخت قانون (مدیر)
+- `/pause` — توقف پاسخ‌های خودکار (مدیر)
+- `/resume` — فعال‌سازی دوباره (مدیر)
+- `/stats` — آمار (مدیر)
+- `/cancel` — لغو فرایند جاری
+
+## متغیرهای محیطی
+
+| متغیر | توضیح |
+|---|---|
+| `BOT_TOKEN` | توکن ربات از BotFather؛ فقط در متغیرهای محیطی میزبان تنظیم شود |
+| `ADMIN_ID` | شناسه عددی حساب تلگرام مدیر |
+| `ADMIN_PASSWORD` | رمز قوی و منحصربه‌فرد برای پنل وب؛ الزامی |
+| `ADMIN_USER` | نام کاربری پنل وب؛ پیش‌فرض `admin` |
+| `DB_PATH` | مسیر دیتابیس؛ پیش‌فرض `/data/bot.sqlite3` |
+| `PORT` | پورت وب؛ توسط میزبان تعیین می‌شود |
+| `LOG_LEVEL` | سطح گزارش؛ پیش‌فرض `INFO` |
+
+**امنیت:** توکن ربات، رمز پنل و کد ورود تلگرام را در کد، مخزن GitHub یا گفت‌وگوها قرار نده. اگر توکنی قبلاً افشا شده، آن را در BotFather باطل و توکن تازه را مستقیماً در تنظیمات میزبان ثبت کن.
+
+## اجرا
+
+```bash
+python -m pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+در Render، دستور شروع را به شکل زیر قرار بده:
+
+```bash
+uvicorn app:app --app-dir telegram-delete-assistant-pro --host 0.0.0.0 --port $PORT
+```
+
+برای حفظ داده‌ها، فضای پایدار را به `/data` متصل کن و تنها یک نمونه از سرویس polling را اجرا کن. مسیر `/health` برای بررسی سلامت سرویس است؛ مسیر `/` با نام کاربری و رمز پنل محافظت می‌شود.
