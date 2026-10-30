@@ -499,7 +499,7 @@ async def automatic_reply(message: Message, state: FSMContext):
     rule = find_response(text)
     if rule:
         add_event(message.from_user.id, "auto_reply", str(rule["id"]))
-        await message.answer(rule["response"])
+        await message.answer(html.escape(rule["response"]))
     else:
         fallback = setting("fallback_response", "")
         if fallback:
@@ -559,6 +559,10 @@ async def dashboard(_: str = Depends(admin_auth)):
     enabled = setting("automation_enabled", "1") == "1"
     status = "روشن 🟢" if enabled else "خاموش 🔴"
     rules = list_rules()
+    table_rows = "".join(
+        f'<tr><td>#{r["id"]}</td><td>{html.escape(r["keyword"])}</td><td>{"دقیق" if r["match_type"] == "exact" else "شامل عبارت"}</td><td>{"روشن" if r["enabled"] else "خاموش"}</td><td>{html.escape(r["response"][:300])}</td></tr>'
+        for r in rules
+    )
     body = f"""
     <!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -581,7 +585,7 @@ async def dashboard(_: str = Depends(admin_auth)):
       <div class="card">پاسخ‌های امروز<div class="value">{today_events.get('auto_reply', 0)}</div></div>
     </section><h2>قوانین پاسخ‌گویی</h2>
     <table><thead><tr><th>شناسه</th><th>عبارت</th><th>نوع</th><th>وضعیت</th><th>پاسخ</th></tr></thead><tbody>
-    {''.join(f'<tr><td>#{r["id"]}</td><td>{html.escape(r["keyword"])}</td><td>{"دقیق" if r["match_type"]=="exact" else "شامل عبارت"}</td><td>{"روشن" if r["enabled"] else "خاموش"}</td><td>{html.escape(r["response"][:300])}</td></tr>' for r in rules)}
+    {table_rows}
     </tbody></table><p class="muted">این سرویس فقط پیام‌های ارسال‌شده به خود ربات را پردازش می‌کند. اطلاعات محرمانه یا کدهای ورود را برای ربات ارسال نکنید.</p>
     </main></html>
     """
