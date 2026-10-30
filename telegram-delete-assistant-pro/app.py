@@ -306,7 +306,15 @@ async def scheduler_runner():
                     due = db.execute("SELECT * FROM scheduled_messages WHERE enabled=1 AND send_at<=? ORDER BY send_at LIMIT 10", (now,)).fetchall()
                 for item in due:
                     try:
-                        await user_client.send_message(item["peer"], item["message"])
+                        with closing(db_connect()) as db:
+                            allowed = db.execute("SELECT allowed FROM contacts WHERE peer_id=?", (int(item["peer"]),)).fetchone()
+                        if not allowed or not allowed["allowed"]:
+                            with closing(db_connect()) as db:
+                                db.execute("UPDATE scheduled_messages SET enabled=0 WHERE id=?", (item["id"],))
+                                db.commit()
+                            record("scheduled_skipped", f"schedule_id={item['id']}; contact not approved")
+                            continue
+                        await user_client.send_message(int(item["peer"]), item["message"])
                         with closing(db_connect()) as db:
                             db.execute("UPDATE scheduled_messages SET enabled=0 WHERE id=?", (item["id"],))
                             db.commit()
@@ -500,6 +508,16 @@ async def verify_password(request: Request):
 
 async def finalize_login():
     global auth_client, pending_phone, pending_code_hash, pending_password_needed
+    if ADMIN_ID <= 0:
+        raise RuntimeError("ADMIN_ID must be configured before connecting a personal account.")
+    me = await auth_client.get_me()
+    if not me or int(me.id) != ADMIN_ID:
+        await auth_client.disconnect()
+        auth_client = None
+        pending_phone = ""
+        pending_code_hash = ""
+        pending_password_needed = False
+        raise RuntimeError("The signed-in account does not match ADMIN_ID.")
     session_string = auth_client.session.save()
     save_session(session_string)
     await auth_client.disconnect()
