@@ -1,181 +1,193 @@
 import asyncio
+import html
 import logging
 import os
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 import aiohttp
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.enums import ChatAction, ParseMode
+from aiogram.filters import Command, CommandStart
+from aiogram.types import Message
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
-                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("zeus-independent-bot")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+log = logging.getLogger("fxi-ai-chat")
 
 BOT_TOKEN = os.getenv("ZEUS_BOT_TOKEN", "").strip()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+AI_MODEL = os.getenv("AI_MODEL", "llama-3.3-70b-versatile").strip()
 ADMIN_ID = int(os.getenv("ZEUS_ADMIN_ID", "0") or "0")
-CF_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+SYSTEM_PROMPT = os.getenv(
+    "AI_SYSTEM_PROMPT",
+    "تو یک دستیار هوش مصنوعی فارسی‌زبان، دقیق، مفید و صمیمی هستی. "
+    "به زبان کاربر پاسخ بده؛ پاسخ‌ها را روشن و کاربردی بنویس. "
+    "اگر چیزی را نمی‌دانی، صادقانه بگو و اطلاعات یا منبع جعلی نساز. "
+    "برای درخواست‌های برنامه‌نویسی، راهکار قابل اجرا و کد خوانا ارائه کن.",
+)
+MAX_HISTORY_MESSAGES = 16
+MAX_MESSAGE_CHARS = 12000
+histories = defaultdict(list)
+history_locks = defaultdict(asyncio.Lock)
 bot = None
 dp = Dispatcher()
 polling_task = None
 
 
-def is_admin(user_id: int) -> bool:
-    return ADMIN_ID > 0 and user_id == ADMIN_ID
-
-
-def main_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔐 بررسی توکن Cloudflare", callback_data="cf:verify")],
-        [InlineKeyboardButton(text="👤 اطلاعات حساب", callback_data="cf:account"),
-         InlineKeyboardButton(text="🌐 فهرست دامنه‌ها", callback_data="cf:zones")],
-        [InlineKeyboardButton(text="⚙️ فهرست Workerها", callback_data="cf:workers")],
-        [InlineKeyboardButton(text="ℹ️ راهنما", callback_data="help")]
-    ])
-
-
-async def cf_get(path: str):
-    if not CF_TOKEN:
-        return None, "توکن Cloudflare تنظیم نشده است. مقدار CLOUDFLARE_API_TOKEN را در Environment سرویس Render ثبت کن."
-    timeout = aiohttp.ClientTimeout(total=15)
-    headers = {"Authorization": f"Bearer {CF_TOKEN}", "Accept": "application/json"}
-    try:
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            async with session.get("https://api.cloudflare.com/client/v4" + path) as response:
-                data = await response.json(content_type=None)
-                if response.status >= 400 or not data.get("success", False):
-                    errors = data.get("errors") or []
-                    msg = "; ".join(str(e.get("message", "خطای ناشناخته")) for e in errors[:3])
-                    return None, f"درخواست Cloudflare ناموفق بود (HTTP {response.status}). {msg}".strip()
-                return data, None
-    except asyncio.TimeoutError:
-        return None, "اتصال به Cloudflare بیش از حد طول کشید؛ دوباره تلاش کن."
-    except Exception:
-        log.exception("Cloudflare request failed")
-        return None, "خطا هنگام اتصال به Cloudflare؛ جزئیات حساس در پاسخ نمایش داده نمی‌شود."
+def main_keyboard_text() -> str:
+    return (
+        "💬 فقط کافیه پیام بدی تا با هم گفتگو کنیم.\n\n"
+        "دستورها:\n"
+        "/new — شروع گفت‌وگوی تازه\n"
+        "/help — راهنما"
+    )
 
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    if not message.from_user or not is_admin(message.from_user.id):
-        await message.answer("⛔ دسترسی مجاز نیست. این ربات فقط برای مدیر تنظیم‌شده فعال است.")
-        return
     await message.answer(
-        "سلام! 👋\n\nبه دستیار مستقل مدیریت Cloudflare خوش آمدی. "
-        "این نسخه از ابتدا ساخته شده و کد ZEUS را کپی نمی‌کند.\n\n"
-        "از منو برای بررسی دسترسی API و مشاهده اطلاعات حساب، دامنه‌ها و Workerها استفاده کن.",
-        reply_markup=main_keyboard()
+        "سلام! 👋 من دستیار هوش مصنوعی‌ات هستم.\n\n"
+        "می‌تونی درباره برنامه‌نویسی، درس، فناوری، نوشتن، ایده‌پردازی یا هر موضوع مجاز دیگه‌ای باهام گفتگو کنی. "
+        "پیام‌هات رو همین‌جا بفرست و برای پاک‌کردن سابقه گفت‌وگو /new رو بزن.\n\n"
+        + main_keyboard_text()
     )
 
 
+@dp.message(Command("help"))
+async def help_command(message: Message):
+    await message.answer(
+        "راهنمای استفاده 🤖\n\n"
+        "• پیام متنی بفرست و پاسخ هوش مصنوعی را دریافت کن.\n"
+        "• برای شروع از صفر، /new را بزن.\n"
+        "• هر گفت‌وگو سابقه جداگانه دارد.\n"
+        "• ممکن است پاسخ‌ها اشتباه باشند؛ اطلاعات مهم را بررسی کن.\n\n"
+        "این ربات از API مدل زبانی استفاده می‌کند و برای پاسخ‌گویی به اتصال اینترنت و کلید API نیاز دارد."
+    )
+
+
+@dp.message(Command("new"))
+@dp.message(Command("reset"))
+async def reset_chat(message: Message):
+    if not message.from_user:
+        return
+    histories[message.from_user.id].clear()
+    await message.answer("🧹 گفت‌وگوی قبلی پاک شد. از اینجا به بعد از نو شروع می‌کنیم!")
+
+
+async def ask_ai(user_id: int, user_text: str) -> str:
+    if not GROQ_API_KEY:
+        return (
+            "⚠️ اتصال هوش مصنوعی هنوز تنظیم نشده است. مدیر ربات باید متغیر "
+            "GROQ_API_KEY را در Environment سرویس Render قرار دهد."
+        )
+
+    async with history_locks[user_id]:
+        history = histories[user_id]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend(history[-MAX_HISTORY_MESSAGES:])
+        messages.append({"role": "user", "content": user_text})
+
+        timeout = aiohttp.ClientTimeout(total=75, connect=15)
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": AI_MODEL,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 1800,
+        }
+
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(GROQ_URL, headers=headers, json=payload) as response:
+                    data = await response.json(content_type=None)
+                    if response.status == 401:
+                        log.error("Groq API authentication failed (401)")
+                        return "⚠️ کلید API هوش مصنوعی معتبر نیست. مدیر باید مقدار GROQ_API_KEY را بررسی کند."
+                    if response.status == 429:
+                        log.warning("Groq API rate limit reached")
+                        return "⏳ تعداد درخواست‌ها فعلاً زیاد شده؛ کمی بعد دوباره امتحان کن."
+                    if response.status >= 400:
+                        error = data.get("error", {}) if isinstance(data, dict) else {}
+                        message_text = error.get("message", "") if isinstance(error, dict) else ""
+                        log.error("Groq API returned HTTP %s: %s", response.status, message_text[:300])
+                        return f"⚠️ سرویس هوش مصنوعی پاسخ نداد (کد {response.status}). کمی بعد دوباره امتحان کن."
+
+                    choices = data.get("choices") or []
+                    answer = (choices[0].get("message") or {}).get("content", "").strip() if choices else ""
+                    if not answer:
+                        return "پاسخی دریافت نکردم؛ لطفاً دوباره سؤال را بفرست."
+
+                    history.extend([
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": answer},
+                    ])
+                    del history[:-MAX_HISTORY_MESSAGES]
+                    return answer
+        except asyncio.TimeoutError:
+            log.warning("Groq API request timed out")
+            return "⏳ پاسخ‌گویی بیش از حد طول کشید؛ دوباره تلاش کن."
+        except aiohttp.ClientError:
+            log.exception("Network error while calling Groq API")
+            return "⚠️ در اتصال به سرویس هوش مصنوعی مشکلی پیش آمد؛ کمی بعد دوباره امتحان کن."
+        except Exception:
+            log.exception("Unexpected error while handling AI request")
+            return "⚠️ یک خطای پیش‌بینی‌نشده رخ داد. لطفاً دوباره تلاش کن."
+
+
+async def send_long_message(message: Message, text: str):
+    # Telegram messages have a 4096-character limit; plain text avoids HTML parsing issues.
+    for start_index in range(0, len(text), 3900):
+        await message.answer(text[start_index:start_index + 3900])
+
+
 @dp.message()
-async def deny_messages(message: Message):
-    if not message.from_user or not is_admin(message.from_user.id):
-        await message.answer("⛔ دسترسی مجاز نیست.")
+async def chat(message: Message):
+    if not message.from_user or not message.text:
+        await message.answer("فعلاً فقط پیام متنی را پشتیبانی می‌کنم. 🙂")
         return
-    await message.answer("از دکمه‌های منو استفاده کن.", reply_markup=main_keyboard())
-
-
-@dp.callback_query()
-async def callbacks(callback: CallbackQuery):
-    if not callback.from_user or not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مجاز نیست.", show_alert=True)
+    text = message.text.strip()
+    if not text:
         return
-    action = callback.data or ""
-    await callback.answer()
-    if action == "help":
-        await callback.message.answer(
-            "راهنما:\n• توکن را فقط در Environment سرویس Render قرار بده.\n"
-            "• برای این قابلیت‌ها توکن Cloudflare باید دسترسی Read مناسب داشته باشد.\n"
-            "• این نسخه فقط اطلاعات را می‌خواند؛ ساخت یا حذف منابع هنوز فعال نیست.",
-            reply_markup=main_keyboard()
+    if len(text) > MAX_MESSAGE_CHARS:
+        await message.answer("پیامت خیلی طولانیه؛ لطفاً آن را کوتاه‌تر کن.")
+        return
+
+    if not GROQ_API_KEY:
+        await message.answer(
+            "⚠️ ربات اجرا شده، اما API هوش مصنوعی هنوز تنظیم نشده است. "
+            "مدیر باید GROQ_API_KEY را در Environment سرویس Render اضافه کند."
         )
         return
-    if action == "cf:verify":
-        data, error = await cf_get("/user/tokens/verify")
-        if error:
-            await callback.message.answer("⚠️ " + error, reply_markup=main_keyboard())
-        else:
-            result = data.get("result") or {}
-            await callback.message.answer(
-                "✅ توکن Cloudflare معتبر است.\n"
-                f"وضعیت: {result.get('status', 'نامشخص')}",
-                reply_markup=main_keyboard()
-            )
-        return
-    if action == "cf:account":
-        data, error = await cf_get("/user")
-        if error:
-            await callback.message.answer("⚠️ " + error, reply_markup=main_keyboard())
-        else:
-            user = data.get("result") or {}
-            await callback.message.answer(
-                "👤 اطلاعات حساب Cloudflare\n"
-                f"نام: {user.get('first_name', '')} {user.get('last_name', '')}\n"
-                f"ایمیل: {user.get('email', 'نامشخص')}\n"
-                f"شناسه: {user.get('id', 'نامشخص')}",
-                reply_markup=main_keyboard()
-            )
-        return
-    if action == "cf:zones":
-        data, error = await cf_get("/zones?per_page=50&order=name")
-        if error:
-            await callback.message.answer("⚠️ " + error, reply_markup=main_keyboard())
-        else:
-            zones = data.get("result") or []
-            if not zones:
-                text = "دامنه‌ای پیدا نشد یا توکن اجازه مشاهده دامنه‌ها را ندارد."
-            else:
-                lines = ["🌐 دامنه‌ها (حداکثر ۵۰ مورد):"]
-                for zone in zones[:50]:
-                    lines.append(f"• {zone.get('name', 'بدون نام')} — {zone.get('status', 'نامشخص')}")
-                text = "\n".join(lines)
-            await callback.message.answer(text[:4000], reply_markup=main_keyboard())
-        return
-    if action == "cf:workers":
-        data, error = await cf_get("/accounts?per_page=50")
-        if error:
-            await callback.message.answer("⚠️ " + error, reply_markup=main_keyboard())
-            return
-        accounts = data.get("result") or []
-        if not accounts:
-            await callback.message.answer("حسابی پیدا نشد یا توکن اجازه مشاهده حساب‌ها را ندارد.", reply_markup=main_keyboard())
-            return
-        lines = ["⚙️ فهرست Workerها:"]
-        total = 0
-        for account in accounts[:20]:
-            account_id = account.get("id")
-            if not account_id:
-                continue
-            workers, worker_error = await cf_get(f"/accounts/{account_id}/workers/scripts")
-            if worker_error:
-                lines.append(f"• {account.get('name', account_id)}: دسترسی خواندن Workerها موجود نیست.")
-                continue
-            scripts = workers.get("result") or []
-            lines.append(f"• {account.get('name', account_id)}: {len(scripts)} مورد")
-            for script in scripts[:10]:
-                lines.append(f"   - {script.get('id', script.get('tag', 'بدون نام'))}")
-                total += 1
-        if len(lines) == 1:
-            lines.append("Worker قابل نمایشی پیدا نشد.")
-        await callback.message.answer("\n".join(lines)[:4000], reply_markup=main_keyboard())
-        return
-    await callback.message.answer("این گزینه شناخته نشد.", reply_markup=main_keyboard())
+
+    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    answer = await ask_ai(message.from_user.id, text)
+    await send_long_message(message, answer)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot, polling_task
-    if BOT_TOKEN and ADMIN_ID > 0:
+    if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        # This bot sends model output as escaped plain text, avoiding accidental HTML markup.
+        bot.default.parse_mode = None
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
-        log.info("Telegram polling started")
+        log.info("AI chat Telegram polling started")
     else:
-        log.warning("Telegram bot is not active: set ZEUS_BOT_TOKEN and ZEUS_ADMIN_ID in Render environment")
+        log.error("Telegram bot is inactive: ZEUS_BOT_TOKEN is missing")
+    if not GROQ_API_KEY:
+        log.warning("AI chat is running without GROQ_API_KEY; messages will receive setup guidance")
     yield
     if polling_task:
         polling_task.cancel()
@@ -183,24 +195,35 @@ async def lifespan(app: FastAPI):
             await polling_task
         except asyncio.CancelledError:
             pass
+        except Exception:
+            log.exception("Error while stopping Telegram polling")
     if bot:
         await bot.session.close()
 
 
-app = FastAPI(title="Independent Cloudflare Telegram Assistant", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="FXI AI Chat Bot", version="2.0.0", lifespan=lifespan)
 
 
 @app.get("/")
 async def root():
-    return {"service": "independent-cloudflare-telegram-assistant", "status": "ok", "telegram_configured": bool(BOT_TOKEN and ADMIN_ID > 0)}
+    return {
+        "service": "fxi-ai-chat-bot",
+        "status": "ok",
+        "telegram_configured": bool(BOT_TOKEN),
+        "ai_configured": bool(GROQ_API_KEY),
+        "model": AI_MODEL,
+    }
 
 
 @app.get("/health")
 async def health():
-    configured = bool(BOT_TOKEN and ADMIN_ID > 0)
+    configured = bool(BOT_TOKEN and GROQ_API_KEY)
     return JSONResponse(
         status_code=200 if configured else 503,
-        content={"status": "ok" if configured else "needs_configuration",
-                 "telegram_configured": configured,
-                 "cloudflare_token_configured": bool(CF_TOKEN)}
+        content={
+            "status": "ok" if configured else "needs_configuration",
+            "telegram_configured": bool(BOT_TOKEN),
+            "ai_configured": bool(GROQ_API_KEY),
+            "model": AI_MODEL,
+        },
     )
