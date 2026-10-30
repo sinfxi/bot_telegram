@@ -487,6 +487,10 @@ async def verify_code(request: Request):
         return page("رمز دومرحله‌ای لازم است", '<section class="card"><p>حساب تأیید دومرحله‌ای دارد. رمز را در فرم مخصوص همین پنل وارد کن.</p><a class="btn" href="/account">ادامه</a></section>')
     except Exception as exc:
         log.warning("Telegram code verification failed: %s", type(exc).__name__)
+        if isinstance(exc, RuntimeError) and "ADMIN_ID" in str(exc):
+            return page("تنظیم مدیر ناقص است", '<section class="card"><p>ابتدا شناسه عددی مدیر را در متغیر ADMIN_ID سرویس تنظیم کن؛ سپس دوباره ورود را آغاز کن.</p><a href="/account">بازگشت</a></section>')
+        if isinstance(exc, RuntimeError) and "does not match" in str(exc):
+            return page("حساب مدیر مطابقت ندارد", '<section class="card"><p>این حساب با شناسه ADMIN_ID تنظیم‌شده مطابقت ندارد. برای جلوگیری از اتصال حساب اشتباه، نشست ذخیره نشد.</p><a href="/account">بازگشت</a></section>')
         return page("تأیید انجام نشد", '<section class="card"><p>کد نادرست یا منقضی شده است. دوباره کد درخواست کن و آن را در این پنل وارد کن.</p><a href="/account">بازگشت</a></section>')
 
 
@@ -503,12 +507,21 @@ async def verify_password(request: Request):
         return page("حساب متصل شد", '<section class="card"><p>حساب با موفقیت متصل شد و نشست به‌صورت رمزگذاری‌شده ذخیره شد.</p><a class="btn" href="/">رفتن به داشبورد</a></section>')
     except Exception as exc:
         log.warning("Telegram 2FA verification failed: %s", type(exc).__name__)
+        if isinstance(exc, RuntimeError) and "ADMIN_ID" in str(exc):
+            return page("تنظیم مدیر ناقص است", '<section class="card"><p>ابتدا شناسه عددی مدیر را در متغیر ADMIN_ID سرویس تنظیم کن؛ سپس دوباره ورود را آغاز کن.</p><a href="/account">بازگشت</a></section>')
+        if isinstance(exc, RuntimeError) and "does not match" in str(exc):
+            return page("حساب مدیر مطابقت ندارد", '<section class="card"><p>این حساب با شناسه ADMIN_ID تنظیم‌شده مطابقت ندارد. برای جلوگیری از اتصال حساب اشتباه، نشست ذخیره نشد.</p><a href="/account">بازگشت</a></section>')
         return page("رمز تأیید نشد", '<section class="card"><p>رمز نادرست است یا تلگرام ورود را نپذیرفت. دوباره تلاش کن.</p><a href="/account">بازگشت</a></section>')
 
 
 async def finalize_login():
     global auth_client, pending_phone, pending_code_hash, pending_password_needed
     if ADMIN_ID <= 0:
+        await auth_client.disconnect()
+        auth_client = None
+        pending_phone = ""
+        pending_code_hash = ""
+        pending_password_needed = False
         raise RuntimeError("ADMIN_ID must be configured before connecting a personal account.")
     me = await auth_client.get_me()
     if not me or int(me.id) != ADMIN_ID:
