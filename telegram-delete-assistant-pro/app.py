@@ -1,603 +1,710 @@
 import asyncio
+import base64
 import html
 import logging
 import os
-import secrets
 import sqlite3
 import time
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
+from urllib.parse import parse_qs
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
-)
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from aiogram.types import Message
+from cryptography.fernet import Fernet, InvalidToken
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from telethon import TelegramClient, events
+from telethon.errors import SessionPasswordNeededError
+from telethon.sessions import StringSession
+import secrets
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or "0")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
+API_ID = int(os.getenv("TELEGRAM_API_ID", "0") or "0")
+API_HASH = os.getenv("TELEGRAM_API_HASH", "").strip()
+SESSION_ENCRYPTION_KEY = os.getenv("SESSION_ENCRYPTION_KEY", "").strip()
 DB_PATH = Path(os.getenv("DB_PATH", "/data/bot.sqlite3"))
 PORT = int(os.getenv("PORT", "8000"))
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-log = logging.getLogger("conversation-automation")
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("fxi-telegram-automation")
+security = HTTPBasic()
+bot = None
+dp = Dispatcher()
+user_client = None
+auth_client = None
+pending_phone = ""
+pending_code_hash = ""
+pending_password_needed = False
+bot_task = None
+scheduler_task = None
+client_lock = asyncio.Lock()
 
-if not ADMIN_PASSWORD:
-    raise RuntimeError("Set a strong ADMIN_PASSWORD environment variable.")
-if ADMIN_ID <= 0:
-    log.warning("ADMIN_ID is not configured; owner-only rule management will be unavailable.")
 
-def connect():
+def db_connect():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB_PATH, timeout=20)
+    db = sqlite3.connect(DB_PATH, timeout=25)
     db.row_factory = sqlite3.Row
     return db
 
+
 def init_db():
-    with closing(connect()) as db:
+    with closing(db_connect()) as db:
         db.executescript("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS rules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            keyword TEXT NOT NULL,
-            response TEXT NOT NULL,
-            match_type TEXT NOT NULL DEFAULT 'contains',
-            enabled INTEGER NOT NULL DEFAULT 1,
-            created_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            first_seen INTEGER NOT NULL,
-            last_seen INTEGER NOT NULL,
-            message_count INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            event_type TEXT NOT NULL,
-            detail TEXT NOT NULL DEFAULT '',
-            created_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
-        CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+        CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS rules(
+          id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_text TEXT NOT NULL,
+          response_text TEXT NOT NULL, match_type TEXT NOT NULL DEFAULT 'contains',
+          enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS contacts(
+          peer_id INTEGER PRIMARY KEY, username TEXT NOT NULL DEFAULT '',
+          display_name TEXT NOT NULL DEFAULT '', allowed INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS scheduled_messages(
+          id INTEGER PRIMARY KEY AUTOINCREMENT, peer TEXT NOT NULL,
+          message TEXT NOT NULL, send_at INTEGER NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS events(
+          id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL,
+          detail TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
         """)
-        db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('automation_enabled','1')")
-        db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('fallback_response','پیامت رسید 🌱 اگر پاسخ آماده‌ای برای آن تعریف شده باشد، همین‌جا نمایش داده می‌شود.')")
+        db.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('automation_enabled','0')")
         db.commit()
 
-def setting(key, default=""):
-    with closing(connect()) as db:
+
+def get_setting(key, default=""):
+    with closing(db_connect()) as db:
         row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     return row["value"] if row else default
 
+
 def set_setting(key, value):
-    with closing(connect()) as db:
-        db.execute(
-            "INSERT INTO settings(key,value) VALUES(?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, str(value)),
-        )
+    with closing(db_connect()) as db:
+        db.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                   (key, str(value)))
         db.commit()
 
-def add_event(user_id, event_type, detail=""):
-    with closing(connect()) as db:
-        db.execute(
-            "INSERT INTO events(user_id,event_type,detail,created_at) VALUES(?,?,?,?)",
-            (user_id, event_type, detail[:180], int(time.time())),
-        )
+
+def record(kind, detail=""):
+    with closing(db_connect()) as db:
+        db.execute("INSERT INTO events(kind,detail,created_at) VALUES(?,?,?)",
+                   (kind, detail[:240], int(time.time())))
         db.commit()
 
-def register_user(user_id):
-    now = int(time.time())
-    with closing(connect()) as db:
-        db.execute("""
-        INSERT INTO users(user_id,first_seen,last_seen,message_count)
-        VALUES(?,?,?,1)
-        ON CONFLICT(user_id) DO UPDATE SET
-          last_seen=excluded.last_seen,
-          message_count=users.message_count+1
-        """, (user_id, now, now))
-        db.commit()
 
-def list_rules(enabled_only=False):
-    with closing(connect()) as db:
-        if enabled_only:
-            rows = db.execute("SELECT * FROM rules WHERE enabled=1 ORDER BY id").fetchall()
-        else:
-            rows = db.execute("SELECT * FROM rules ORDER BY id DESC").fetchall()
-    return [dict(row) for row in rows]
+def encrypt_session(session_string):
+    if not SESSION_ENCRYPTION_KEY:
+        raise RuntimeError("SESSION_ENCRYPTION_KEY is not configured.")
+    return Fernet(SESSION_ENCRYPTION_KEY.encode()).encrypt(session_string.encode()).decode()
 
-def create_rule(keyword, response, match_type="contains"):
-    with closing(connect()) as db:
-        cur = db.execute(
-            "INSERT INTO rules(keyword,response,match_type,enabled,created_at) VALUES(?,?,?,?,?)",
-            (keyword.strip(), response.strip(), match_type, 1, int(time.time())),
-        )
-        db.commit()
-        return cur.lastrowid
 
-def update_rule(rule_id, **fields):
-    allowed = {"enabled"}
-    fields = {k: v for k, v in fields.items() if k in allowed}
-    if not fields:
-        return
-    assignments = ", ".join(f"{k}=?" for k in fields)
-    with closing(connect()) as db:
-        db.execute(f"UPDATE rules SET {assignments} WHERE id=?", (*fields.values(), rule_id))
-        db.commit()
-
-def delete_rule(rule_id):
-    with closing(connect()) as db:
-        db.execute("DELETE FROM rules WHERE id=?", (rule_id,))
-        db.commit()
-
-def find_response(text):
-    normalized = text.casefold().strip()
-    for rule in list_rules(enabled_only=True):
-        keyword = rule["keyword"].casefold().strip()
-        if not keyword:
-            continue
-        matched = normalized == keyword if rule["match_type"] == "exact" else keyword in normalized
-        if matched:
-            return rule
-    return None
-
-def stats():
-    today = int(time.time()) // 86400 * 86400
-    with closing(connect()) as db:
-        users = db.execute("SELECT COUNT(*) n FROM users").fetchone()["n"]
-        active = db.execute("SELECT COUNT(*) n FROM users WHERE last_seen>=?", (today,)).fetchone()["n"]
-        messages = db.execute("SELECT COALESCE(SUM(message_count),0) n FROM users").fetchone()["n"]
-        events = db.execute(
-            "SELECT event_type,COUNT(*) n FROM events WHERE created_at>=? GROUP BY event_type",
-            (today,),
-        ).fetchall()
-    return users, active, messages, {r["event_type"]: r["n"] for r in events}
-
-class RuleWizard(StatesGroup):
-    keyword = State()
-    response = State()
-    match_type = State()
-
-bot = None
-if BOT_TOKEN:
+def decrypt_session(ciphertext):
+    if not SESSION_ENCRYPTION_KEY:
+        raise RuntimeError("SESSION_ENCRYPTION_KEY is not configured.")
     try:
-        bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    except Exception:
-        log.exception("BOT_TOKEN could not initialize; Telegram polling is disabled.")
-else:
-    log.warning("BOT_TOKEN is not set; only the health/dashboard web service can run.")
+        return Fernet(SESSION_ENCRYPTION_KEY.encode()).decrypt(ciphertext.encode()).decode()
+    except InvalidToken as exc:
+        raise RuntimeError("Stored Telegram session could not be decrypted. Check SESSION_ENCRYPTION_KEY.") from exc
 
-dp = Dispatcher(storage=MemoryStorage())
 
-def kb(rows):
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def save_session(session_string):
+    set_setting("account_session_encrypted", encrypt_session(session_string))
+    set_setting("account_connected", "1")
 
-def home_keyboard(is_admin=False):
-    rows = [
-        [InlineKeyboardButton(text="⚡ وضعیت خودکارسازی", callback_data="automation:status")],
-        [InlineKeyboardButton(text="🧪 آزمایش پاسخ", callback_data="automation:test")],
-        [InlineKeyboardButton(text="❓ راهنما", callback_data="help")],
-    ]
-    if is_admin:
-        rows.insert(1, [InlineKeyboardButton(text="🧩 قوانین پاسخ", callback_data="rules:list")])
-        rows.insert(2, [InlineKeyboardButton(text="➕ ساخت قانون", callback_data="rules:add")])
-        rows.append([InlineKeyboardButton(text="📊 آمار", callback_data="stats")])
-    return kb(rows)
+
+def saved_session():
+    value = get_setting("account_session_encrypted")
+    return decrypt_session(value) if value else ""
+
 
 def is_admin(user_id):
     return ADMIN_ID > 0 and user_id == ADMIN_ID
 
-def owner_only(message_or_callback):
-    user = message_or_callback.from_user
-    return is_admin(user.id)
 
-HOME_TEXT = (
-    "<b>⚡ دستیار خودکارسازی گفت‌وگو</b>\n\n"
-    "قوانین پاسخ‌گویی تعریف کن تا ربات هنگام دریافت پیام، پاسخ مناسب را به‌صورت خودکار ارسال کند.\n\n"
-    "• پاسخ بر اساس کلمه یا عبارت\n"
-    "• تطبیق دقیق یا وجود عبارت در متن\n"
-    "• روشن/خاموش کردن خودکارسازی\n"
-    "• مدیریت قوانین و آمار\n\n"
-    "<b>محدودیت مهم:</b> ربات فقط پیام‌هایی را می‌بیند که به خودِ ربات ارسال شده‌اند. "
-    "با Bot API نمی‌تواند پیام‌های خصوصی اکانت شخصی یا گفت‌وگوهای دیگر ربات‌ها را بخواند."
-)
+def list_rules():
+    with closing(db_connect()) as db:
+        rows = db.execute("SELECT * FROM rules ORDER BY id DESC").fetchall()
+    return [dict(row) for row in rows]
 
-async def show(target, text, markup=None):
-    if isinstance(target, CallbackQuery):
-        await target.answer()
-        try:
-            await target.message.edit_text(text, reply_markup=markup)
-        except TelegramBadRequest as exc:
-            if "message is not modified" not in str(exc).lower():
-                await target.message.answer(text, reply_markup=markup)
-    else:
-        await target.answer(text, reply_markup=markup)
 
-def rules_text():
-    rules = list_rules()
-    if not rules:
-        return "هنوز قانونی ساخته نشده. روی «ساخت قانون» بزن."
-    lines = ["<b>🧩 قوانین پاسخ‌گویی</b>"]
-    for r in rules[:30]:
-        status = "🟢" if r["enabled"] else "⚪"
-        mode = "دقیق" if r["match_type"] == "exact" else "شامل عبارت"
-        keyword = html.escape(r["keyword"][:60])
-        response = html.escape(r["response"][:90])
-        lines.append(f"\n{status} <b>#{r['id']}</b> · {mode}\n🔎 {keyword}\n💬 {response}")
-    return "\n".join(lines)
+def add_rule(trigger_text, response_text, match_type="contains"):
+    trigger_text = trigger_text.strip()
+    response_text = response_text.strip()
+    if not trigger_text or not response_text:
+        raise ValueError("عبارت محرک و پاسخ نباید خالی باشند.")
+    if match_type not in ("contains", "exact"):
+        match_type = "contains"
+    with closing(db_connect()) as db:
+        cur = db.execute("INSERT INTO rules(trigger_text,response_text,match_type,enabled,created_at) VALUES(?,?,?,?,?)",
+                         (trigger_text, response_text, match_type, 1, int(time.time())))
+        db.commit()
+        return cur.lastrowid
 
-def rules_keyboard():
-    rows = [[InlineKeyboardButton(text="➕ قانون جدید", callback_data="rules:add")]]
-    for r in list_rules()[:20]:
-        state = "خاموش" if r["enabled"] else "روشن"
-        rows.append([
-            InlineKeyboardButton(text=f"#{r['id']} {'🟢' if r['enabled'] else '⚪'}", callback_data=f"rules:view:{r['id']}"),
-            InlineKeyboardButton(text=f"⏻ {state}", callback_data=f"rules:toggle:{r['id']}"),
-            InlineKeyboardButton(text="🗑", callback_data=f"rules:delete:{r['id']}"),
-        ])
-    rows.append([InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="home")])
-    return kb(rows)
 
-@dp.message(CommandStart())
-async def start(message: Message, state: FSMContext):
-    await state.clear()
-    register_user(message.from_user.id)
-    add_event(message.from_user.id, "start")
-    await message.answer(HOME_TEXT, reply_markup=home_keyboard(is_admin(message.from_user.id)))
+def page(title, body):
+    return HTMLResponse(f"""<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)} · FXI</title>
+<style>
+:root{{color-scheme:dark;--bg:#101713;--card:#1a241e;--line:#34463a;--text:#edf5ed;--muted:#a8b9ab;--accent:#b7d89a}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(ellipse at top,#263a2b 0,#101713 55%);color:var(--text);font:16px/1.8 system-ui,sans-serif}}
+main{{max-width:980px;margin:32px auto;padding:0 16px}}header,.card{{background:#1a241eeb;border:1px solid var(--line);border-radius:18px;padding:20px;margin:14px 0}}
+h1,h2{{margin-top:0}}h1{{font-size:26px}}p,.muted{{color:var(--muted)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}}
+label{{display:block;margin:8px 0 4px}}input,textarea,select{{width:100%;padding:11px;border:1px solid #455a49;border-radius:10px;background:#101713;color:var(--text);font:inherit}}
+textarea{{min-height:85px}}button,.btn{{display:inline-block;background:var(--accent);color:#122015;border:0;border-radius:10px;padding:10px 16px;margin-top:10px;font-weight:700;cursor:pointer;text-decoration:none}}
+button.secondary,.btn.secondary{{background:#2a3a2e;color:var(--text);border:1px solid var(--line)}}.pill{{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:2px 10px;color:var(--accent)}}
+.item{{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}}code{{color:var(--accent)}}a{{color:var(--accent)}}small{{color:var(--muted)}}
+</style><main><header><span class="pill">FXI · Telegram Automation</span><h1>{html.escape(title)}</h1>
+<p>مدیریت شخصی و کنترل‌شدهٔ قوانین، مخاطب‌ها و پیام‌ها</p><nav><a href="/">داشبورد</a> · <a href="/contacts">مخاطب‌ها</a> · <a href="/rules">قوانین</a> · <a href="/schedule">زمان‌بندی</a> · <a href="/account">اتصال حساب</a></nav></header>{body}</main></html>""")
 
-@dp.message(Command("help"))
-async def help_command(message: Message):
-    await message.answer(
-        "<b>راهنمای ربات</b>\n"
-        "/start — منوی اصلی\n/cancel — لغو ساخت قانون\n"
-        "/status — وضعیت خودکارسازی\n"
-        "/rules — فهرست قوانین (مدیر)\n/add — ساخت قانون (مدیر)\n"
-        "/pause و /resume — توقف/فعال‌سازی (مدیر)\n/stats — آمار (مدیر)"
-    )
 
-@dp.message(Command("cancel"))
-async def cancel_command(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("عملیات لغو شد.", reply_markup=home_keyboard(is_admin(message.from_user.id)))
+async def require_admin(request: Request, credentials: HTTPBasicCredentials):
+    ok_user = secrets.compare_digest(credentials.username, ADMIN_USER)
+    ok_pass = bool(ADMIN_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
+    if not (ok_user and ok_pass):
+        from fastapi.responses import Response
+        raise HTTPException(status_code=401, detail="Authentication required",
+                            headers={"WWW-Authenticate": "Basic"})
 
-@dp.message(Command("status"))
-async def status_command(message: Message):
-    status = "🟢 روشن" if setting("automation_enabled", "1") == "1" else "🔴 خاموش"
-    await message.answer(f"وضعیت خودکارسازی: <b>{status}</b>")
 
-@dp.message(Command("pause"))
-async def pause_command(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ این فرمان فقط برای مدیر ربات است.")
-        return
-    set_setting("automation_enabled", "0")
-    add_event(message.from_user.id, "automation_paused")
-    await message.answer("🔴 خودکارسازی متوقف شد. قوانین ذخیره شده‌اند.")
+async def authorized(request: Request, credentials: HTTPBasicCredentials = None):
+    if credentials is None:
+        from fastapi import Depends
+        raise HTTPException(status_code=401, detail="Use dashboard authentication")
+    await require_admin(request, credentials)
 
-@dp.message(Command("resume"))
-async def resume_command(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ این فرمان فقط برای مدیر ربات است.")
-        return
-    set_setting("automation_enabled", "1")
-    add_event(message.from_user.id, "automation_resumed")
-    await message.answer("🟢 خودکارسازی دوباره فعال شد.")
 
-@dp.message(Command("rules"))
-async def rules_command(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ فقط مدیر می‌تواند قوانین را مدیریت کند.")
-        return
-    await message.answer(rules_text(), reply_markup=rules_keyboard())
+async def start_user_client(session_string):
+    global user_client
+    async with client_lock:
+        if user_client:
+            try:
+                await user_client.disconnect()
+            except Exception:
+                pass
+            user_client = None
+        if not (API_ID and API_HASH):
+            log.warning("Telegram API credentials are not configured; personal-account features are disabled.")
+            return False
+        client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.disconnect()
+            set_setting("account_connected", "0")
+            return False
 
-@dp.message(Command("add"))
-async def add_command(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ فقط مدیر می‌تواند قانون بسازد.")
-        return
-    await state.set_state(RuleWizard.keyword)
-    await message.answer("🔎 عبارت یا کلمه‌ای را بفرست که باید شناسایی شود. برای لغو /cancel را بزن.")
+        @client.on(events.NewMessage(incoming=True))
+        async def on_incoming(event):
+            try:
+                if not event.is_private or event.sender_id is None:
+                    return
+                if get_setting("automation_enabled", "0") != "1":
+                    return
+                with closing(db_connect()) as db:
+                    contact = db.execute("SELECT allowed FROM contacts WHERE peer_id=?", (event.sender_id,)).fetchone()
+                    rules = db.execute("SELECT * FROM rules WHERE enabled=1 ORDER BY id", ()).fetchall()
+                if not contact or not contact["allowed"]:
+                    return
+                text_in = (event.raw_text or "").strip()
+                if not text_in:
+                    return
+                for rule in rules:
+                    trigger = rule["trigger_text"]
+                    matched = (text_in.casefold() == trigger.casefold()) if rule["match_type"] == "exact" else (trigger.casefold() in text_in.casefold())
+                    if matched:
+                        await event.reply(rule["response_text"])
+                        record("auto_reply", f"peer={event.sender_id}; rule={rule['id']}")
+                        break
+            except Exception:
+                log.exception("Incoming-message automation failed")
 
-@dp.message(Command("stats"))
-async def stats_command(message: Message):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ اجازه دسترسی نداری.")
-        return
-    users, active, messages, today_events = stats()
-    await message.answer(
-        "<b>📊 آمار خودکارسازی</b>\n"
-        f"کاربران ثبت‌شده: {users}\nفعال امروز: {active}\n"
-        f"کل پیام‌های دریافتی: {messages}\n"
-        f"پاسخ‌های خودکار امروز: {today_events.get('auto_reply', 0)}\n"
-        f"آزمایش پاسخ امروز: {today_events.get('test', 0)}"
-    )
+        user_client = client
+        await user_client.get_me()
+        set_setting("account_connected", "1")
+        log.info("Personal Telegram client connected.")
+        return True
 
-@dp.callback_query(F.data == "home")
-async def home_callback(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await show(callback, HOME_TEXT, home_keyboard(is_admin(callback.from_user.id)))
-
-@dp.callback_query(F.data == "automation:status")
-async def automation_status(callback: CallbackQuery):
-    enabled = setting("automation_enabled", "1") == "1"
-    text = "🟢 خودکارسازی روشن است." if enabled else "🔴 خودکارسازی خاموش است."
-    if is_admin(callback.from_user.id):
-        text += "\n\nاز /pause برای توقف و /resume برای فعال‌سازی استفاده کن."
-    await show(callback, text, home_keyboard(is_admin(callback.from_user.id)))
-
-@dp.callback_query(F.data == "automation:test")
-async def automation_test(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.answer("🧪 متن آزمایشی را بفرست تا بررسی کنم کدام قانون با آن مطابقت دارد.")
-    add_event(callback.from_user.id, "test_prompt")
-
-@dp.callback_query(F.data == "rules:list")
-async def rules_list_callback(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    await show(callback, rules_text(), rules_keyboard())
-
-@dp.callback_query(F.data == "rules:add")
-async def rules_add_callback(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    await state.set_state(RuleWizard.keyword)
-    await show(callback, "🔎 عبارت یا کلمه‌ای را بفرست که باید شناسایی شود. برای لغو /cancel را بزن.")
-
-@dp.message(RuleWizard.keyword)
-async def rule_keyword(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ دسترسی مدیر لازم است.")
-        return
-    keyword = (message.text or "").strip()
-    if not keyword or len(keyword) > 100:
-        await message.answer("عبارت باید بین 1 تا 100 نویسه باشد. دوباره بفرست.")
-        return
-    await state.update_data(keyword=keyword)
-    await state.set_state(RuleWizard.response)
-    await message.answer("💬 حالا پاسخ خودکار را بفرست (حداکثر 3500 نویسه).")
-
-@dp.message(RuleWizard.response)
-async def rule_response(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ دسترسی مدیر لازم است.")
-        return
-    response = (message.text or "").strip()
-    if not response or len(response) > 3500:
-        await message.answer("پاسخ باید بین 1 تا 3500 نویسه باشد. دوباره بفرست.")
-        return
-    await state.update_data(response=response)
-    await state.set_state(RuleWizard.match_type)
-    await message.answer(
-        "نوع تطبیق را انتخاب کن:",
-        reply_markup=kb([
-            [InlineKeyboardButton(text="🔍 شامل عبارت", callback_data="rules:mode:contains")],
-            [InlineKeyboardButton(text="🎯 تطبیق دقیق", callback_data="rules:mode:exact")],
-            [InlineKeyboardButton(text="❌ لغو", callback_data="rules:cancel")],
-        ]),
-    )
-
-@dp.callback_query(F.data.startswith("rules:mode:"))
-async def rule_mode(callback: CallbackQuery, state: FSMContext):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    mode = callback.data.rsplit(":", 1)[-1]
-    if mode not in {"contains", "exact"}:
-        await callback.answer("حالت نامعتبر است.", show_alert=True)
-        return
-    data = await state.get_data()
-    if not data.get("keyword") or not data.get("response"):
-        await state.clear()
-        await show(callback, "فرایند ساخت قانون منقضی شد؛ دوباره تلاش کن.")
-        return
-    rule_id = create_rule(data["keyword"], data["response"], mode)
-    await state.clear()
-    add_event(callback.from_user.id, "rule_created", str(rule_id))
-    await show(callback, f"✅ قانون #{rule_id} ساخته و فعال شد.", rules_keyboard())
-
-@dp.callback_query(F.data == "rules:cancel")
-async def rule_cancel_callback(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await show(callback, "ساخت قانون لغو شد.", home_keyboard(is_admin(callback.from_user.id)))
-
-@dp.callback_query(F.data.startswith("rules:view:"))
-async def rule_view(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    rule_id = int(callback.data.rsplit(":", 1)[-1])
-    rule = next((r for r in list_rules() if r["id"] == rule_id), None)
-    if not rule:
-        await show(callback, "این قانون پیدا نشد.", rules_keyboard())
-        return
-    mode = "تطبیق دقیق" if rule["match_type"] == "exact" else "شامل عبارت"
-    await show(
-        callback,
-        f"<b>قانون #{rule_id}</b>\nوضعیت: {'روشن' if rule['enabled'] else 'خاموش'}\n"
-        f"حالت: {mode}\nعبارت: {html.escape(rule['keyword'])}\n"
-        f"پاسخ:\n{html.escape(rule['response'])}",
-        rules_keyboard(),
-    )
-
-@dp.callback_query(F.data.startswith("rules:toggle:"))
-async def rule_toggle(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    rule_id = int(callback.data.rsplit(":", 1)[-1])
-    rule = next((r for r in list_rules() if r["id"] == rule_id), None)
-    if rule:
-        update_rule(rule_id, enabled=0 if rule["enabled"] else 1)
-        add_event(callback.from_user.id, "rule_toggled", str(rule_id))
-    await show(callback, rules_text(), rules_keyboard())
-
-@dp.callback_query(F.data.startswith("rules:delete:"))
-async def rule_delete(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    rule_id = int(callback.data.rsplit(":", 1)[-1])
-    delete_rule(rule_id)
-    add_event(callback.from_user.id, "rule_deleted", str(rule_id))
-    await show(callback, "🗑 قانون حذف شد.\n\n" + rules_text(), rules_keyboard())
-
-@dp.callback_query(F.data == "stats")
-async def stats_callback(callback: CallbackQuery):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("دسترسی مدیر لازم است.", show_alert=True)
-        return
-    users, active, messages, today_events = stats()
-    await show(
-        callback,
-        f"<b>📊 آمار</b>\nکاربران: {users}\nفعال امروز: {active}\n"
-        f"پیام‌های دریافتی: {messages}\nپاسخ‌های خودکار امروز: {today_events.get('auto_reply', 0)}",
-        home_keyboard(True),
-    )
-
-@dp.message(RuleWizard.match_type)
-async def ignore_while_mode(message: Message):
-    await message.answer("از دکمه‌های نوع تطبیق استفاده کن یا /cancel را بزن.")
-
-@dp.message()
-async def automatic_reply(message: Message, state: FSMContext):
-    if not message.from_user or message.from_user.is_bot:
-        return
-    if await state.get_state():
-        return
-    register_user(message.from_user.id)
-    text = (message.text or message.caption or "").strip()
-    if not text:
-        await message.answer("فعلاً فقط پیام‌های متنی را پردازش می‌کنم.")
-        return
-    if setting("automation_enabled", "1") != "1":
-        await message.answer("⏸ خودکارسازی موقتاً متوقف است.")
-        return
-    rule = find_response(text)
-    if rule:
-        add_event(message.from_user.id, "auto_reply", str(rule["id"]))
-        await message.answer(html.escape(rule["response"]))
-    else:
-        fallback = setting("fallback_response", "")
-        if fallback:
-            await message.answer(fallback)
-
-auth = HTTPBasic()
-
-def admin_auth(credentials: HTTPBasicCredentials = Depends(auth)):
-    if not (
-        secrets.compare_digest(credentials.username, ADMIN_USER)
-        and secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
 
 async def bot_runner():
-    if bot is None:
-        log.error("Bot polling disabled: configure a valid BOT_TOKEN in the host environment.")
+    global bot
+    if not BOT_TOKEN:
+        log.warning("BOT_TOKEN missing; Telegram management bot is disabled.")
         return
+    bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+    @dp.message(CommandStart())
+    async def start_cmd(message: Message):
+        if not is_admin(message.from_user.id):
+            await message.answer("سلام! این ربات ابزار مدیریت خودکارسازی حساب شخصی است و فقط مدیر تعیین‌شده می‌تواند تنظیمات را تغییر دهد.")
+            return
+        await message.answer(
+            "سلام! پنل مدیریت FXI آماده است.\n\n"
+            "از پنل وب برای اتصال امن حساب، انتخاب مخاطب‌ها و تنظیم زمان‌بندی استفاده کن.\n"
+            "فرمان‌ها: /status، /rules، /pause، /resume، /help\n"
+            "پنل وب: " + os.getenv("PUBLIC_BASE_URL", "آدرس سرویس Render")
+        )
+
+    @dp.message(Command("help"))
+    async def help_cmd(message: Message):
+        if not is_admin(message.from_user.id):
+            return
+        await message.answer("/status — وضعیت\n/rules — قوانین\n/pause — توقف خودکارسازی\n/resume — فعال‌سازی")
+
+    @dp.message(Command("status"))
+    async def status_cmd(message: Message):
+        if not is_admin(message.from_user.id):
+            return
+        state = "روشن" if get_setting("automation_enabled", "0") == "1" else "خاموش"
+        connected = "متصل" if get_setting("account_connected", "0") == "1" else "قطع"
+        await message.answer(f"خودکارسازی: <b>{state}</b>\nحساب شخصی: <b>{connected}</b>\nقوانین: {len(list_rules())}")
+
+    @dp.message(Command("rules"))
+    async def rules_cmd(message: Message):
+        if not is_admin(message.from_user.id):
+            return
+        rules = list_rules()
+        if not rules:
+            await message.answer("هنوز قانونی ساخته نشده. برای افزودن قانون به پنل وب برو.")
+            return
+        lines = [f"#{r['id']} · {'روشن' if r['enabled'] else 'خاموش'} · {html.escape(r['trigger_text'][:50])}" for r in rules[:30]]
+        await message.answer("\n".join(lines))
+
+    @dp.message(Command("pause"))
+    async def pause_cmd(message: Message):
+        if is_admin(message.from_user.id):
+            set_setting("automation_enabled", "0")
+            await message.answer("⏸️ پاسخ‌گویی خودکار متوقف شد.")
+
+    @dp.message(Command("resume"))
+    async def resume_cmd(message: Message):
+        if is_admin(message.from_user.id):
+            if get_setting("account_connected", "0") != "1":
+                await message.answer("اول حساب شخصی را از پنل وب متصل کن.")
+                return
+            set_setting("automation_enabled", "1")
+            await message.answer("▶️ پاسخ‌گویی خودکار فعال شد. فقط مخاطب‌های مجاز هدف قرار می‌گیرند.")
+
     try:
-        await bot.delete_webhook(drop_pending_updates=False)
-        log.info("Starting Telegram conversation automation polling.")
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        log.exception("Telegram polling stopped unexpectedly.")
+    finally:
+        await bot.session.close()
+
+
+async def scheduler_runner():
+    while True:
+        try:
+            if user_client and user_client.is_connected() and get_setting("automation_enabled", "0") == "1":
+                now = int(time.time())
+                with closing(db_connect()) as db:
+                    due = db.execute("SELECT * FROM scheduled_messages WHERE enabled=1 AND send_at<=? ORDER BY send_at LIMIT 10", (now,)).fetchall()
+                for item in due:
+                    try:
+                        with closing(db_connect()) as db:
+                            allowed = db.execute("SELECT allowed FROM contacts WHERE peer_id=?", (int(item["peer"]),)).fetchone()
+                        if not allowed or not allowed["allowed"]:
+                            with closing(db_connect()) as db:
+                                db.execute("UPDATE scheduled_messages SET enabled=0 WHERE id=?", (item["id"],))
+                                db.commit()
+                            record("scheduled_skipped", f"schedule_id={item['id']}; contact not approved")
+                            continue
+                        await user_client.send_message(int(item["peer"]), item["message"])
+                        with closing(db_connect()) as db:
+                            db.execute("UPDATE scheduled_messages SET enabled=0 WHERE id=?", (item["id"],))
+                            db.commit()
+                        record("scheduled_sent", f"schedule_id={item['id']}")
+                    except Exception as exc:
+                        log.warning("Scheduled message %s failed: %s", item["id"], type(exc).__name__)
+                        with closing(db_connect()) as db:
+                            db.execute("UPDATE scheduled_messages SET enabled=0 WHERE id=?", (item["id"],))
+                            db.commit()
+                        record("scheduled_failed", f"schedule_id={item['id']}; error={type(exc).__name__}")
+        except Exception:
+            log.exception("Scheduler loop failed")
+        await asyncio.sleep(15)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global bot_task, scheduler_task
     init_db()
-    task = asyncio.create_task(bot_runner()) if bot is not None else None
-    app.state.bot_task = task
+    if not ADMIN_PASSWORD:
+        log.warning("ADMIN_PASSWORD is empty; dashboard authentication is not configured.")
+    if not SESSION_ENCRYPTION_KEY:
+        log.warning("SESSION_ENCRYPTION_KEY missing; account connection cannot be saved.")
+    try:
+        session_string = saved_session()
+        if session_string:
+            await start_user_client(session_string)
+    except Exception:
+        log.exception("Could not restore personal Telegram session")
+    bot_task = asyncio.create_task(bot_runner())
+    scheduler_task = asyncio.create_task(scheduler_runner())
     yield
-    if task:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-    if bot is not None:
-        await bot.session.close()
+    for task in (bot_task, scheduler_task):
+        if task:
+            task.cancel()
+    if user_client:
+        await user_client.disconnect()
 
-app = FastAPI(title="Telegram Conversation Automation", lifespan=lifespan)
+
+app = FastAPI(title="FXI Telegram Automation", lifespan=lifespan)
+
 
 @app.get("/health", response_class=PlainTextResponse)
 async def health():
     return "ok"
 
+
+@app.middleware("http")
+async def dashboard_auth(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+    auth = request.headers.get("authorization", "")
+    try:
+        scheme, encoded = auth.split(" ", 1)
+        if scheme.lower() != "basic":
+            raise ValueError()
+        decoded = base64.b64decode(encoded).decode("utf-8")
+        username, password = decoded.split(":", 1)
+        valid = secrets.compare_digest(username, ADMIN_USER) and bool(ADMIN_PASSWORD) and secrets.compare_digest(password, ADMIN_PASSWORD)
+    except Exception:
+        valid = False
+    if not valid:
+        from starlette.responses import Response
+        return Response("Authentication required", status_code=401,
+                        headers={"WWW-Authenticate": 'Basic realm="FXI Dashboard"'})
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        if origin:
+            expected = f"{request.url.scheme}://{request.url.netloc}"
+            if origin.rstrip("/") != expected.rstrip("/"):
+                return PlainTextResponse("Cross-origin request rejected", status_code=403)
+    return await call_next(request)
+
+
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(_: str = Depends(admin_auth)):
-    users, active, messages, today_events = stats()
-    enabled = setting("automation_enabled", "1") == "1"
-    status = "روشن 🟢" if enabled else "خاموش 🔴"
-    rules = list_rules()
-    def render_rule_row(rule):
-        mode = "دقیق" if rule["match_type"] == "exact" else "شامل عبارت"
-        status = "روشن" if rule["enabled"] else "خاموش"
-        return "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-            rule["id"], html.escape(rule["keyword"]), mode, status, html.escape(rule["response"][:300])
-        )
-    table_rows = "".join(render_rule_row(rule) for rule in rules)
+async def dashboard():
+    connected = get_setting("account_connected", "0") == "1"
+    enabled = get_setting("automation_enabled", "0") == "1"
+    with closing(db_connect()) as db:
+        contacts = db.execute("SELECT COUNT(*) n FROM contacts WHERE allowed=1").fetchone()["n"]
+        pending = db.execute("SELECT COUNT(*) n FROM scheduled_messages WHERE enabled=1").fetchone()["n"]
+        events_rows = db.execute("SELECT kind,detail,created_at FROM events ORDER BY id DESC LIMIT 8").fetchall()
     body = f"""
-    <!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>پنل خودکارسازی گفت‌وگو</title>
-    <style>
-    *{{box-sizing:border-box}}body{{margin:0;background:#101713;color:#f1f5ef;font-family:Tahoma,Arial,sans-serif}}
-    main{{max-width:1000px;margin:40px auto;padding:20px}}h1{{font-size:28px}}p{{color:#c2cec4}}
-    .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}}
-    .card{{background:#1b2720;border:1px solid #35483a;border-radius:16px;padding:20px}}
-    .value{{font-size:25px;font-weight:bold;margin-top:12px;color:#c9e6a7}}
-    table{{width:100%;border-collapse:collapse;margin-top:16px;background:#1b2720;border-radius:14px;overflow:hidden}}
-    th,td{{text-align:right;padding:12px;border-bottom:1px solid #35483a;vertical-align:top}}th{{color:#c9e6a7}}
-    .muted{{font-size:13px;color:#aab8ad}}@media(max-width:600px){{main{{margin:10px auto;padding:12px}}h1{{font-size:22px}}}}
-    </style><main><h1>⚡ پنل خودکارسازی گفت‌وگو</h1>
-    <p>وضعیت: <b>{status}</b> · این پنل گزارش می‌دهد؛ مدیریت قوانین از داخل تلگرام انجام می‌شود.</p>
     <section class="grid">
-      <div class="card">کاربران ثبت‌شده<div class="value">{users}</div></div>
-      <div class="card">فعال امروز<div class="value">{active}</div></div>
-      <div class="card">کل پیام‌ها<div class="value">{messages}</div></div>
-      <div class="card">پاسخ‌های امروز<div class="value">{today_events.get('auto_reply', 0)}</div></div>
-    </section><h2>قوانین پاسخ‌گویی</h2>
-    <table><thead><tr><th>شناسه</th><th>عبارت</th><th>نوع</th><th>وضعیت</th><th>پاسخ</th></tr></thead><tbody>
-    {table_rows}
-    </tbody></table><p class="muted">این سرویس فقط پیام‌های ارسال‌شده به خود ربات را پردازش می‌کند. اطلاعات محرمانه یا کدهای ورود را برای ربات ارسال نکنید.</p>
-    </main></html>
-    """
-    return HTMLResponse(body)
+      <div class="card"><h2>حساب شخصی</h2><p>{'متصل' if connected else 'متصل نیست'}</p><a class="btn" href="/account">مدیریت اتصال</a></div>
+      <div class="card"><h2>پاسخ خودکار</h2><p>{'روشن' if enabled else 'خاموش'}</p>
+        <form method="post" action="/automation/toggle"><button>{'توقف خودکارسازی' if enabled else 'روشن کردن خودکارسازی'}</button></form></div>
+      <div class="card"><h2>مخاطب‌های مجاز</h2><p>{contacts} مخاطب</p><a class="btn secondary" href="/contacts">مدیریت مخاطب‌ها</a></div>
+      <div class="card"><h2>پیام‌های زمان‌بندی‌شده</h2><p>{pending} مورد در صف</p><a class="btn secondary" href="/schedule">مدیریت زمان‌بندی</a></div>
+    </section>
+    <section class="card"><h2>آخرین رویدادها</h2>{''.join(f"<div class='item'><b>{html.escape(r['kind'])}</b> · {html.escape(r['detail'])}<br><small>{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(r['created_at']))}</small></div>" for r in events_rows) or '<p>هنوز رویدادی ثبت نشده.</p>'}</section>
+    <section class="card"><p>ایمنی پیش‌فرض: پیام خودکار فقط برای مخاطب‌هایی ارسال می‌شود که خودت در فهرست مجاز کرده‌ای. ارسال انبوه وجود ندارد.</p></section>"""
+    return page("داشبورد", body)
 
-@app.get("/ready", response_class=PlainTextResponse)
-async def ready():
-    return "ready" if bot is not None else "web-ready; BOT_TOKEN missing or invalid"
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=PORT)
+@app.post("/automation/toggle")
+async def toggle_automation():
+    new = "0" if get_setting("automation_enabled", "0") == "1" else "1"
+    if new == "1" and get_setting("account_connected", "0") != "1":
+        return page("حساب متصل نیست", '<section class="card"><p>برای فعال‌سازی، ابتدا حساب شخصی را متصل کن.</p><a class="btn" href="/account">اتصال حساب</a></section>')
+    set_setting("automation_enabled", new)
+    record("automation_toggle", new)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/account", response_class=HTMLResponse)
+async def account_page():
+    api_ready = bool(API_ID and API_HASH and SESSION_ENCRYPTION_KEY)
+    connected = get_setting("account_connected", "0") == "1"
+    body = f"""
+    <section class="card"><h2>وضعیت اتصال</h2><p>{'حساب متصل است' if connected else 'حسابی متصل نیست'}</p>
+    <p>{'تنظیمات API و رمزگذاری حاضر است.' if api_ready else 'برای فعال‌کردن این بخش، TELEGRAM_API_ID، TELEGRAM_API_HASH و SESSION_ENCRYPTION_KEY را در تنظیمات سرویس وارد کن.'}</p>
+    <p>کد ورود در این صفحه وارد می‌شود، نه در چت ربات. کد یا رمز دومرحله‌ای را برای هیچ شخصی ارسال نکن. اتصال فقط برای حسابی است که مالک آن هستی.</p></section>
+    <section class="card"><h2>مرحله ۱ · ارسال کد ورود</h2><form method="post" action="/account/send-code">
+    <label>شماره تلفن با کد کشور</label><input name="phone" placeholder="+49..." required autocomplete="tel">
+    <button {'disabled' if not api_ready else ''}>ارسال کد</button></form></section>
+    <section class="card"><h2>مرحله ۲ · تأیید کد</h2><form method="post" action="/account/verify-code">
+    <label>کد دریافت‌شده از تلگرام</label><input name="code" inputmode="numeric" autocomplete="one-time-code" required>
+    <button {'disabled' if not api_ready else ''}>تأیید و اتصال</button></form></section>
+    <section class="card"><h2>اگر رمز دومرحله‌ای درخواست شد</h2><form method="post" action="/account/verify-password">
+    <label>رمز دومرحله‌ای</label><input name="password" type="password" autocomplete="current-password" required>
+    <button {'disabled' if not api_ready else ''}>تأیید رمز</button></form></section>
+    <section class="card"><form method="post" action="/account/disconnect"><button class="secondary">قطع اتصال و حذف نشست ذخیره‌شده</button></form></section>"""
+    return page("اتصال حساب شخصی", body)
+
+
+async def parse_form(request: Request):
+    raw = (await request.body()).decode("utf-8", errors="replace")
+    return {key: values[-1] for key, values in parse_qs(raw).items()}
+
+
+@app.post("/account/send-code")
+async def send_code(request: Request):
+    global auth_client, pending_phone, pending_code_hash, pending_password_needed
+    form = await parse_form(request)
+    phone = form.get("phone", "").strip()
+    if not (API_ID and API_HASH and SESSION_ENCRYPTION_KEY):
+        return page("تنظیمات ناقص", '<section class="card">ابتدا TELEGRAM_API_ID، TELEGRAM_API_HASH و SESSION_ENCRYPTION_KEY را تنظیم کن.</section>')
+    if not phone.startswith("+") or len(phone) < 8 or len(phone) > 20:
+        return page("شماره نامعتبر", '<section class="card">شماره را همراه کد کشور وارد کن؛ نمونه: +49...</section>')
+    try:
+        if auth_client:
+            await auth_client.disconnect()
+        auth_client = TelegramClient(StringSession(), API_ID, API_HASH)
+        await auth_client.connect()
+        sent = await auth_client.send_code_request(phone)
+        pending_phone = phone
+        pending_code_hash = sent.phone_code_hash
+        pending_password_needed = False
+        record("login_code_requested", "phone redacted")
+        return page("کد ارسال شد", '<section class="card"><p>اگر شماره درست باشد، تلگرام کد ورود را ارسال می‌کند. کد را در مرحلهٔ دوم وارد کن.</p><a class="btn" href="/account">ادامه</a></section>')
+    except Exception as exc:
+        log.warning("Telegram login code request failed: %s", type(exc).__name__)
+        return page("ارسال کد ناموفق", '<section class="card"><p>ارسال کد انجام نشد. تنظیمات API، شماره و محدودیت‌های تلگرام را بررسی کن. جزئیات حساس عمداً در صفحه نمایش داده نمی‌شود.</p><a href="/account">بازگشت</a></section>')
+
+
+@app.post("/account/verify-code")
+async def verify_code(request: Request):
+    global auth_client, pending_password_needed
+    form = await parse_form(request)
+    code = "".join(ch for ch in form.get("code", "") if ch.isdigit())
+    if not auth_client or not pending_phone or not pending_code_hash or not code:
+        return page("فرایند ورود آماده نیست", '<section class="card"><p>ابتدا کد را درخواست کن.</p><a href="/account">بازگشت</a></section>')
+    try:
+        await auth_client.sign_in(phone=pending_phone, code=code, phone_code_hash=pending_code_hash)
+        await finalize_login()
+        return page("حساب متصل شد", '<section class="card"><p>حساب با موفقیت متصل شد و نشست به‌صورت رمزگذاری‌شده ذخیره شد.</p><a class="btn" href="/">رفتن به داشبورد</a></section>')
+    except SessionPasswordNeededError:
+        pending_password_needed = True
+        return page("رمز دومرحله‌ای لازم است", '<section class="card"><p>حساب تأیید دومرحله‌ای دارد. رمز را در فرم مخصوص همین پنل وارد کن.</p><a class="btn" href="/account">ادامه</a></section>')
+    except Exception as exc:
+        log.warning("Telegram code verification failed: %s", type(exc).__name__)
+        if isinstance(exc, RuntimeError) and "ADMIN_ID" in str(exc):
+            return page("تنظیم مدیر ناقص است", '<section class="card"><p>ابتدا شناسه عددی مدیر را در متغیر ADMIN_ID سرویس تنظیم کن؛ سپس دوباره ورود را آغاز کن.</p><a href="/account">بازگشت</a></section>')
+        if isinstance(exc, RuntimeError) and "does not match" in str(exc):
+            return page("حساب مدیر مطابقت ندارد", '<section class="card"><p>این حساب با شناسه ADMIN_ID تنظیم‌شده مطابقت ندارد. برای جلوگیری از اتصال حساب اشتباه، نشست ذخیره نشد.</p><a href="/account">بازگشت</a></section>')
+        return page("تأیید انجام نشد", '<section class="card"><p>کد نادرست یا منقضی شده است. دوباره کد درخواست کن و آن را در این پنل وارد کن.</p><a href="/account">بازگشت</a></section>')
+
+
+@app.post("/account/verify-password")
+async def verify_password(request: Request):
+    global auth_client, pending_password_needed
+    form = await parse_form(request)
+    password = form.get("password", "")
+    if not auth_client or not pending_password_needed or not password:
+        return page("فرایند ورود آماده نیست", '<section class="card"><p>ابتدا کد ورود را تأیید کن.</p><a href="/account">بازگشت</a></section>')
+    try:
+        await auth_client.sign_in(password=password)
+        await finalize_login()
+        return page("حساب متصل شد", '<section class="card"><p>حساب با موفقیت متصل شد و نشست به‌صورت رمزگذاری‌شده ذخیره شد.</p><a class="btn" href="/">رفتن به داشبورد</a></section>')
+    except Exception as exc:
+        log.warning("Telegram 2FA verification failed: %s", type(exc).__name__)
+        if isinstance(exc, RuntimeError) and "ADMIN_ID" in str(exc):
+            return page("تنظیم مدیر ناقص است", '<section class="card"><p>ابتدا شناسه عددی مدیر را در متغیر ADMIN_ID سرویس تنظیم کن؛ سپس دوباره ورود را آغاز کن.</p><a href="/account">بازگشت</a></section>')
+        if isinstance(exc, RuntimeError) and "does not match" in str(exc):
+            return page("حساب مدیر مطابقت ندارد", '<section class="card"><p>این حساب با شناسه ADMIN_ID تنظیم‌شده مطابقت ندارد. برای جلوگیری از اتصال حساب اشتباه، نشست ذخیره نشد.</p><a href="/account">بازگشت</a></section>')
+        return page("رمز تأیید نشد", '<section class="card"><p>رمز نادرست است یا تلگرام ورود را نپذیرفت. دوباره تلاش کن.</p><a href="/account">بازگشت</a></section>')
+
+
+async def finalize_login():
+    global auth_client, pending_phone, pending_code_hash, pending_password_needed
+    if ADMIN_ID <= 0:
+        await auth_client.disconnect()
+        auth_client = None
+        pending_phone = ""
+        pending_code_hash = ""
+        pending_password_needed = False
+        raise RuntimeError("ADMIN_ID must be configured before connecting a personal account.")
+    me = await auth_client.get_me()
+    if not me or int(me.id) != ADMIN_ID:
+        await auth_client.disconnect()
+        auth_client = None
+        pending_phone = ""
+        pending_code_hash = ""
+        pending_password_needed = False
+        raise RuntimeError("The signed-in account does not match ADMIN_ID.")
+    session_string = auth_client.session.save()
+    save_session(session_string)
+    await auth_client.disconnect()
+    auth_client = None
+    pending_phone = ""
+    pending_code_hash = ""
+    pending_password_needed = False
+    await start_user_client(session_string)
+    record("account_connected", "Telegram personal account")
+
+
+@app.post("/account/disconnect")
+async def disconnect_account():
+    global user_client, auth_client, pending_phone, pending_code_hash, pending_password_needed
+    if user_client:
+        await user_client.disconnect()
+        user_client = None
+    if auth_client:
+        await auth_client.disconnect()
+        auth_client = None
+    pending_phone = ""
+    pending_code_hash = ""
+    pending_password_needed = False
+    set_setting("account_session_encrypted", "")
+    set_setting("account_connected", "0")
+    set_setting("automation_enabled", "0")
+    record("account_disconnected", "session deleted")
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.get("/rules", response_class=HTMLResponse)
+async def rules_page():
+    rows = list_rules()
+    items = []
+    for r in rows:
+        items.append(f"""<div class="item"><b>#{r['id']} · {html.escape(r['trigger_text'])}</b> · {'روشن' if r['enabled'] else 'خاموش'} · {r['match_type']}
+        <p>{html.escape(r['response_text'])}</p><form method="post" action="/rules/{r['id']}/toggle" style="display:inline"><button class="secondary">{'خاموش کردن' if r['enabled'] else 'روشن کردن'}</button></form>
+        <form method="post" action="/rules/{r['id']}/delete" style="display:inline"><button class="secondary">حذف</button></form></div>""")
+    body = f"""<section class="card"><h2>ساخت قانون جدید</h2><form method="post" action="/rules/add">
+    <label>عبارت محرک</label><input name="trigger_text" required maxlength="250">
+    <label>پاسخ</label><textarea name="response_text" required maxlength="3000"></textarea>
+    <label>نوع تطبیق</label><select name="match_type"><option value="contains">شامل عبارت</option><option value="exact">تطبیق دقیق</option></select>
+    <button>ذخیره قانون</button></form></section><section class="card"><h2>قوانین فعلی</h2>{''.join(items) or '<p>قانونی ثبت نشده.</p>'}</section>"""
+    return page("مدیریت قوانین", body)
+
+
+@app.post("/rules/add")
+async def rules_add(request: Request):
+    form = await parse_form(request)
+    try:
+        rule_id = add_rule(form.get("trigger_text", ""), form.get("response_text", ""), form.get("match_type", "contains"))
+        record("rule_added", f"rule_id={rule_id}")
+    except ValueError as exc:
+        return page("خطا", f'<section class="card">{html.escape(str(exc))}</section>')
+    return RedirectResponse("/rules", status_code=303)
+
+
+@app.post("/rules/{rule_id}/toggle")
+async def rule_toggle(rule_id: int):
+    with closing(db_connect()) as db:
+        row = db.execute("SELECT enabled FROM rules WHERE id=?", (rule_id,)).fetchone()
+        if row:
+            db.execute("UPDATE rules SET enabled=? WHERE id=?", (0 if row["enabled"] else 1, rule_id))
+            db.commit()
+    return RedirectResponse("/rules", status_code=303)
+
+
+@app.post("/rules/{rule_id}/delete")
+async def rule_delete(rule_id: int):
+    with closing(db_connect()) as db:
+        db.execute("DELETE FROM rules WHERE id=?", (rule_id,))
+        db.commit()
+    record("rule_deleted", f"rule_id={rule_id}")
+    return RedirectResponse("/rules", status_code=303)
+
+
+@app.get("/contacts", response_class=HTMLResponse)
+async def contacts_page():
+    with closing(db_connect()) as db:
+        rows = db.execute("SELECT * FROM contacts ORDER BY allowed DESC, display_name COLLATE NOCASE LIMIT 300").fetchall()
+    items = []
+    for c in rows:
+        label = html.escape(c["display_name"] or c["username"] or str(c["peer_id"]))
+        username = f" @{html.escape(c['username'])}" if c["username"] else ""
+        items.append(f"""<div class="item"><b>{label}</b>{username} · ID <code>{c['peer_id']}</code> · {'مجاز' if c['allowed'] else 'غیرفعال'}
+        <form method="post" action="/contacts/{c['peer_id']}/toggle"><button class="secondary">{'غیرفعال کردن' if c['allowed'] else 'مجاز کردن'}</button></form></div>""")
+    body = f"""<section class="card"><p>مخاطب‌ها از حساب متصل‌شده دریافت می‌شوند. پیش‌فرض همه غیرفعال‌اند؛ فقط مخاطب‌هایی که خودت مجاز کنی پاسخ خودکار می‌گیرند.</p>
+    <form method="post" action="/contacts/sync"><button>همگام‌سازی مخاطب‌ها</button></form></section>
+    <section class="card"><h2>فهرست مخاطب‌ها</h2>{''.join(items) or '<p>هنوز مخاطبی همگام‌سازی نشده.</p>'}</section>"""
+    return page("مخاطب‌ها", body)
+
+
+@app.post("/contacts/sync")
+async def contacts_sync():
+    if not user_client or not user_client.is_connected():
+        return page("حساب متصل نیست", '<section class="card">ابتدا حساب شخصی را متصل کن.</section>')
+    count = 0
+    async for dialog in user_client.iter_dialogs(limit=500):
+        entity = dialog.entity
+        if getattr(entity, "bot", False) or not getattr(entity, "id", None):
+            continue
+        if getattr(entity, "id", 0) == (await user_client.get_me()).id:
+            continue
+        username = getattr(entity, "username", "") or ""
+        first = getattr(entity, "first_name", "") or ""
+        last = getattr(entity, "last_name", "") or ""
+        title = getattr(entity, "title", "") or ""
+        name = (first + " " + last).strip() or title or username or str(entity.id)
+        with closing(db_connect()) as db:
+            db.execute("INSERT INTO contacts(peer_id,username,display_name,allowed,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(peer_id) DO UPDATE SET username=excluded.username,display_name=excluded.display_name,updated_at=excluded.updated_at",
+                       (entity.id, username, name, 0, int(time.time())))
+            db.commit()
+        count += 1
+    record("contacts_synced", f"count={count}")
+    return page("همگام‌سازی انجام شد", f'<section class="card"><p>{count} مخاطب/گفت‌وگو بررسی شد. برای فعال‌سازی پاسخ خودکار، مخاطب‌های مجاز را جداگانه انتخاب کن.</p><a class="btn" href="/contacts">دیدن فهرست</a></section>')
+
+
+@app.post("/contacts/{peer_id}/toggle")
+async def contact_toggle(peer_id: int):
+    with closing(db_connect()) as db:
+        row = db.execute("SELECT allowed FROM contacts WHERE peer_id=?", (peer_id,)).fetchone()
+        if row:
+            db.execute("UPDATE contacts SET allowed=?,updated_at=? WHERE peer_id=?",
+                       (0 if row["allowed"] else 1, int(time.time()), peer_id))
+            db.commit()
+    record("contact_permission_changed", f"peer_id={peer_id}")
+    return RedirectResponse("/contacts", status_code=303)
+
+
+@app.get("/schedule", response_class=HTMLResponse)
+async def schedule_page():
+    with closing(db_connect()) as db:
+        rows = db.execute("SELECT * FROM scheduled_messages ORDER BY enabled DESC,send_at DESC LIMIT 100").fetchall()
+    items = []
+    for r in rows:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["send_at"]))
+        items.append(f"<div class='item'><b>#{r['id']} · {html.escape(r['peer'])}</b> · {when} · {'در صف' if r['enabled'] else 'تمام‌شده/غیرفعال'}<p>{html.escape(r['message'])}</p></div>")
+    body = f"""<section class="card"><h2>زمان‌بندی پیام</h2><p>هر پیام فقط به یک مخاطب مشخص فرستاده می‌شود. تاریخ و ساعت را با منطقهٔ زمانی UTC وارد کن تا از ابهام منطقهٔ زمانی جلوگیری شود.</p>
+    <form method="post" action="/schedule/add"><label>شناسه یا نام کاربری مخاطب</label><input name="peer" placeholder="@username یا شناسه" required>
+    <label>متن پیام</label><textarea name="message" required maxlength="3000"></textarea>
+    <label>زمان ارسال (UTC)</label><input name="send_at" type="datetime-local" required>
+    <button>ثبت زمان‌بندی</button></form></section><section class="card"><h2>پیام‌های ثبت‌شده</h2>{''.join(items) or '<p>موردی در صف نیست.</p>'}</section>"""
+    return page("زمان‌بندی پیام‌ها", body)
+
+
+@app.post("/schedule/add")
+async def schedule_add(request: Request):
+    from datetime import datetime, timezone
+    form = await parse_form(request)
+    peer_input = form.get("peer", "").strip()
+    message = form.get("message", "").strip()
+    date_value = form.get("send_at", "").strip()
+    try:
+        if not peer_input or not message or len(message) > 3000:
+            raise ValueError()
+        if not user_client or not user_client.is_connected():
+            return page("حساب متصل نیست", '<section class="card">ابتدا حساب شخصی را متصل کن.</section>')
+        entity = await user_client.get_entity(peer_input)
+        peer_id = int(entity.id)
+        with closing(db_connect()) as db:
+            allowed = db.execute("SELECT allowed FROM contacts WHERE peer_id=?", (peer_id,)).fetchone()
+        if not allowed or not allowed["allowed"]:
+            return page("مخاطب مجاز نیست", '<section class="card">ابتدا مخاطب را در بخش مخاطب‌ها همگام‌سازی و به‌صورت دستی مجاز کن.</section>')
+        parsed = datetime.fromisoformat(date_value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        send_at = int(parsed.timestamp())
+        if send_at < int(time.time()) + 30:
+            return page("زمان نامعتبر", '<section class="card">زمان ارسال باید حداقل ۳۰ ثانیه در آینده باشد.</section>')
+        with closing(db_connect()) as db:
+            db.execute("INSERT INTO scheduled_messages(peer,message,send_at,enabled,created_at) VALUES(?,?,?,?,?)",
+                       (str(peer_id), message, send_at, 1, int(time.time())))
+            db.commit()
+        record("schedule_added", f"peer_id={peer_id}")
+    except Exception:
+        return page("اطلاعات نامعتبر", '<section class="card">مخاطب، متن و زمان را بررسی کن. تاریخ باید معتبر باشد.</section>')
+    return RedirectResponse("/schedule", status_code=303)
