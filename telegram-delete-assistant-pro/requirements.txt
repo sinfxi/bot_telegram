@@ -1,5 +1,4 @@
 aiogram>=3.13,<4.0
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
-Telethon>=1.37,<2.0
-cryptography>=43,<47
+aiohttp>=3.10,<4.0
