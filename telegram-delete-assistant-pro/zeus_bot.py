@@ -918,6 +918,7 @@ async def web_me(user: dict = Depends(get_web_user)):
         "selected_provider": selected,
         "providers": [{"id": name, "label": config["label"], "ready": provider_ready(name)}
                       for name, config in PROVIDERS.items()],
+        "history_persistent": bool(DATABASE_URL),
     }
 
 
