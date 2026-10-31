@@ -132,6 +132,108 @@ def save_admin_data() -> None:
     temp_file.replace(ADMIN_DATA_FILE)
 
 
+
+
+CHAT_HISTORY_LIMIT = 500
+
+
+def _ensure_chat_table(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fxi_chat_messages (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                provider_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_fxi_chat_user_provider_id
+            ON fxi_chat_messages (user_id, provider_id, id DESC)
+        """)
+    conn.commit()
+
+
+def _load_chat_history_sync(user_id: int, provider_id: str, limit: int = MAX_HISTORY_MESSAGES) -> list:
+    with _db_connect() as conn:
+        _ensure_chat_table(conn)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT role, content FROM (
+                    SELECT id, role, content FROM fxi_chat_messages
+                    WHERE user_id = %s AND provider_id = %s
+                    ORDER BY id DESC LIMIT %s
+                ) recent ORDER BY id ASC
+            """, (user_id, provider_id, limit))
+            return [{"role": row[0], "content": row[1]} for row in cur.fetchall()]
+
+
+def _save_chat_turn_sync(user_id: int, provider_id: str, user_text: str, answer: str) -> None:
+    with _db_connect() as conn:
+        _ensure_chat_table(conn)
+        with conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO fxi_chat_messages (user_id, provider_id, role, content)
+                VALUES (%s, %s, %s, %s)
+            """, [
+                (user_id, provider_id, "user", user_text),
+                (user_id, provider_id, "assistant", answer),
+            ])
+            cur.execute("""
+                DELETE FROM fxi_chat_messages
+                WHERE id IN (
+                    SELECT id FROM fxi_chat_messages
+                    WHERE user_id = %s AND provider_id = %s
+                    ORDER BY id DESC OFFSET %s
+                )
+            """, (user_id, provider_id, CHAT_HISTORY_LIMIT))
+        conn.commit()
+
+
+def _clear_chat_history_sync(user_id: int, provider_id: str) -> None:
+    with _db_connect() as conn:
+        _ensure_chat_table(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM fxi_chat_messages WHERE user_id = %s AND provider_id = %s",
+                        (user_id, provider_id))
+        conn.commit()
+
+
+def _admin_conversation_list_sync(limit: int = 100) -> list:
+    with _db_connect() as conn:
+        _ensure_chat_table(conn)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT user_id, COUNT(*) AS message_count, MAX(created_at) AS last_message,
+                       (ARRAY_AGG(content ORDER BY id DESC))[1] AS preview
+                FROM fxi_chat_messages
+                GROUP BY user_id ORDER BY MAX(created_at) DESC LIMIT %s
+            """, (limit,))
+            return [{"user_id": row[0], "message_count": row[1],
+                     "last_message": row[2].isoformat() if row[2] else None,
+                     "preview": row[3][:180] if row[3] else ""}
+                    for row in cur.fetchall()]
+
+
+def _admin_conversation_sync(user_id: int, limit: int = 100) -> list:
+    with _db_connect() as conn:
+        _ensure_chat_table(conn)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT provider_id, role, content, created_at
+                FROM fxi_chat_messages WHERE user_id = %s
+                ORDER BY id DESC LIMIT %s
+            """, (user_id, limit))
+            rows = cur.fetchall()
+            rows.reverse()
+            return [{"provider_id": row[0], "role": row[1], "content": row[2],
+                     "created_at": row[3].isoformat() if row[3] else None}
+                    for row in rows]
+
+
+
 admin_data = load_admin_data()
 for _admin_id in ADMIN_IDS:
     if _admin_id not in admin_data["admins"]:
@@ -671,6 +773,11 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
     key = (user_id, provider_id)
     async with history_locks[key]:
         history = histories[key]
+        if DATABASE_URL:
+            try:
+                history[:] = await asyncio.to_thread(_load_chat_history_sync, user_id, provider_id)
+            except Exception:
+                log.exception("Could not load persistent chat history for user=%s", user_id)
         try:
             if provider_id == "openai":
                 status, data = await ask_openai(history, user_text)
@@ -693,6 +800,11 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
                 log.error("%s returned an empty response: %s", provider_id, str(data)[:500])
                 return f"⚠️ سرویس {PROVIDERS[provider_id]['label']} پاسخ خالی برگرداند؛ مدل و تنظیمات API را بررسی کن."
 
+            if DATABASE_URL:
+                try:
+                    await asyncio.to_thread(_save_chat_turn_sync, user_id, provider_id, user_text, answer)
+                except Exception:
+                    log.exception("Could not persist chat turn for user=%s provider=%s", user_id, provider_id)
             history.extend([
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": answer},
@@ -824,6 +936,14 @@ async def web_select_provider(payload: ProviderPayload, user: dict = Depends(get
 async def web_history(user: dict = Depends(get_web_user)):
     user_id = int(user["id"])
     provider_id = selected_provider[user_id]
+    if DATABASE_URL:
+        try:
+            messages = await asyncio.to_thread(_load_chat_history_sync, user_id, provider_id, 40)
+            histories[(user_id, provider_id)][:] = messages[-MAX_HISTORY_MESSAGES:]
+            return {"provider_id": provider_id, "messages": messages}
+        except Exception:
+            log.exception("Persistent history read failed for user=%s", user_id)
+            raise HTTPException(status_code=503, detail="بازیابی تاریخچه از پایگاه داده ممکن نشد.")
     return {"provider_id": provider_id, "messages": histories[(user_id, provider_id)][-40:]}
 
 
@@ -831,6 +951,12 @@ async def web_history(user: dict = Depends(get_web_user)):
 async def web_reset(user: dict = Depends(get_web_user)):
     user_id = int(user["id"])
     provider_id = selected_provider[user_id]
+    if DATABASE_URL:
+        try:
+            await asyncio.to_thread(_clear_chat_history_sync, user_id, provider_id)
+        except Exception:
+            log.exception("Persistent history reset failed for user=%s", user_id)
+            raise HTTPException(status_code=503, detail="پاک‌کردن تاریخچه از پایگاه داده ممکن نشد.")
     histories[(user_id, provider_id)].clear()
     return {"ok": True}
 
@@ -872,6 +998,33 @@ async def admin_status(_: str = Depends(require_admin)):
         "providers": [name for name in PROVIDERS if provider_ready(name)],
         "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT),
     }
+
+
+
+@app.get("/admin/api/conversations")
+async def admin_conversations(_: str = Depends(require_admin)):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="برای مشاهده تاریخچه دائمی، DATABASE_URL را در Render تنظیم کن.")
+    try:
+        items = await asyncio.to_thread(_admin_conversation_list_sync, 100)
+        return {"items": items, "storage": "postgresql"}
+    except Exception:
+        log.exception("Admin conversation index failed")
+        raise HTTPException(status_code=503, detail="خواندن فهرست مکالمات از پایگاه داده ممکن نشد.")
+
+
+@app.get("/admin/api/conversations/{user_id}")
+async def admin_conversation(user_id: int, _: str = Depends(require_admin)):
+    if not DATABASE_URL:
+        raise HTTPException(status_code=503, detail="برای مشاهده تاریخچه دائمی، DATABASE_URL را در Render تنظیم کن.")
+    if user_id <= 0:
+        raise HTTPException(status_code=400, detail="شناسه کاربر نامعتبر است.")
+    try:
+        messages = await asyncio.to_thread(_admin_conversation_sync, user_id, 100)
+        return {"user_id": user_id, "messages": messages}
+    except Exception:
+        log.exception("Admin conversation read failed for user=%s", user_id)
+        raise HTTPException(status_code=503, detail="خواندن مکالمه ممکن نشد.")
 
 
 @app.post("/admin/api/admins")
