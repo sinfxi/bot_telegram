@@ -621,65 +621,59 @@ def extract_answer(provider_id: str, data: dict) -> str:
 
 
 async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
+    """Send a message only to the provider explicitly selected by this user.
+
+    Deliberately do not fail over to another AI: silent provider switching makes
+    the model selector misleading and causes users to receive answers from the
+    wrong service.
+    """
+    if provider_id not in PROVIDERS:
+        return "⚠️ سرویس انتخاب‌شده معتبر نیست. با /ai دوباره انتخابش کن."
     if not provider_ready(provider_id):
         return f"🔒 {PROVIDERS[provider_id]['label']} هنوز فعال نشده؛ مدیر باید کلید API مربوطه را در Render تنظیم کند."
+
     key = (user_id, provider_id)
     async with history_locks[key]:
         history = histories[key]
         try:
-            # Try the selected provider first, then other configured providers.
-            # A failed/limited provider must not block the user's message.
-            order = [provider_id] + [name for name in PROVIDERS
-                                     if name != provider_id and provider_ready(name)]
-            failures = []
-            for candidate in order:
-                if not provider_ready(candidate):
-                    continue
-                try:
-                    if candidate == "openai":
-                        status, data = await ask_openai(history, user_text)
-                    elif candidate == "gemini":
-                        status, data = await ask_gemini(history, user_text)
-                    elif candidate == "claude":
-                        status, data = await ask_claude(history, user_text)
-                    elif candidate == "deepseek":
-                        status, data = await ask_deepseek(history, user_text)
-                    elif candidate == "grok":
-                        status, data = await ask_grok(history, user_text)
-                    else:
-                        status, data = await ask_compatible(candidate, history, user_text)
-                    if status >= 400:
-                        failures.append(f"{candidate}: HTTP {status}")
-                        api_error(candidate, status, data)
-                        continue
-                    answer = extract_answer(candidate, data)
-                    if not answer:
-                        failures.append(f"{candidate}: empty response")
-                        continue
-                    if candidate != provider_id:
-                        log.warning("AI failover: selected=%s fallback=%s", provider_id, candidate)
-                    history.extend([
-                        {"role": "user", "content": user_text},
-                        {"role": "assistant", "content": answer},
-                    ])
-                    del history[:-MAX_HISTORY_MESSAGES]
-                    if candidate != provider_id:
-                        return f"↪️ پاسخ از {PROVIDERS[candidate]['label']}\n\n{answer}"
-                    return answer
-                except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
-                    log.warning("Provider %s unavailable: %s", candidate, type(exc).__name__)
-                    failures.append(f"{candidate}: connection/timeout")
-                    continue
-            log.error("All configured AI providers failed: %s", ", ".join(failures))
-            return "⚠️ در حال حاضر هیچ‌کدام از سرویس‌های هوش مصنوعی پاسخ ندادند. کمی بعد دوباره تلاش کن."
+            if provider_id == "openai":
+                status, data = await ask_openai(history, user_text)
+            elif provider_id == "gemini":
+                status, data = await ask_gemini(history, user_text)
+            elif provider_id == "claude":
+                status, data = await ask_claude(history, user_text)
+            elif provider_id == "deepseek":
+                status, data = await ask_deepseek(history, user_text)
+            elif provider_id == "grok":
+                status, data = await ask_grok(history, user_text)
+            else:
+                status, data = await ask_compatible(provider_id, history, user_text)
+
+            if status >= 400:
+                return api_error(provider_id, status, data)
+
+            answer = extract_answer(provider_id, data)
+            if not answer:
+                log.error("%s returned an empty response: %s", provider_id, str(data)[:500])
+                return f"⚠️ سرویس {PROVIDERS[provider_id]['label']} پاسخ خالی برگرداند؛ مدل و تنظیمات API را بررسی کن."
+
+            history.extend([
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": answer},
+            ])
+            del history[:-MAX_HISTORY_MESSAGES]
+            log.info("AI response served by selected provider=%s user_id=%s", provider_id, user_id)
+            return f"🤖 پاسخ از {PROVIDERS[provider_id]['label']}\n\n{answer}"
+
         except asyncio.TimeoutError:
-            return f"⏳ پاسخ‌گویی {PROVIDERS[provider_id]['label']} طول کشید؛ دوباره تلاش کن."
+            log.warning("Selected provider %s timed out", provider_id)
+            return f"⏳ سرویس انتخاب‌شده ({PROVIDERS[provider_id]['label']}) پاسخ نداد؛ دوباره تلاش کن."
         except aiohttp.ClientError:
-            log.exception("Network error calling %s", provider_id)
-            return f"⚠️ اتصال به {PROVIDERS[provider_id]['label']} مشکل دارد؛ کمی بعد دوباره تلاش کن."
+            log.exception("Network error calling selected provider %s", provider_id)
+            return f"⚠️ اتصال به سرویس انتخاب‌شده ({PROVIDERS[provider_id]['label']}) مشکل دارد."
         except Exception:
-            log.exception("Unexpected error handling %s request", provider_id)
-            return "⚠️ خطای پیش‌بینی‌نشده رخ داد. دوباره تلاش کن."
+            log.exception("Unexpected error handling selected provider %s", provider_id)
+            return f"⚠️ هنگام استفاده از {PROVIDERS[provider_id]['label']} خطای پیش‌بینی‌نشده رخ داد."
 
 
 async def send_long_message(message: Message, text: str):
