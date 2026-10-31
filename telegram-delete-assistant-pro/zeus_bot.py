@@ -58,6 +58,27 @@ PROVIDERS = {
         "key": os.getenv("XAI_API_KEY", "").strip(),
         "model": os.getenv("XAI_MODEL", "grok-3-mini").strip(),
     },
+    "groq": {
+        "label": "🟠 Groq",
+        "key": os.getenv("GROQ_API_KEY", "").strip(),
+        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip(),
+    },
+    "mistral": {
+        "label": "🟡 Mistral",
+        "key": os.getenv("MISTRAL_API_KEY", "").strip(),
+        "model": os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip(),
+    },
+    "openrouter": {
+        "label": "🌐 OpenRouter",
+        "key": os.getenv("OPENROUTER_API_KEY", "").strip(),
+        "model": os.getenv("OPENROUTER_MODEL", "openrouter/free").strip(),
+    },
+    "cloudflare": {
+        "label": "☁️ Cloudflare Workers AI",
+        "key": os.getenv("CLOUDFLARE_API_TOKEN", "").strip(),
+        "account_id": os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip(),
+        "model": os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct").strip(),
+    },
 }
 
 # Runtime state: histories are isolated by both user and provider.
@@ -130,6 +151,10 @@ async def choose_provider(callback: CallbackQuery):
             "claude": "ANTHROPIC_API_KEY",
             "deepseek": "DEEPSEEK_API_KEY",
             "grok": "XAI_API_KEY",
+            "groq": "GROQ_API_KEY",
+            "mistral": "MISTRAL_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+            "cloudflare": "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID",
         }[provider_id]
         await callback.answer("این سرویس هنوز فعال نشده؛ مدیر باید کلید API را در Render تنظیم کند.", show_alert=True)
         if callback.message:
@@ -262,6 +287,32 @@ async def ask_grok(history: list, user_text: str) -> tuple[int, dict]:
     )
 
 
+async def ask_compatible(provider_id: str, history: list, user_text: str) -> tuple[int, dict]:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend({"role": item["role"], "content": item["content"]}
+                    for item in history[-MAX_HISTORY_MESSAGES:])
+    messages.append({"role": "user", "content": user_text})
+    config = PROVIDERS[provider_id]
+    if provider_id == "groq":
+        url = "https://api.groq.com/openai/v1/chat/completions"
+    elif provider_id == "mistral":
+        url = "https://api.mistral.ai/v1/chat/completions"
+    elif provider_id == "openrouter":
+        url = "https://openrouter.ai/api/v1/chat/completions"
+    elif provider_id == "cloudflare":
+        url = f"https://api.cloudflare.com/client/v4/accounts/{config['account_id']}/ai/v1/chat/completions"
+    else:
+        raise ValueError("Unsupported compatible provider")
+    headers = {"Authorization": f"Bearer {config['key']}", "Content-Type": "application/json"}
+    if provider_id == "openrouter":
+        headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL", "https://telegram-delete-assistant-pro.onrender.com")
+        headers["X-Title"] = "FXI Telegram AI"
+    return await post_json(url, headers, {
+        "model": config["model"], "messages": messages,
+        "temperature": 0.7, "max_tokens": 1800,
+    })
+
+
 async def ask_deepseek(history: list, user_text: str) -> tuple[int, dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": item["role"], "content": item["content"]}
@@ -304,28 +355,51 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
     async with history_locks[key]:
         history = histories[key]
         try:
-            if provider_id == "openai":
-                status, data = await ask_openai(history, user_text)
-            elif provider_id == "gemini":
-                status, data = await ask_gemini(history, user_text)
-            elif provider_id == "claude":
-                status, data = await ask_claude(history, user_text)
-            elif provider_id == "deepseek":
-                status, data = await ask_deepseek(history, user_text)
-            else:
-                status, data = await ask_grok(history, user_text)
-            if status >= 400:
-                return api_error(provider_id, status, data)
-            answer = extract_answer(provider_id, data)
-            if not answer:
-                log.warning("%s returned no text; response keys=%s", provider_id, list(data.keys()))
-                return "پاسخی دریافت نکردم؛ لطفاً سؤال رو دوباره بفرست."
-            history.extend([
-                {"role": "user", "content": user_text},
-                {"role": "assistant", "content": answer},
-            ])
-            del history[:-MAX_HISTORY_MESSAGES]
-            return answer
+            # Try the selected provider first, then other configured providers.
+            # A failed/limited provider must not block the user's message.
+            order = [provider_id] + [name for name in PROVIDERS
+                                     if name != provider_id and provider_ready(name)]
+            failures = []
+            for candidate in order:
+                if not provider_ready(candidate):
+                    continue
+                try:
+                    if candidate == "openai":
+                        status, data = await ask_openai(history, user_text)
+                    elif candidate == "gemini":
+                        status, data = await ask_gemini(history, user_text)
+                    elif candidate == "claude":
+                        status, data = await ask_claude(history, user_text)
+                    elif candidate == "deepseek":
+                        status, data = await ask_deepseek(history, user_text)
+                    elif candidate == "grok":
+                        status, data = await ask_grok(history, user_text)
+                    else:
+                        status, data = await ask_compatible(candidate, history, user_text)
+                    if status >= 400:
+                        failures.append(f"{candidate}: HTTP {status}")
+                        api_error(candidate, status, data)
+                        continue
+                    answer = extract_answer(candidate, data)
+                    if not answer:
+                        failures.append(f"{candidate}: empty response")
+                        continue
+                    if candidate != provider_id:
+                        log.warning("AI failover: selected=%s fallback=%s", provider_id, candidate)
+                    history.extend([
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": answer},
+                    ])
+                    del history[:-MAX_HISTORY_MESSAGES]
+                    if candidate != provider_id:
+                        return f"↪️ پاسخ از {PROVIDERS[candidate]['label']}\n\n{answer}"
+                    return answer
+                except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+                    log.warning("Provider %s unavailable: %s", candidate, type(exc).__name__)
+                    failures.append(f"{candidate}: connection/timeout")
+                    continue
+            log.error("All configured AI providers failed: %s", ", ".join(failures))
+            return "⚠️ در حال حاضر هیچ‌کدام از سرویس‌های هوش مصنوعی پاسخ ندادند. کمی بعد دوباره تلاش کن."
         except asyncio.TimeoutError:
             return f"⏳ پاسخ‌گویی {PROVIDERS[provider_id]['label']} طول کشید؛ دوباره تلاش کن."
         except aiohttp.ClientError:
