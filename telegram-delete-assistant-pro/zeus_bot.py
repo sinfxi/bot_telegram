@@ -1,6 +1,9 @@
 import asyncio
 import logging
 import os
+import json
+import secrets
+from pathlib import Path
 from collections import defaultdict
 
 import aiohttp
@@ -10,8 +13,10 @@ from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel, Field
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -29,6 +34,95 @@ SYSTEM_PROMPT = os.getenv(
 )
 MAX_HISTORY_MESSAGES = 16
 MAX_MESSAGE_CHARS = 12000
+ADMIN_IDS = {int(value) for value in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if value.isdigit()}
+ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
+ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
+ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
+admin_security = HTTPBasic()
+admin_data_lock = asyncio.Lock()
+bot_enabled = True
+
+
+def load_admin_data() -> dict:
+    try:
+        data = json.loads(ADMIN_DATA_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data.setdefault("admins", [])
+            data.setdefault("users", [])
+            data.setdefault("bot_enabled", True)
+            data.setdefault("system_prompt", SYSTEM_PROMPT)
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {"admins": [], "users": [], "bot_enabled": True, "system_prompt": SYSTEM_PROMPT}
+
+
+admin_data = load_admin_data()
+for _admin_id in ADMIN_IDS:
+    if _admin_id not in admin_data["admins"]:
+        admin_data["admins"].append(_admin_id)
+bot_enabled = bool(admin_data.get("bot_enabled", True))
+
+
+def save_admin_data() -> None:
+    ADMIN_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = ADMIN_DATA_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(admin_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_file.replace(ADMIN_DATA_FILE)
+
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS or user_id in admin_data.get("admins", [])
+
+
+def remember_user(user_id: int) -> None:
+    users = admin_data.setdefault("users", [])
+    if user_id not in users:
+        users.append(user_id)
+        try:
+            save_admin_data()
+        except OSError:
+            log.exception("Could not persist Telegram user registry")
+
+
+def require_admin(credentials: HTTPBasicCredentials = Depends(admin_security)):
+    valid_user = secrets.compare_digest(credentials.username, ADMIN_PANEL_USERNAME)
+    valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(
+        credentials.password, ADMIN_PANEL_PASSWORD
+    )
+    if not (valid_user and valid_password):
+        raise HTTPException(status_code=401, detail="ورود نامعتبر است",
+                            headers={"WWW-Authenticate": "Basic"})
+    return credentials.username
+
+
+class AdminIdPayload(BaseModel):
+    user_id: int
+
+
+class BroadcastPayload(BaseModel):
+    text: str = Field(min_length=1, max_length=3900)
+
+
+class BotStatePayload(BaseModel):
+    enabled: bool
+
+
+class PromptPayload(BaseModel):
+    prompt: str = Field(min_length=10, max_length=8000)
+
+
+ADMIN_PANEL_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FXI Admin</title><style>
+:root{color-scheme:dark;font-family:Tahoma,Arial}*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#edf2ff}.wrap{max-width:1050px;margin:36px auto;padding:18px}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#9aa8c7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}.card{background:#141d33;border:1px solid #263552;border-radius:16px;padding:18px}.num{font-size:30px;font-weight:bold;margin-top:10px}.section{margin-top:16px}.row{display:flex;gap:10px;flex-wrap:wrap}input,textarea{width:100%;background:#0c1427;border:1px solid #344767;border-radius:10px;padding:12px;color:white;margin:8px 0}textarea{min-height:100px}button{border:0;border-radius:10px;padding:11px 16px;background:#8bb7ff;color:#071226;font-weight:bold;cursor:pointer;margin:5px 0}button.danger{background:#ff9a9a}.status{padding:10px;border-radius:10px;background:#0c1427;margin:10px 0}.pill{display:inline-block;padding:6px 10px;border-radius:99px;background:#203b37;color:#9ef0c7}#admins{line-height:2;overflow-wrap:anywhere}</style></head><body><main class="wrap"><div class="head"><div><h1>پنل مدیریت FXI</h1><div class="muted">مدیریت ربات، کاربران و پیام‌های همگانی</div></div><button onclick="refresh()">به‌روزرسانی اطلاعات</button></div><div id="notice" class="status">در حال دریافت اطلاعات…</div><div class="grid"><div class="card">وضعیت ربات<div id="bot" class="num">—</div><button id="toggle" onclick="toggleBot()">تغییر وضعیت</button></div><div class="card">تعداد کاربران<div id="users" class="num">—</div></div><div class="card">مدیران<div id="adminsCount" class="num">—</div></div><div class="card">سرویس‌های AI فعال<div id="providers" class="num">—</div></div></div><section class="card section"><h2>📣 پیام همگانی</h2><p class="muted">پیام برای تمام کاربرانی که حداقل یک‌بار ربات را شروع کرده‌اند ارسال می‌شود.</p><textarea id="broadcast" placeholder="متن پیام همگانی…"></textarea><button onclick="broadcast()">ارسال پیام همگانی</button><div id="broadcastResult" class="muted"></div></section><section class="card section"><h2>👮 مدیریت مدیران</h2><div class="row"><div style="flex:1;min-width:220px"><input id="adminId" type="number" placeholder="Telegram User ID"><button onclick="addAdmin()">افزودن مدیر</button></div></div><div id="admins" class="muted"></div><p class="muted">مدیر اصلی از متغیر ADMIN_IDS حذف نمی‌شود.</p></section><section class="card section"><h2>🧠 تنظیمات دستیار</h2><textarea id="prompt" placeholder="دستورالعمل اصلی هوش مصنوعی"></textarea><button onclick="savePrompt()">ذخیره دستورالعمل</button></section></main><script>
+async function api(path,method='GET',body){let r=await fetch('/admin/api/'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});let d=await r.json();if(!r.ok)throw Error(d.detail||'خطا');return d}
+function note(t){document.getElementById('notice').textContent=t}
+async function refresh(){try{let d=await api('status');document.getElementById('bot').textContent=d.bot_enabled?'روشن':'خاموش';document.getElementById('users').textContent=d.users_count;document.getElementById('adminsCount').textContent=d.admins.length;document.getElementById('providers').textContent=d.providers.join('، ')||'هیچ‌کدام';document.getElementById('admins').textContent='شناسه مدیران: '+d.admins.join('، ');document.getElementById('prompt').value=d.system_prompt;note('اطلاعات با موفقیت دریافت شد')}catch(e){note(e.message)}}
+async function toggleBot(){try{let d=await api('bot-state','POST',{enabled:document.getElementById('bot').textContent==='خاموش'});note(d.message);refresh()}catch(e){note(e.message)}}
+async function addAdmin(){try{let id=Number(document.getElementById('adminId').value);if(!id)throw Error('شناسه معتبر وارد کن');let d=await api('admins','POST',{user_id:id});note(d.message);document.getElementById('adminId').value='';refresh()}catch(e){note(e.message)}}
+async function broadcast(){let t=document.getElementById('broadcast').value.trim();if(!t)return note('متن پیام را وارد کن');if(!confirm('پیام برای همه کاربران ارسال شود؟'))return;try{let d=await api('broadcast','POST',{text:t});document.getElementById('broadcastResult').textContent='ارسال: '+d.sent+' | ناموفق: '+d.failed;note('عملیات پیام همگانی تمام شد')}catch(e){note(e.message)}}
+async function savePrompt(){try{let d=await api('prompt','POST',{prompt:document.getElementById('prompt').value});note(d.message)}catch(e){note(e.message)}}
+refresh();
+</script></body></html>"""
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=15)
 
 # Provider credentials and model names are configured in Render Environment.
@@ -124,6 +218,7 @@ def provider_menu_text(user_id: int) -> str:
 @dp.message(CommandStart())
 async def start(message: Message):
     user_id = message.from_user.id if message.from_user else 0
+    remember_user(user_id)
     await message.answer(
         "سلام! 👋 به دستیار هوش مصنوعی FXI خوش اومدی.\n"
         "از منو سرویس موردنظرت رو انتخاب کن، بعد پیام بفرست.\n\n"
@@ -185,6 +280,19 @@ async def providers_status(callback: CallbackQuery):
     if callback.message:
         await callback.message.answer("\n".join(lines))
     await callback.answer()
+
+
+@dp.message(Command("admin"))
+async def admin_command(message: Message):
+    if not message.from_user or not is_admin(message.from_user.id):
+        await message.answer("⛔ دسترسی مدیران لازم است.")
+        return
+    panel_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com/admin")
+    await message.answer(
+        "🛠 پنل مدیریت FXI\n"
+        f"پنل تحت وب: {panel_url}\n\n"
+        "برای مدیریت کامل از پنل وب وارد شو."
+    )
 
 
 @dp.message(Command("help"))
@@ -424,6 +532,10 @@ async def chat(message: Message):
     if not message.from_user or not message.text:
         await message.answer("فعلاً فقط پیام متنی رو پشتیبانی می‌کنم. 🙂")
         return
+    remember_user(message.from_user.id)
+    if not bot_enabled:
+        await message.answer('⛔ ربات موقتاً توسط مدیریت غیرفعال شده است.')
+        return
     user_text = message.text.strip()
     if not user_text:
         return
@@ -466,7 +578,7 @@ async def lifespan(app: FastAPI):
         await bot.session.close()
 
 
-app = FastAPI(title="FXI Multi-AI Chat Bot", version="4.0.0", lifespan=lifespan)
+app = FastAPI(title="FXI Multi-AI Chat Bot", version="5.0.0", lifespan=lifespan)
 
 
 @app.get("/")
@@ -479,6 +591,80 @@ async def root():
         "ai_configured": bool(configured),
         "configured_providers": configured,
     }
+
+
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(_: str = Depends(require_admin)):
+    return HTMLResponse(ADMIN_PANEL_HTML)
+
+
+@app.get("/admin/api/status")
+async def admin_status(_: str = Depends(require_admin)):
+    return {
+        "bot_enabled": bot_enabled,
+        "users_count": len(admin_data.get("users", [])),
+        "admins": sorted(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
+        "providers": [name for name in PROVIDERS if provider_ready(name)],
+        "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT),
+    }
+
+
+@app.post("/admin/api/admins")
+async def add_admin(payload: AdminIdPayload, _: str = Depends(require_admin)):
+    if payload.user_id <= 0:
+        raise HTTPException(status_code=400, detail="شناسه کاربر نامعتبر است")
+    if payload.user_id in ADMIN_IDS or payload.user_id in admin_data["admins"]:
+        return {"message": "این کاربر از قبل مدیر است"}
+    admin_data["admins"].append(payload.user_id)
+    save_admin_data()
+    return {"message": f"مدیر {payload.user_id} اضافه شد"}
+
+
+@app.delete("/admin/api/admins/{user_id}")
+async def remove_admin(user_id: int, _: str = Depends(require_admin)):
+    if user_id in ADMIN_IDS:
+        raise HTTPException(status_code=400, detail="مدیر اصلی از ADMIN_IDS حذف می‌شود")
+    if user_id not in admin_data["admins"]:
+        raise HTTPException(status_code=404, detail="این مدیر پیدا نشد")
+    admin_data["admins"].remove(user_id)
+    save_admin_data()
+    return {"message": f"مدیر {user_id} حذف شد"}
+
+
+@app.post("/admin/api/bot-state")
+async def set_bot_state(payload: BotStatePayload, _: str = Depends(require_admin)):
+    global bot_enabled
+    bot_enabled = payload.enabled
+    admin_data["bot_enabled"] = bot_enabled
+    save_admin_data()
+    return {"message": "ربات روشن شد" if bot_enabled else "ربات خاموش شد"}
+
+
+@app.post("/admin/api/broadcast")
+async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
+    if not bot:
+        raise HTTPException(status_code=503, detail="اتصال ربات تلگرام فعال نیست")
+    sent = failed = 0
+    for user_id in list(admin_data.get("users", [])):
+        try:
+            await bot.send_message(user_id, payload.text)
+            sent += 1
+        except Exception as exc:
+            failed += 1
+            log.warning("Broadcast failed for user %s: %s", user_id, type(exc).__name__)
+        await asyncio.sleep(0.04)
+    return {"sent": sent, "failed": failed}
+
+
+@app.post("/admin/api/prompt")
+async def update_prompt(payload: PromptPayload, _: str = Depends(require_admin)):
+    global SYSTEM_PROMPT
+    SYSTEM_PROMPT = payload.prompt.strip()
+    admin_data["system_prompt"] = SYSTEM_PROMPT
+    save_admin_data()
+    return {"message": "دستورالعمل هوش مصنوعی ذخیره شد"}
 
 
 @app.get("/health")
