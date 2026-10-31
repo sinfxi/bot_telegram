@@ -331,7 +331,8 @@ class ChatPayload(BaseModel):
 
 
 ADMIN_PANEL_HTML = (Path(__file__).parent / "static" / "admin.html").read_text(encoding="utf-8")
-REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=15)
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=15, sock_read=60)
+HTTP_SESSION: aiohttp.ClientSession | None = None
 
 # Provider credentials and model names are configured in Render Environment.
 PROVIDERS = {
@@ -633,12 +634,24 @@ async def reset_chat(message: Message):
 
 
 async def post_json(url: str, headers: dict, payload: dict) -> tuple[int, dict]:
-    async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
+    """POST JSON using the shared connection pool when the app is running."""
+    async def _send(session: aiohttp.ClientSession) -> tuple[int, dict]:
         async with session.post(url, headers=headers, json=payload) as response:
-            data = await response.json(content_type=None)
+            try:
+                data = await response.json(content_type=None)
+            except (aiohttp.ContentTypeError, ValueError):
+                data = {"raw": (await response.text())[:2000]}
             if not isinstance(data, dict):
-                data = {"raw": str(data)}
+                data = {"raw": str(data)[:2000]}
             return response.status, data
+
+    session = HTTP_SESSION
+    if session is not None and not session.closed:
+        return await _send(session)
+
+    # Useful for isolated tests or calls made outside the FastAPI lifespan.
+    async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as temporary_session:
+        return await _send(temporary_session)
 
 
 def api_error(provider_id: str, status: int, data: dict) -> str:
@@ -877,7 +890,7 @@ async def chat(message: Message):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot, polling_task, DATABASE_READY
+    global bot, polling_task, DATABASE_READY, HTTP_SESSION
     if DATABASE_URL:
         try:
             await asyncio.to_thread(_initialize_chat_storage_sync)
@@ -889,6 +902,14 @@ async def lifespan(app: FastAPI):
     else:
         DATABASE_READY = False
         log.warning("DATABASE_URL is not configured; chat history is memory-only")
+
+    # Reuse keep-alive connections for all AI/OCR API calls instead of creating
+    # a fresh TCP/TLS connection for every request.
+    HTTP_SESSION = aiohttp.ClientSession(
+        timeout=REQUEST_TIMEOUT,
+        connector=aiohttp.TCPConnector(limit=50, limit_per_host=10,
+                                       ttl_dns_cache=300, enable_cleanup_closed=True),
+    )
     if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
@@ -909,6 +930,9 @@ async def lifespan(app: FastAPI):
             log.exception("Error stopping Telegram polling")
     if bot:
         await bot.session.close()
+    if HTTP_SESSION and not HTTP_SESSION.closed:
+        await HTTP_SESSION.close()
+    HTTP_SESSION = None
 
 
 app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
