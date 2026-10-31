@@ -91,7 +91,11 @@ polling_task = None
 
 
 def provider_ready(provider: str) -> bool:
-    return provider in PROVIDERS and bool(PROVIDERS[provider]["key"])
+    if provider not in PROVIDERS or not PROVIDERS[provider]["key"]:
+        return False
+    if provider == "cloudflare":
+        return bool(PROVIDERS[provider].get("account_id"))
+    return True
 
 
 def provider_keyboard() -> InlineKeyboardMarkup:
