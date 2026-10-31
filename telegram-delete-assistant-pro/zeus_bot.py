@@ -46,25 +46,81 @@ ADMIN_IDS = {int(value) for value in os.getenv("ADMIN_IDS", "").replace(" ", "")
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
 ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
 ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 admin_security = HTTPBasic()
 admin_data_lock = asyncio.Lock()
 bot_enabled = True
 
 
+def _db_connect():
+    if not DATABASE_URL:
+        return None
+    import psycopg
+    return psycopg.connect(DATABASE_URL, connect_timeout=8)
+
+
+def _ensure_db_table(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fxi_bot_state (
+                id SMALLINT PRIMARY KEY CHECK (id = 1),
+                data JSONB NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+    conn.commit()
+
+
 def load_admin_data() -> dict:
+    defaults = {"admins": [], "users": [], "bot_enabled": True,
+                "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": []}
+    if DATABASE_URL:
+        try:
+            with _db_connect() as conn:
+                _ensure_db_table(conn)
+                with conn.cursor() as cur:
+                    cur.execute("SELECT data FROM fxi_bot_state WHERE id = 1")
+                    row = cur.fetchone()
+                if row and isinstance(row[0], dict):
+                    data = row[0]
+                    for key, value in defaults.items():
+                        data.setdefault(key, value)
+                    log.info("Loaded FXI bot state from PostgreSQL")
+                    return data
+        except Exception:
+            log.exception("PostgreSQL load failed; falling back to local JSON")
     try:
         data = json.loads(ADMIN_DATA_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
-            data.setdefault("admins", [])
-            data.setdefault("users", [])
-            data.setdefault("bot_enabled", True)
-            data.setdefault("payments", {})
-            data.setdefault("receipt_hashes", [])
-            data.setdefault("system_prompt", SYSTEM_PROMPT)
+            for key, value in defaults.items():
+                data.setdefault(key, value)
             return data
     except (OSError, json.JSONDecodeError):
         pass
-    return {"admins": [], "users": [], "bot_enabled": True, "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": []}
+    return defaults
+
+
+def save_admin_data() -> None:
+    if DATABASE_URL:
+        try:
+            with _db_connect() as conn:
+                _ensure_db_table(conn)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO fxi_bot_state (id, data, updated_at)
+                           VALUES (1, %s, NOW())
+                           ON CONFLICT (id) DO UPDATE
+                           SET data = EXCLUDED.data, updated_at = NOW()""",
+                        (json.dumps(admin_data, ensure_ascii=False),),
+                    )
+                conn.commit()
+            return
+        except Exception:
+            log.exception("PostgreSQL save failed; writing local fallback")
+    ADMIN_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = ADMIN_DATA_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(admin_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_file.replace(ADMIN_DATA_FILE)
 
 
 admin_data = load_admin_data()
