@@ -636,14 +636,21 @@ async def reset_chat(message: Message):
 async def post_json(url: str, headers: dict, payload: dict) -> tuple[int, dict]:
     """POST JSON using the shared connection pool when the app is running."""
     async def _send(session: aiohttp.ClientSession) -> tuple[int, dict]:
-        async with session.post(url, headers=headers, json=payload) as response:
-            try:
-                data = await response.json(content_type=None)
-            except (aiohttp.ContentTypeError, ValueError):
-                data = {"raw": (await response.text())[:2000]}
-            if not isinstance(data, dict):
-                data = {"raw": str(data)[:2000]}
-            return response.status, data
+        retryable_statuses = {429, 500, 502, 503, 504}
+        for attempt in range(3):
+            async with session.post(url, headers=headers, json=payload) as response:
+                try:
+                    data = await response.json(content_type=None)
+                except (aiohttp.ContentTypeError, ValueError):
+                    data = {"raw": (await response.text())[:2000]}
+                if not isinstance(data, dict):
+                    data = {"raw": str(data)[:2000]}
+                if response.status not in retryable_statuses or attempt == 2:
+                    return response.status, data
+                log.warning("Temporary HTTP %s from %s; retry %s/2",
+                            response.status, url.split("/")[2], attempt + 1)
+            await asyncio.sleep(0.6 * (2 ** attempt))
+        return 599, {"error": {"message": "Temporary provider failure after retries"}}
 
     session = HTTP_SESSION
     if session is not None and not session.closed:
@@ -657,18 +664,39 @@ async def post_json(url: str, headers: dict, payload: dict) -> tuple[int, dict]:
 def api_error(provider_id: str, status: int, data: dict) -> str:
     error = data.get("error", {})
     if isinstance(error, dict):
-        detail = str(error.get("message") or error.get("type") or "")
+        detail = str(error.get("message") or error.get("type") or error.get("code") or "")
     else:
-        detail = str(error or "")
+        detail = str(error or data.get("message") or data.get("raw") or "")
+    detail_lower = detail.lower()
     log.error("%s API returned HTTP %s: %s", provider_id, status, detail[:300])
-    if status in (401, 403):
-        return f"⚠️ کلید یا دسترسی {PROVIDERS[provider_id]['label']} معتبر نیست؛ مدیر باید تنظیمات API را بررسی کند."
-    if status == 429:
-        return f"⏳ محدودیت درخواست یا سهمیهٔ {PROVIDERS[provider_id]['label']} پر شده؛ کمی بعد دوباره تلاش کن."
-    if status >= 500:
-        return f"⚠️ سرویس {PROVIDERS[provider_id]['label']} فعلاً مشکل دارد (کد {status}). کمی بعد دوباره تلاش کن."
-    return f"⚠️ درخواست به {PROVIDERS[provider_id]['label']} ناموفق بود (کد {status}). مدل یا تنظیمات API را بررسی کن."
 
+    # Some providers (notably Anthropic) return billing errors with HTTP 400,
+    # so classify by the response message before relying on status alone.
+    if any(term in detail_lower for term in (
+        "credit balance is too low", "insufficient balance", "no credits remaining",
+        "billing", "purchase credits", "quota exceeded",
+    )):
+        return (f"💳 اعتبار یا سهمیهٔ {PROVIDERS[provider_id]['label']} تمام شده است. "
+                "این خطا با تغییر کد حل نمی‌شود؛ مدیر باید اعتبار همان سرویس را شارژ کند "
+                "یا از /ai یک سرویس دارای اعتبار انتخاب شود.")
+    if any(term in detail_lower for term in (
+        "incorrect api key", "invalid api key", "invalid x-api-key", "authentication",
+        "unauthorized", "api key not valid",
+    )) or status in (401, 403):
+        return f"🔑 کلید API یا دسترسی {PROVIDERS[provider_id]['label']} معتبر نیست؛ مدیر باید کلید همان سرویس را در Render اصلاح کند."
+    if any(term in detail_lower for term in (
+        "model does not exist", "model_not_found", "unknown model", "model is not available",
+    )) or status == 404:
+        return (f"🧩 مدل تنظیم‌شده برای {PROVIDERS[provider_id]['label']} در دسترس نیست. "
+                "مدیر باید مقدار متغیر مدل را در Render به یک مدل پشتیبانی‌شده تغییر دهد.")
+    if status == 429:
+        return f"⏳ محدودیت درخواست {PROVIDERS[provider_id]['label']} فعال شده؛ چند لحظه بعد دوباره تلاش کن."
+    if status >= 500:
+        return f"🌐 سرویس {PROVIDERS[provider_id]['label']} موقتاً پاسخ‌گو نیست (HTTP {status}). کمی بعد دوباره تلاش کن."
+    if status == 400:
+        return (f"⚠️ {PROVIDERS[provider_id]['label']} درخواست را رد کرد (HTTP 400). "
+                "جزئیات فنی ثبت شد؛ مدیر باید مدل، اعتبار حساب و پارامترهای درخواست را بررسی کند.")
+    return f"⚠️ درخواست به {PROVIDERS[provider_id]['label']} ناموفق بود (HTTP {status}). جزئیات فنی در لاگ سرور ثبت شد."
 
 async def ask_openai(history: list, user_text: str) -> tuple[int, dict]:
     input_messages = []
