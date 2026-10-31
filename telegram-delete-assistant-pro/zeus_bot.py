@@ -6,6 +6,8 @@ import secrets
 import io
 import base64
 import hashlib
+import hmac
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
@@ -19,7 +21,9 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi import Request
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from pydantic import BaseModel, Field
 
 logging.basicConfig(
@@ -45,6 +49,9 @@ pending_receipts = set()
 ADMIN_IDS = {int(value) for value in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if value.isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
 ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
+SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") if BOT_TOKEN else None
+STATIC_DIR = Path(__file__).parent / "static"
 ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 admin_security = HTTPBasic()
@@ -130,15 +137,34 @@ for _admin_id in ADMIN_IDS:
 bot_enabled = bool(admin_data.get("bot_enabled", True))
 
 
-def save_admin_data() -> None:
-    ADMIN_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = ADMIN_DATA_FILE.with_suffix(".tmp")
-    temp_file.write_text(json.dumps(admin_data, ensure_ascii=False, indent=2), encoding="utf-8")
-    temp_file.replace(ADMIN_DATA_FILE)
-
-
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS or user_id in admin_data.get("admins", [])
+
+
+def verify_telegram_login(payload: TelegramAuthPayload) -> bool:
+    if not BOT_TOKEN:
+        return False
+    values = payload.model_dump(exclude={"hash"}, exclude_none=True)
+    check_string = "\n".join(f"{key}={values[key]}" for key in sorted(values))
+    secret_key = hashlib.sha256(BOT_TOKEN.encode("utf-8")).digest()
+    expected = hmac.new(secret_key, check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, payload.hash):
+        return False
+    now = int(time.time())
+    return payload.auth_date <= now + 60 and now - payload.auth_date <= 86400
+
+
+def get_web_user(request: Request) -> dict:
+    token = request.cookies.get("fxi_session", "")
+    if not token or not SESSION_SERIALIZER:
+        raise HTTPException(status_code=401, detail="برای ادامه ابتدا با تلگرام وارد شو.")
+    try:
+        user = SESSION_SERIALIZER.loads(token, max_age=7 * 24 * 60 * 60)
+        if not isinstance(user, dict) or not user.get("id"):
+            raise BadSignature("invalid session")
+        return user
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status_code=401, detail="نشست شما منقضی شده؛ دوباره وارد شو.")
 
 
 def remember_user(user_id: int) -> None:
@@ -178,18 +204,25 @@ class PromptPayload(BaseModel):
     prompt: str = Field(min_length=10, max_length=8000)
 
 
-ADMIN_PANEL_HTML = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FXI Admin</title><style>
-:root{color-scheme:dark;font-family:Tahoma,Arial}*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#edf2ff}.wrap{max-width:1050px;margin:36px auto;padding:18px}.head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.muted{color:#9aa8c7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:22px 0}.card{background:#141d33;border:1px solid #263552;border-radius:16px;padding:18px}.num{font-size:30px;font-weight:bold;margin-top:10px}.section{margin-top:16px}.row{display:flex;gap:10px;flex-wrap:wrap}input,textarea{width:100%;background:#0c1427;border:1px solid #344767;border-radius:10px;padding:12px;color:white;margin:8px 0}textarea{min-height:100px}button{border:0;border-radius:10px;padding:11px 16px;background:#8bb7ff;color:#071226;font-weight:bold;cursor:pointer;margin:5px 0}button.danger{background:#ff9a9a}.status{padding:10px;border-radius:10px;background:#0c1427;margin:10px 0}.pill{display:inline-block;padding:6px 10px;border-radius:99px;background:#203b37;color:#9ef0c7}#admins{line-height:2;overflow-wrap:anywhere}</style></head><body><main class="wrap"><div class="head"><div><h1>پنل مدیریت FXI</h1><div class="muted">مدیریت ربات، کاربران و پیام‌های همگانی</div></div><button onclick="refresh()">به‌روزرسانی اطلاعات</button></div><div id="notice" class="status">در حال دریافت اطلاعات…</div><div class="grid"><div class="card">وضعیت ربات<div id="bot" class="num">—</div><button id="toggle" onclick="toggleBot()">تغییر وضعیت</button></div><div class="card">تعداد کاربران<div id="users" class="num">—</div></div><div class="card">مدیران<div id="adminsCount" class="num">—</div></div><div class="card">سرویس‌های AI فعال<div id="providers" class="num">—</div></div></div><section class="card section"><h2>📣 پیام همگانی</h2><p class="muted">پیام برای تمام کاربرانی که حداقل یک‌بار ربات را شروع کرده‌اند ارسال می‌شود.</p><textarea id="broadcast" placeholder="متن پیام همگانی…"></textarea><button onclick="broadcast()">ارسال پیام همگانی</button><div id="broadcastResult" class="muted"></div></section><section class="card section"><h2>👮 مدیریت مدیران</h2><div class="row"><div style="flex:1;min-width:220px"><input id="adminId" type="number" placeholder="Telegram User ID"><button onclick="addAdmin()">افزودن مدیر</button></div></div><div id="admins" class="muted"></div><p class="muted">مدیر اصلی از متغیر ADMIN_IDS حذف نمی‌شود.</p></section><section class="card section"><h2>🧠 تنظیمات دستیار</h2><textarea id="prompt" placeholder="دستورالعمل اصلی هوش مصنوعی"></textarea><button onclick="savePrompt()">ذخیره دستورالعمل</button></section></main><script>
-async function api(path,method='GET',body){let r=await fetch('/admin/api/'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});let d=await r.json();if(!r.ok)throw Error(d.detail||'خطا');return d}
-function note(t){document.getElementById('notice').textContent=t}
-async function refresh(){try{let d=await api('status');document.getElementById('bot').textContent=d.bot_enabled?'روشن':'خاموش';document.getElementById('users').textContent=d.users_count;document.getElementById('adminsCount').textContent=d.admins.length;document.getElementById('providers').textContent=d.providers.join('، ')||'هیچ‌کدام';document.getElementById('admins').innerHTML='';d.admins.forEach(id=>{let row=document.createElement('div');row.className='row';let label=document.createElement('span');label.textContent='شناسه: '+id;row.appendChild(label);if(!false){};let btn=document.createElement('button');btn.className='danger';btn.textContent='حذف مدیر';btn.onclick=()=>removeAdmin(id);row.appendChild(btn);document.getElementById('admins').appendChild(row)});document.getElementById('prompt').value=d.system_prompt;note('اطلاعات با موفقیت دریافت شد')}catch(e){note(e.message)}}
-async function toggleBot(){try{let d=await api('bot-state','POST',{enabled:document.getElementById('bot').textContent==='خاموش'});note(d.message);refresh()}catch(e){note(e.message)}}
-async function addAdmin(){try{let id=Number(document.getElementById('adminId').value);if(!id)throw Error('شناسه معتبر وارد کن');let d=await api('admins','POST',{user_id:id});note(d.message);document.getElementById('adminId').value='';refresh()}catch(e){note(e.message)}}
-async function removeAdmin(id){if(!confirm('مدیر '+id+' حذف شود؟'))return;try{let d=await api('admins/'+id,'DELETE');note(d.message);refresh()}catch(e){note(e.message)}}
-async function broadcast(){let t=document.getElementById('broadcast').value.trim();if(!t)return note('متن پیام را وارد کن');if(!confirm('پیام برای همه کاربران ارسال شود؟'))return;try{let d=await api('broadcast','POST',{text:t});document.getElementById('broadcastResult').textContent='ارسال: '+d.sent+' | ناموفق: '+d.failed;note('عملیات پیام همگانی تمام شد')}catch(e){note(e.message)}}
-async function savePrompt(){try{let d=await api('prompt','POST',{prompt:document.getElementById('prompt').value});note(d.message)}catch(e){note(e.message)}}
-refresh();
-</script></body></html>"""
+class TelegramAuthPayload(BaseModel):
+    id: int
+    auth_date: int
+    hash: str
+    first_name: str | None = None
+    last_name: str | None = None
+    username: str | None = None
+    photo_url: str | None = None
+
+
+class ProviderPayload(BaseModel):
+    provider_id: str
+
+
+class ChatPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+
+
+ADMIN_PANEL_HTML = (Path(__file__).parent / "static" / "admin.html").read_text(encoding="utf-8")
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=15)
 
 # Provider credentials and model names are configured in Render Environment.
@@ -732,19 +765,90 @@ async def lifespan(app: FastAPI):
         await bot.session.close()
 
 
-app = FastAPI(title="FXI Multi-AI Chat Bot", version="5.0.0", lifespan=lifespan)
+app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
+
+
+@app.post("/auth/telegram")
+async def telegram_web_login(payload: TelegramAuthPayload):
+    if not verify_telegram_login(payload):
+        raise HTTPException(status_code=401, detail="ورود تلگرام معتبر نیست یا منقضی شده است.")
+    user = {
+        "id": payload.id,
+        "first_name": payload.first_name or "",
+        "last_name": payload.last_name or "",
+        "username": payload.username or "",
+        "photo_url": payload.photo_url or "",
+    }
+    remember_user(payload.id)
+    token = SESSION_SERIALIZER.dumps(user)
+    result = JSONResponse({"ok": True, "user": user})
+    result.set_cookie("fxi_session", token, max_age=7 * 24 * 60 * 60,
+                      httponly=True, secure=True, samesite="lax", path="/")
+    return result
+
+
+@app.post("/auth/logout")
+async def web_logout():
+    result = JSONResponse({"ok": True})
+    result.delete_cookie("fxi_session", path="/")
+    return result
+
+
+@app.get("/api/me")
+async def web_me(user: dict = Depends(get_web_user)):
+    user_id = int(user["id"])
+    selected = selected_provider[user_id]
+    return {
+        **user,
+        "selected_provider": selected,
+        "providers": [{"id": name, "label": config["label"], "ready": provider_ready(name)}
+                      for name, config in PROVIDERS.items()],
+    }
+
+
+@app.post("/api/provider")
+async def web_select_provider(payload: ProviderPayload, user: dict = Depends(get_web_user)):
+    provider_id = payload.provider_id
+    if provider_id not in PROVIDERS:
+        raise HTTPException(status_code=404, detail="این سرویس شناخته‌شده نیست.")
+    if not provider_ready(provider_id):
+        raise HTTPException(status_code=409, detail="این سرویس هنوز توسط مدیر پیکربندی نشده است.")
+    selected_provider[int(user["id"])] = provider_id
+    return {"selected_provider": provider_id, "label": PROVIDERS[provider_id]["label"]}
+
+
+@app.get("/api/history")
+async def web_history(user: dict = Depends(get_web_user)):
+    user_id = int(user["id"])
+    provider_id = selected_provider[user_id]
+    return {"provider_id": provider_id, "messages": histories[(user_id, provider_id)][-40:]}
+
+
+@app.post("/api/reset")
+async def web_reset(user: dict = Depends(get_web_user)):
+    user_id = int(user["id"])
+    provider_id = selected_provider[user_id]
+    histories[(user_id, provider_id)].clear()
+    return {"ok": True}
+
+
+@app.post("/api/chat")
+async def web_chat(payload: ChatPayload, user: dict = Depends(get_web_user)):
+    if not bot_enabled:
+        raise HTTPException(status_code=503, detail="ربات موقتاً غیرفعال است.")
+    user_id = int(user["id"])
+    provider_id = selected_provider[user_id]
+    if not provider_ready(provider_id):
+        raise HTTPException(status_code=409, detail="مدل فعلی فعال نیست؛ یک مدل آماده انتخاب کن.")
+    answer = await ask_ai(user_id, provider_id, payload.message.strip())
+    return {"answer": answer, "provider_id": provider_id,
+            "provider_label": PROVIDERS[provider_id]["label"]}
 
 
 @app.get("/")
-async def root():
-    configured = [name for name in PROVIDERS if provider_ready(name)]
-    return {
-        "service": "fxi-multi-ai-chat-bot",
-        "status": "ok",
-        "telegram_configured": bool(BOT_TOKEN),
-        "ai_configured": bool(configured),
-        "configured_providers": configured,
-    }
+@app.get("/app")
+async def user_web_app():
+    return FileResponse(STATIC_DIR / "user.html")
 
 
 
@@ -760,6 +864,8 @@ async def admin_status(_: str = Depends(require_admin)):
         "bot_enabled": bot_enabled,
         "users_count": len(admin_data.get("users", [])),
         "admins": sorted(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
+        "primary_admins": sorted(ADMIN_IDS),
+        "recent_users": admin_data.get("users", [])[-50:],
         "providers": [name for name in PROVIDERS if provider_ready(name)],
         "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT),
     }
