@@ -3,6 +3,10 @@ import logging
 import os
 import json
 import secrets
+import io
+import base64
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 from collections import defaultdict
 
@@ -34,6 +38,10 @@ SYSTEM_PROMPT = os.getenv(
 )
 MAX_HISTORY_MESSAGES = 16
 MAX_MESSAGE_CHARS = 12000
+SUPPORT_CARD = '5859831211613988'
+SUPPORT_CARDHOLDER = 'سینا نوبخت'
+ADMIN_REQUEST_MIN_TOMAN = 100_000
+pending_receipts = set()
 ADMIN_IDS = {int(value) for value in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if value.isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
 ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
@@ -50,11 +58,13 @@ def load_admin_data() -> dict:
             data.setdefault("admins", [])
             data.setdefault("users", [])
             data.setdefault("bot_enabled", True)
+            data.setdefault("payments", {})
+            data.setdefault("receipt_hashes", [])
             data.setdefault("system_prompt", SYSTEM_PROMPT)
             return data
     except (OSError, json.JSONDecodeError):
         pass
-    return {"admins": [], "users": [], "bot_enabled": True, "system_prompt": SYSTEM_PROMPT}
+    return {"admins": [], "users": [], "bot_enabled": True, "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": []}
 
 
 admin_data = load_admin_data()
@@ -202,6 +212,7 @@ def provider_keyboard() -> InlineKeyboardMarkup:
             callback_data=f"provider:{provider_id}",
         )])
     rows.append([InlineKeyboardButton(text="ℹ️ وضعیت سرویس‌ها", callback_data="providers:status")])
+    rows.append([InlineKeyboardButton(text="❤️ حمایت / درخواست ادمینی", callback_data="support:start")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -283,6 +294,98 @@ async def providers_status(callback: CallbackQuery):
     await callback.answer()
 
 
+async def analyze_receipt_image(image_bytes: bytes, mime_type: str) -> dict:
+    if not provider_ready("gemini"):
+        raise RuntimeError("برای تحلیل رسید باید GEMINI_API_KEY تنظیم شده باشد.")
+    prompt = ("از تصویر رسید مبلغ را استخراج کن. مبلغ را به تومان برگردان؛ اگر مبلغ ریالی است بر ۱۰ تقسیم کن. "
+              "اگر مبلغ یا واحد پول نامشخص است amount_toman را null بگذار. فقط JSON معتبر با کلیدهای "
+              "amount_toman عدد یا null، transaction_reference رشته یا null، confidence عدد بین صفر و یک، "
+              "currency_seen رشته و notes رشته برگردان. این فقط OCR است و اعتبار پرداخت را تأیید نمی‌کند.")
+    payload = {"contents":[{"role":"user","parts":[{"text":prompt},{"inline_data":{"mime_type":mime_type,"data":base64.b64encode(image_bytes).decode("ascii")}}]}],
+               "generationConfig":{"temperature":0,"maxOutputTokens":350}}
+    status, data = await post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{PROVIDERS['gemini']['model']}:generateContent",
+        {"x-goog-api-key":PROVIDERS["gemini"]["key"],"Content-Type":"application/json"}, payload)
+    if status >= 400: raise RuntimeError(f"خطای تحلیل تصویر: HTTP {status}")
+    candidates=data.get("candidates") or []; parts=((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+    raw="\n".join(p.get("text","") for p in parts if p.get("text")).strip()
+    raw=raw.replace("```json","").replace("```","").strip()
+    try: result=json.loads(raw)
+    except (json.JSONDecodeError, TypeError) as exc: raise RuntimeError("مبلغ از تصویر قابل استخراج نیست.") from exc
+    amount=result.get("amount_toman")
+    result["amount_toman"]=int(amount) if isinstance(amount,(int,float)) and not isinstance(amount,bool) and amount>0 else None
+    try: result["confidence"]=max(0.0,min(1.0,float(result.get("confidence") or 0)))
+    except (TypeError,ValueError): result["confidence"]=0.0
+    return result
+
+def payment_review_keyboard(pid: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ تأیید و ادمین کردن",callback_data=f"pay:approve:{pid}"),InlineKeyboardButton(text="❌ رد درخواست",callback_data=f"pay:reject:{pid}")]])
+
+@dp.message(Command("support"))
+async def support_command(message: Message):
+    if message.from_user: pending_receipts.add(message.from_user.id)
+    await message.answer(f"❤️ حمایت از FXI و درخواست ادمینی\n\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\n\nحداقل مبلغ برای درخواست ادمینی: ۱۰۰٬۰۰۰ تومان. پس از واریز تصویر رسید را همین‌جا بفرست. تحلیل تصویر تأیید نهایی پرداخت نیست.")
+
+@dp.callback_query(F.data == "support:start")
+async def support_callback(callback: CallbackQuery):
+    if callback.from_user: pending_receipts.add(callback.from_user.id)
+    await callback.answer()
+    if callback.message: await callback.message.answer(f"❤️ حمایت از FXI / درخواست ادمینی\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\nحداقل مبلغ: ۱۰۰٬۰۰۰ تومان\nپس از واریز، تصویر رسید را ارسال کن. تأیید نهایی با ادمین اصلی است.")
+
+@dp.message(F.photo)
+async def receive_payment_receipt(message: Message):
+    if not message.from_user or not bot: return
+    uid=message.from_user.id
+    if uid not in pending_receipts:
+        await message.answer("برای ارسال رسید ابتدا /support را بزن.")
+        return
+    pending_receipts.discard(uid)
+    try:
+        buff=io.BytesIO(); await bot.download(message.photo[-1].file_id,destination=buff); raw=buff.getvalue()
+        digest=hashlib.sha256(raw).hexdigest()
+        if digest in admin_data.get("receipt_hashes",[]):
+            await message.answer("این تصویر رسید قبلاً ارسال شده است."); return
+        await message.answer("🔎 رسید دریافت شد؛ در حال استخراج مبلغ…")
+        info=await analyze_receipt_image(raw,message.photo[-1].mime_type or "image/jpeg")
+        amount=info.get("amount_toman")
+        if not amount:
+            await message.answer("مبلغ از تصویر واضح نیست. لطفاً تصویر کامل‌تر و واضح‌تری بفرست و دوباره /support را بزن."); return
+        if amount < ADMIN_REQUEST_MIN_TOMAN:
+            await message.answer(f"مبلغ خوانده‌شده {amount:,} تومان است و به حداقل ۱۰۰٬۰۰۰ تومان نمی‌رسد. اگر اشتباه خوانده شده، تصویر واضح‌تری ارسال کن."); return
+        pid=secrets.token_hex(5)
+        record={"user_id":uid,"username":message.from_user.username,"full_name":message.from_user.full_name,"amount_toman":amount,"analysis":info,"receipt_hash":digest,"status":"pending_review","created_at":datetime.now(timezone.utc).isoformat()}
+        admin_data.setdefault("payments",{})[pid]=record; admin_data.setdefault("receipt_hashes",[]).append(digest); save_admin_data()
+        await message.answer("✅ مبلغ حداقل ۱۰۰ هزار تومان از تصویر خوانده شد. درخواستت برای بررسی ادمین اصلی ارسال شد؛ هنوز دسترسی ادمینی فعال نشده است.")
+        caption=(f"🧾 درخواست حمایت / ادمینی\nکد: {pid}\nکاربر: {record['full_name']} (@{record['username'] or 'ندارد'})\nشناسه: {uid}\nمبلغ OCR: {amount:,} تومان\nاطمینان OCR: {info.get('confidence',0):.0%}\nشناسه تراکنش: {info.get('transaction_reference') or 'نامشخص'}\n\nلطفاً واریز را در حساب بررسی کنید. آیا اجازه ادمینی می‌دهید؟")
+        for aid in sorted(set(ADMIN_IDS)|set(admin_data.get("admins",[]))):
+            try: await bot.send_photo(aid,message.photo[-1].file_id,caption=caption,reply_markup=payment_review_keyboard(pid))
+            except Exception: log.exception("Could not send receipt to admin %s",aid)
+    except Exception:
+        log.exception("Receipt processing failed")
+        await message.answer("⚠️ تحلیل رسید ناموفق بود. بعداً دوباره تلاش کن.")
+
+@dp.callback_query(F.data.startswith("pay:"))
+async def review_payment(callback: CallbackQuery):
+    if not callback.from_user or not is_admin(callback.from_user.id):
+        await callback.answer("فقط ادمین می‌تواند بررسی کند.",show_alert=True); return
+    try: _,action,pid=callback.data.split(":",2)
+    except ValueError: await callback.answer("درخواست نامعتبر است.",show_alert=True); return
+    payment=admin_data.get("payments",{}).get(pid)
+    if not payment or payment.get("status")!="pending_review":
+        await callback.answer("این درخواست وجود ندارد یا قبلاً بررسی شده.",show_alert=True); return
+    uid=int(payment["user_id"]); payment["reviewed_by"]=callback.from_user.id; payment["reviewed_at"]=datetime.now(timezone.utc).isoformat()
+    if action=="approve":
+        if uid not in admin_data.setdefault("admins",[]): admin_data["admins"].append(uid)
+        payment["status"]="approved_admin"; save_admin_data(); await callback.answer("تأیید شد؛ کاربر ادمین شد.")
+        if bot: await bot.send_message(uid,"🌹 حمایتت پس از بررسی ادمین اصلی تأیید شد و دسترسی ادمینی برایت فعال شد. خوش اومدی به تیم FXI! ❤️")
+        if callback.message: await callback.message.edit_reply_markup(reply_markup=None); await callback.message.answer(f"✅ درخواست {pid} تأیید شد؛ کاربر ادمین شد.")
+    elif action=="reject":
+        payment["status"]="rejected"; save_admin_data(); await callback.answer("درخواست رد شد.")
+        if bot:
+            try: await bot.send_message(uid,"سلام دوست عزیز 🌹\n\nاز حمایت ارزشمندت واقعاً ممنونیم. ❤️\nدرخواست ادمینی شما بررسی شد، اما متأسفانه در حال حاضر امکان پذیرش آن وجود ندارد. این موضوع از ارزش حمایت و همراهی شما کم نمی‌کند. از اعتمادت سپاسگزاریم. 🙏")
+            except Exception: log.exception("Could not notify rejected user %s",uid)
+        if callback.message: await callback.message.edit_reply_markup(reply_markup=None); await callback.message.answer(f"❌ درخواست {pid} رد شد.")
+    else: await callback.answer("عملیات نامعتبر است.",show_alert=True)
+
 @dp.message(Command("admin"))
 async def admin_command(message: Message):
     if not message.from_user or not is_admin(message.from_user.id):
@@ -303,7 +406,7 @@ async def help_command(message: Message):
         "• پیام متنی بفرست تا هوش مصنوعی انتخاب‌شده پاسخ بدهد.\n"
         "• /ai یا /models — انتخاب هوش مصنوعی\n"
         "• /new — پاک‌کردن سابقهٔ سرویس فعلی\n"
-        "• /help — راهنما\n\n"
+        "• /help — راهنما\n• /support — حمایت و ارسال رسید برای درخواست ادمینی\n\n"
         "تاریخچهٔ هر سرویس برای هر کاربر جدا نگه داشته می‌شود. "
         "ممکن است پاسخ هوش مصنوعی اشتباه باشد؛ اطلاعات مهم را بررسی کن."
     )
