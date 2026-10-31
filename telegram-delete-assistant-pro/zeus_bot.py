@@ -382,6 +382,11 @@ PROVIDERS = {
         "account_id": os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip(),
         "model": os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct").strip(),
     },
+    "local": {
+        "label": "🧠 FXI AI محلی (Ollama)",
+        "key": "local-runtime",
+        "model": os.getenv("FXI_LOCAL_MODEL", "auto").strip(),
+    },
 }
 
 # Runtime state: histories are isolated by both user and provider.
@@ -394,6 +399,8 @@ polling_task = None
 
 
 def provider_ready(provider: str) -> bool:
+    if provider == "local":
+        return os.getenv("FXI_LOCAL_AI_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
     if provider not in PROVIDERS or not PROVIDERS[provider]["key"]:
         return False
     if provider == "cloudflare":
@@ -465,12 +472,13 @@ async def choose_provider(callback: CallbackQuery):
             "mistral": "MISTRAL_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
             "cloudflare": "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID",
+            "local": "FXI_LOCAL_AI_ENABLED=true و اجرای Ollama",
         }[provider_id]
-        await callback.answer("این سرویس هنوز فعال نشده؛ مدیر باید کلید API را در Render تنظیم کند.", show_alert=True)
+        await callback.answer("این سرویس هنوز فعال نشده یا موتور محلی خاموش است.", show_alert=True)
         if callback.message:
             await callback.message.answer(
                 f"🔒 {PROVIDERS[provider_id]['label']} هنوز پیکربندی نشده.\n"
-                f"نام متغیر موردنیاز در Render: {env_name}"
+                f"تنظیم موردنیاز: {env_name}"
             )
         return
     selected_provider[callback.from_user.id] = provider_id
@@ -698,6 +706,56 @@ def api_error(provider_id: str, status: int, data: dict) -> str:
                 "جزئیات فنی ثبت شد؛ مدیر باید مدل، اعتبار حساب و پارامترهای درخواست را بررسی کند.")
     return f"⚠️ درخواست به {PROVIDERS[provider_id]['label']} ناموفق بود (HTTP {status}). جزئیات فنی در لاگ سرور ثبت شد."
 
+async def ask_local(history: list, user_text: str) -> tuple[int, dict]:
+    """Run inference through a local Ollama daemon; no third-party API key is used."""
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    configured_model = os.getenv("FXI_LOCAL_MODEL", "auto").strip()
+    async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
+        try:
+            async with session.get(f"{base_url}/api/tags") as response:
+                tags_data = await response.json(content_type=None)
+                if response.status >= 400:
+                    return response.status, {"error": {"message": "Ollama is not ready"}}
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            log.warning("Local Ollama is unreachable at %s: %s", base_url, exc)
+            return 503, {"error": {"message": "Local Ollama is not running or reachable"}}
+
+        installed = [item.get("name", "") for item in tags_data.get("models", [])]
+        if configured_model.lower() == "auto":
+            priorities = ("qwen3:8b", "qwen3:4b", "qwen2.5:7b", "qwen2.5:3b",
+                          "llama3.2:3b", "qwen2.5:1.5b", "gemma3:4b")
+            model = next((candidate for candidate in priorities
+                          if candidate in installed), installed[0] if installed else "")
+        else:
+            model = configured_model
+
+        if not model or model not in installed:
+            return 503, {"error": {"message":
+                "No local model installed. Install a model with ollama pull qwen3:4b "
+                "or set FXI_LOCAL_MODEL to an installed model."}}
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend({"role": item["role"], "content": item["content"]}
+                        for item in history[-MAX_HISTORY_MESSAGES:])
+        messages.append({"role": "user", "content": user_text})
+        try:
+            async with session.post(f"{base_url}/api/chat", json={
+                "model": model, "messages": messages, "stream": False,
+                "options": {"temperature": 0.7, "num_predict": 1800},
+            }) as response:
+                data = await response.json(content_type=None)
+                if not isinstance(data, dict):
+                    data = {"error": {"message": "Invalid response from Ollama"}}
+                if response.status >= 400:
+                    return response.status, data
+                content = ((data.get("message") or {}).get("content") or "").strip()
+                return 200, {"choices": [{"message": {"content": content}}],
+                             "model": model}
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            log.exception("Local Ollama inference failed")
+            return 503, {"error": {"message": str(exc)}}
+
+
 async def ask_openai(history: list, user_text: str) -> tuple[int, dict]:
     input_messages = []
     for item in history[-MAX_HISTORY_MESSAGES:]:
@@ -839,7 +897,9 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
                 log.exception("Could not load persistent chat history for user=%s", user_id)
                 return "⚠️ بازیابی تاریخچه ناموفق بود؛ پیام ارسال نشد تا گفت‌وگو ناقص نشود."
         try:
-            if provider_id == "openai":
+            if provider_id == "local":
+                status, data = await ask_local(history, user_text)
+            elif provider_id == "openai":
                 status, data = await ask_openai(history, user_text)
             elif provider_id == "gemini":
                 status, data = await ask_gemini(history, user_text)
@@ -946,7 +1006,11 @@ async def lifespan(app: FastAPI):
     else:
         log.error("Telegram bot is inactive: ZEUS_BOT_TOKEN is missing")
     if not any(provider_ready(name) for name in PROVIDERS):
-        log.warning("No AI provider API keys are configured; AI replies are disabled")
+        log.warning("No AI providers are configured; AI replies are disabled")
+    if provider_ready("local"):
+        log.info("FXI local AI enabled; Ollama endpoint=%s model=%s",
+                 os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+                 os.getenv("FXI_LOCAL_MODEL", "auto"))
     yield
     if polling_task:
         polling_task.cancel()
