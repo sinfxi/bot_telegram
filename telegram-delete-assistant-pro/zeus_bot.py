@@ -56,6 +56,7 @@ SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") i
 STATIC_DIR = Path(__file__).parent / "static"
 ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_READY = False
 admin_security = HTTPBasic()
 admin_data_lock = asyncio.Lock()
 bot_enabled = True
@@ -137,28 +138,32 @@ def save_admin_data() -> None:
 CHAT_HISTORY_LIMIT = 500
 
 
-def _ensure_chat_table(conn) -> None:
-    with conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS fxi_chat_messages (
-                id BIGSERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
-                provider_id TEXT NOT NULL,
-                role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-                content TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_fxi_chat_user_provider_id
-            ON fxi_chat_messages (user_id, provider_id, id DESC)
-        """)
-    conn.commit()
+def _initialize_chat_storage_sync() -> None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS fxi_chat_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_fxi_chat_user_provider_id
+                ON fxi_chat_messages (user_id, provider_id, id DESC)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_fxi_chat_user_id
+                ON fxi_chat_messages (user_id, id DESC)
+            """)
+        conn.commit()
 
 
 def _load_chat_history_sync(user_id: int, provider_id: str, limit: int = MAX_HISTORY_MESSAGES) -> list:
     with _db_connect() as conn:
-        _ensure_chat_table(conn)
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT role, content FROM (
@@ -172,7 +177,6 @@ def _load_chat_history_sync(user_id: int, provider_id: str, limit: int = MAX_HIS
 
 def _save_chat_turn_sync(user_id: int, provider_id: str, user_text: str, answer: str) -> None:
     with _db_connect() as conn:
-        _ensure_chat_table(conn)
         with conn.cursor() as cur:
             cur.executemany("""
                 INSERT INTO fxi_chat_messages (user_id, provider_id, role, content)
@@ -186,7 +190,6 @@ def _save_chat_turn_sync(user_id: int, provider_id: str, user_text: str, answer:
 
 def _clear_chat_history_sync(user_id: int, provider_id: str) -> None:
     with _db_connect() as conn:
-        _ensure_chat_table(conn)
         with conn.cursor() as cur:
             cur.execute("DELETE FROM fxi_chat_messages WHERE user_id = %s AND provider_id = %s",
                         (user_id, provider_id))
@@ -195,13 +198,23 @@ def _clear_chat_history_sync(user_id: int, provider_id: str) -> None:
 
 def _admin_conversation_list_sync(limit: int = 100) -> list:
     with _db_connect() as conn:
-        _ensure_chat_table(conn)
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT user_id, COUNT(*) AS message_count, MAX(created_at) AS last_message,
-                       (ARRAY_AGG(content ORDER BY id DESC))[1] AS preview
-                FROM fxi_chat_messages
-                GROUP BY user_id ORDER BY MAX(created_at) DESC LIMIT %s
+                SELECT grouped.user_id, grouped.message_count, grouped.last_message,
+                       latest.content
+                FROM (
+                    SELECT user_id, COUNT(*) AS message_count, MAX(created_at) AS last_message
+                    FROM fxi_chat_messages
+                    GROUP BY user_id
+                    ORDER BY MAX(created_at) DESC
+                    LIMIT %s
+                ) AS grouped
+                LEFT JOIN LATERAL (
+                    SELECT content FROM fxi_chat_messages
+                    WHERE user_id = grouped.user_id
+                    ORDER BY id DESC LIMIT 1
+                ) AS latest ON TRUE
+                ORDER BY grouped.last_message DESC
             """, (limit,))
             return [{"user_id": row[0], "message_count": row[1],
                      "last_message": row[2].isoformat() if row[2] else None,
@@ -211,7 +224,6 @@ def _admin_conversation_list_sync(limit: int = 100) -> list:
 
 def _admin_conversation_sync(user_id: int, limit: int = 100) -> list:
     with _db_connect() as conn:
-        _ensure_chat_table(conn)
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT provider_id, role, content, created_at
@@ -604,7 +616,19 @@ async def reset_chat(message: Message):
     if message.from_user:
         user_id = message.from_user.id
         provider_id = selected_provider[user_id]
-        histories[(user_id, provider_id)].clear()
+        key = (user_id, provider_id)
+        async with history_locks[key]:
+            if DATABASE_URL:
+                if not DATABASE_READY:
+                    await message.answer("⚠️ دیتابیس در دسترس نیست؛ تاریخچه پاک نشد.")
+                    return
+                try:
+                    await asyncio.to_thread(_clear_chat_history_sync, user_id, provider_id)
+                except Exception:
+                    log.exception("Telegram history reset failed for user=%s", user_id)
+                    await message.answer("⚠️ پاک‌کردن تاریخچه از دیتابیس ناموفق بود.")
+                    return
+            histories[key].clear()
     await message.answer("🧹 سابقهٔ گفت‌وگوی سرویس فعلی پاک شد؛ از نو شروع کنیم!")
 
 
@@ -766,10 +790,13 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
     async with history_locks[key]:
         history = histories[key]
         if DATABASE_URL:
+            if not DATABASE_READY:
+                return "⚠️ پایگاه داده در دسترس نیست؛ برای جلوگیری از گم‌شدن تاریخچه، فعلاً پاسخ ارسال نمی‌شود."
             try:
                 history[:] = await asyncio.to_thread(_load_chat_history_sync, user_id, provider_id)
             except Exception:
                 log.exception("Could not load persistent chat history for user=%s", user_id)
+                return "⚠️ بازیابی تاریخچه ناموفق بود؛ پیام ارسال نشد تا گفت‌وگو ناقص نشود."
         try:
             if provider_id == "openai":
                 status, data = await ask_openai(history, user_text)
@@ -797,6 +824,7 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
                     await asyncio.to_thread(_save_chat_turn_sync, user_id, provider_id, user_text, answer)
                 except Exception:
                     log.exception("Could not persist chat turn for user=%s provider=%s", user_id, provider_id)
+                    return "⚠️ پاسخ تولید شد، اما ذخیره تاریخچه در پایگاه داده ناموفق بود؛ برای جلوگیری از ثبت ناقص، پاسخ ارسال نشد."
             history.extend([
                 {"role": "user", "content": user_text},
                 {"role": "assistant", "content": answer},
@@ -849,7 +877,18 @@ async def chat(message: Message):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot, polling_task
+    global bot, polling_task, DATABASE_READY
+    if DATABASE_URL:
+        try:
+            await asyncio.to_thread(_initialize_chat_storage_sync)
+            DATABASE_READY = True
+            log.info("Persistent chat storage is ready")
+        except Exception:
+            DATABASE_READY = False
+            log.exception("Persistent chat storage initialization failed")
+    else:
+        DATABASE_READY = False
+        log.warning("DATABASE_URL is not configured; chat history is memory-only")
     if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
@@ -910,7 +949,7 @@ async def web_me(user: dict = Depends(get_web_user)):
         "selected_provider": selected,
         "providers": [{"id": name, "label": config["label"], "ready": provider_ready(name)}
                       for name, config in PROVIDERS.items()],
-        "history_persistent": bool(DATABASE_URL),
+        "history_persistent": bool(DATABASE_URL and DATABASE_READY),
     }
 
 
@@ -930,13 +969,17 @@ async def web_history(user: dict = Depends(get_web_user)):
     user_id = int(user["id"])
     provider_id = selected_provider[user_id]
     if DATABASE_URL:
-        try:
-            messages = await asyncio.to_thread(_load_chat_history_sync, user_id, provider_id, 40)
-            histories[(user_id, provider_id)][:] = messages[-MAX_HISTORY_MESSAGES:]
-            return {"provider_id": provider_id, "messages": messages}
-        except Exception:
-            log.exception("Persistent history read failed for user=%s", user_id)
-            raise HTTPException(status_code=503, detail="بازیابی تاریخچه از پایگاه داده ممکن نشد.")
+        if not DATABASE_READY:
+            raise HTTPException(status_code=503, detail="پایگاه داده تاریخچه در دسترس نیست.")
+        key = (user_id, provider_id)
+        async with history_locks[key]:
+            try:
+                messages = await asyncio.to_thread(_load_chat_history_sync, user_id, provider_id, 40)
+                histories[key][:] = messages[-MAX_HISTORY_MESSAGES:]
+                return {"provider_id": provider_id, "messages": messages}
+            except Exception:
+                log.exception("Persistent history read failed for user=%s", user_id)
+                raise HTTPException(status_code=503, detail="بازیابی تاریخچه از پایگاه داده ممکن نشد.")
     return {"provider_id": provider_id, "messages": histories[(user_id, provider_id)][-40:]}
 
 
@@ -944,13 +987,17 @@ async def web_history(user: dict = Depends(get_web_user)):
 async def web_reset(user: dict = Depends(get_web_user)):
     user_id = int(user["id"])
     provider_id = selected_provider[user_id]
-    if DATABASE_URL:
-        try:
-            await asyncio.to_thread(_clear_chat_history_sync, user_id, provider_id)
-        except Exception:
-            log.exception("Persistent history reset failed for user=%s", user_id)
-            raise HTTPException(status_code=503, detail="پاک‌کردن تاریخچه از پایگاه داده ممکن نشد.")
-    histories[(user_id, provider_id)].clear()
+    key = (user_id, provider_id)
+    async with history_locks[key]:
+        if DATABASE_URL:
+            if not DATABASE_READY:
+                raise HTTPException(status_code=503, detail="پایگاه داده تاریخچه در دسترس نیست.")
+            try:
+                await asyncio.to_thread(_clear_chat_history_sync, user_id, provider_id)
+            except Exception:
+                log.exception("Persistent history reset failed for user=%s", user_id)
+                raise HTTPException(status_code=503, detail="پاک‌کردن تاریخچه از پایگاه داده ممکن نشد.")
+        histories[key].clear()
     return {"ok": True}
 
 
@@ -996,8 +1043,8 @@ async def admin_status(_: str = Depends(require_admin)):
 
 @app.get("/admin/api/conversations")
 async def admin_conversations(_: str = Depends(require_admin)):
-    if not DATABASE_URL:
-        raise HTTPException(status_code=503, detail="برای مشاهده تاریخچه دائمی، DATABASE_URL را در Render تنظیم کن.")
+    if not DATABASE_URL or not DATABASE_READY:
+        raise HTTPException(status_code=503, detail="پایگاه داده تاریخچه پیکربندی نشده یا در دسترس نیست.")
     try:
         items = await asyncio.to_thread(_admin_conversation_list_sync, 100)
         return {"items": items, "storage": "postgresql"}
@@ -1080,9 +1127,13 @@ async def update_prompt(payload: PromptPayload, _: str = Depends(require_admin))
 async def health():
     configured = [name for name in PROVIDERS if provider_ready(name)]
     healthy_config = bool(BOT_TOKEN and configured)
-    return JSONResponse(status_code=200 if healthy_config else 503, content={
-        "status": "ok" if healthy_config else "needs_configuration",
+    healthy = healthy_config and (not DATABASE_URL or DATABASE_READY)
+    return JSONResponse(status_code=200 if healthy else 503, content={
+        "status": "ok" if healthy else "needs_configuration",
         "telegram_configured": bool(BOT_TOKEN),
         "ai_configured": bool(configured),
+        "database_configured": bool(DATABASE_URL),
+        "database_ready": bool(DATABASE_READY),
+        "history_persistent": bool(DATABASE_URL and DATABASE_READY),
         "configured_providers": configured,
     })
