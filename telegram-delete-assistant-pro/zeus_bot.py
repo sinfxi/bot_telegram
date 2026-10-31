@@ -392,7 +392,7 @@ PROVIDERS = {
 # Runtime state: histories are isolated by both user and provider.
 histories = defaultdict(list)
 history_locks = defaultdict(asyncio.Lock)
-selected_provider = defaultdict(lambda: next((name for name in PROVIDERS if provider_ready(name)), "gemini"))
+selected_provider = defaultdict(lambda: next((name for name in ("local", "groq", "gemini", "openrouter", "cloudflare", "mistral", "deepseek", "claude", "grok", "openai") if provider_ready(name)), "local"))
 bot = None
 dp = Dispatcher()
 polling_task = None
