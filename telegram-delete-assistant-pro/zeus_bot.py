@@ -303,6 +303,7 @@ def provider_keyboard() -> InlineKeyboardMarkup:
             callback_data=f"provider:{provider_id}",
         )])
     rows.append([InlineKeyboardButton(text="ℹ️ وضعیت سرویس‌ها", callback_data="providers:status")])
+    rows.append([InlineKeyboardButton(text="🌐 ورود به پنل وب FXI", url="https://telegram-delete-assistant-pro.onrender.com/app")])
     rows.append([InlineKeyboardButton(text="❤️ حمایت / درخواست ادمینی", callback_data="support:start")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
