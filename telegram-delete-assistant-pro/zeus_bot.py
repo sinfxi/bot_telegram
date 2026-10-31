@@ -181,14 +181,6 @@ def _save_chat_turn_sync(user_id: int, provider_id: str, user_text: str, answer:
                 (user_id, provider_id, "user", user_text),
                 (user_id, provider_id, "assistant", answer),
             ])
-            cur.execute("""
-                DELETE FROM fxi_chat_messages
-                WHERE id IN (
-                    SELECT id FROM fxi_chat_messages
-                    WHERE user_id = %s AND provider_id = %s
-                    ORDER BY id DESC OFFSET %s
-                )
-            """, (user_id, provider_id, CHAT_HISTORY_LIMIT))
         conn.commit()
 
 
