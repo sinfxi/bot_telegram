@@ -496,6 +496,9 @@ FEATURE_DEFINITIONS = {
 
 
 def feature_enabled(feature: str) -> bool:
+    # Speech-to-text has no enabled implementation in the OpenRouter-only build.
+    if feature == "voice_tools":
+        return False
     defaults = {"ai_chat": True, "voice_tools": False, "image_tools": True,
                 "community_management": True, "natural_commands": True,
                 "payments": True, "user_tracking": True}
