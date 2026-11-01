@@ -2390,26 +2390,38 @@ async def admin_payment_action(payment_id: str, action: str, _: str = Depends(re
 
 
 @app.get("/admin/api/metrics")
-async def admin_metrics(_: str = Depends(require_admin)):
+async def admin_metrics(auth=Depends(require_admin)):
+    permissions = set(auth.get("permissions", []))
     users = admin_data.get("users", [])
     payments = list(admin_data.get("payments", {}).values())
-    return {
-        "users_total": len(users),
-        "admins_total": len(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
-        "payments_total": len(payments),
-        "payments_pending": sum(1 for item in payments if item.get("status") == "pending_review"),
-        "payments_approved": sum(1 for item in payments if item.get("status") == "approved_admin"),
-        "payments_rejected": sum(1 for item in payments if item.get("status") == "rejected"),
+    chats = admin_data.get("community", {}).get("chats", {})
+    result = {
         "database_ready": bool(DATABASE_READY),
         "telegram_connected": bool(bot and polling_task and not polling_task.done()),
-        "providers_configured": sum(1 for name in PROVIDERS if provider_ready(name)),
-        "providers_total": len(PROVIDERS),
         "uptime_state": "running" if bot_enabled else "paused",
-        "community_chats": len(admin_data.get("community", {}).get("chats", {})),
-        "community_messages": sum(int(item.get("message_count", 0)) for item in admin_data.get("community", {}).get("chats", {}).values()),
-        "community_members_seen": sum(len(item.get("members_seen", {})) for item in admin_data.get("community", {}).get("chats", {}).values()),
-        "community_top_posts": sum(len(item.get("top_posts", [])) for item in admin_data.get("community", {}).get("chats", {}).values()),
     }
+    if "users" in permissions:
+        result["users_total"] = len(users)
+    if "admins" in permissions:
+        result["admins_total"] = len(set(ADMIN_IDS) | set(admin_data.get("admins", [])))
+    if "payments" in permissions:
+        result.update({
+            "payments_total": len(payments),
+            "payments_pending": sum(1 for item in payments if item.get("status") == "pending_review"),
+            "payments_approved": sum(1 for item in payments if item.get("status") == "approved_admin"),
+            "payments_rejected": sum(1 for item in payments if item.get("status") == "rejected"),
+        })
+    if "providers" in permissions:
+        result["providers_configured"] = sum(1 for name in PROVIDERS if provider_ready(name))
+        result["providers_total"] = len(PROVIDERS)
+    if "community" in permissions:
+        result.update({
+            "community_chats": len(chats),
+            "community_messages": sum(int(item.get("message_count", 0)) for item in chats.values()),
+            "community_members_seen": sum(len(item.get("members_seen", {})) for item in chats.values()),
+            "community_top_posts": sum(len(item.get("top_posts", [])) for item in chats.values()),
+        })
+    return result
 
 @app.get("/health")
 async def health():
