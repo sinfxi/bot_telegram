@@ -97,7 +97,10 @@ def _ensure_db_table(conn) -> None:
 def load_admin_data() -> dict:
     defaults = {"admins": [], "users": [], "bot_enabled": True,
                 "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": [],
-                "admin_permissions": {}, "admin_invites": {}}
+                "admin_permissions": {}, "admin_invites": {},
+                "features": {"ai_chat": True, "voice_tools": False, "image_tools": True,
+                             "community_management": True, "natural_commands": True,
+                             "payments": True, "user_tracking": True}}
     if DATABASE_URL:
         try:
             with _db_connect() as conn:
@@ -460,94 +463,43 @@ HTTP_SESSION: aiohttp.ClientSession | None = None
 
 # Provider credentials and model names are configured in Render Environment.
 PROVIDERS = {
-    "openai": {
-        "label": "🔵 OpenAI (ChatGPT)",
-        "key": os.getenv("OPENAI_API_KEY", "").strip(),
-        "model": os.getenv("OPENAI_MODEL", "gpt-5.5").strip(),
-    },
-    "gemini": {
-        "label": "🟢 Google Gemini",
-        "key": os.getenv("GEMINI_API_KEY", "").strip(),
-        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
-    },
-    "claude": {
-        "label": "🟣 Claude (Anthropic)",
-        "key": os.getenv("ANTHROPIC_API_KEY", "").strip(),
-        "model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5").strip(),
-    },
-    "deepseek": {
-        "label": "⚫ DeepSeek",
-        "key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
-        "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip(),
-    },
-    "grok": {
-        "label": "⚡ Grok (xAI)",
-        "key": os.getenv("XAI_API_KEY", "").strip(),
-        "model": os.getenv("XAI_MODEL", "grok-3-mini").strip(),
-    },
-    "groq": {
-        "label": "🟠 Groq",
-        "key": os.getenv("GROQ_API_KEY", "").strip(),
-        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip(),
-    },
-    "mistral": {
-        "label": "🟡 Mistral",
-        "key": os.getenv("MISTRAL_API_KEY", "").strip(),
-        "model": os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip(),
-    },
-    "sambanova": {
-        "label": "🟢 SambaNova (رایگان با محدودیت)",
-        "key": os.getenv("SAMBANOVA_API_KEY", "").strip(),
-        "model": os.getenv("SAMBANOVA_MODEL", "DeepSeek-V3.1").strip(),
-    },
-    "nvidia": {
-        "label": "🟩 NVIDIA NIM (مدل‌های رایگان منتخب)",
-        "key": os.getenv("NVIDIA_API_KEY", "").strip(),
-        "model": os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct").strip(),
-    },
-    "cohere": {
-        "label": "🔷 Cohere (سهمیه آزمایشی)",
-        "key": os.getenv("COHERE_API_KEY", "").strip(),
-        "model": os.getenv("COHERE_MODEL", "command-a-03-2025").strip(),
-    },
     "openrouter": {
         "label": "🌐 OpenRouter",
         "key": os.getenv("OPENROUTER_API_KEY", "").strip(),
         "model": os.getenv("OPENROUTER_MODEL", "openrouter/free").strip(),
-    },
-    "cloudflare": {
-        "label": "☁️ Cloudflare Workers AI",
-        "key": os.getenv("CLOUDFLARE_API_TOKEN", "").strip(),
-        "account_id": os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip(),
-        "model": os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct").strip(),
-    },
-    "local": {
-        "label": "🧠 FXI AI محلی (Ollama)",
-        "key": "local-runtime",
-        "model": os.getenv("FXI_LOCAL_MODEL", "auto").strip(),
+        "base_url": "https://openrouter.ai/api/v1",
     },
 }
 
 # Runtime state: histories are isolated by both user and provider.
 histories = defaultdict(list)
 history_locks = defaultdict(asyncio.Lock)
-selected_provider = defaultdict(lambda: next((name for name in ("groq", "gemini", "openrouter", "cloudflare", "mistral", "sambanova", "nvidia", "cohere", "deepseek", "claude", "grok", "openai", "local") if provider_ready(name)), "groq"))
+selected_provider = defaultdict(lambda: "openrouter")
 bot = None
 dp = Dispatcher()
 polling_task = None
 
 
 def provider_ready(provider: str) -> bool:
-    if provider == "local":
-        # Ollama is not bundled with Render. Keep this disabled unless a real
-        # reachable Ollama server has explicitly been configured.
-        enabled = os.getenv("FXI_LOCAL_AI_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-        return enabled and bool(os.getenv("OLLAMA_BASE_URL", "").strip())
-    if provider not in PROVIDERS or not PROVIDERS[provider]["key"]:
-        return False
-    if provider == "cloudflare":
-        return bool(PROVIDERS[provider].get("account_id"))
-    return True
+    return provider == "openrouter" and bool(PROVIDERS["openrouter"]["key"])
+
+
+FEATURE_DEFINITIONS = {
+    "ai_chat": {"label": "پاسخ‌گویی هوشمند", "description": "پاسخ‌های متنی هوش مصنوعی در گفت‌وگوها"},
+    "voice_tools": {"label": "پیام صوتی", "description": "پردازش پیام‌های صوتی؛ در نسخه فعلی به سرویس گفتار مستقل وابسته است"},
+    "image_tools": {"label": "پردازش تصویر و رسید", "description": "دریافت و پردازش تصویر و رسیدهای پرداخت"},
+    "community_management": {"label": "مدیریت گروه و کانال", "description": "فرمان‌های مدیریتی جامعه تلگرام"},
+    "natural_commands": {"label": "دستورهای طبیعی", "description": "درخواست‌های مدیریتی با زبان طبیعی"},
+    "payments": {"label": "بررسی پرداخت‌ها", "description": "ثبت و بررسی درخواست‌های پرداخت"},
+    "user_tracking": {"label": "ثبت کاربران و آمار", "description": "ثبت کاربران و داده‌های آماری"},
+}
+
+
+def feature_enabled(feature: str) -> bool:
+    defaults = {"ai_chat": True, "voice_tools": False, "image_tools": True,
+                "community_management": True, "natural_commands": True,
+                "payments": True, "user_tracking": True}
+    return bool(admin_data.get("features", {}).get(feature, defaults.get(feature, True)))
 
 
 def provider_keyboard() -> InlineKeyboardMarkup:
@@ -656,7 +608,7 @@ async def choose_provider(callback: CallbackQuery):
         return
     provider_id = callback.data.split(":", 1)[1]
     if provider_id not in PROVIDERS:
-        await callback.answer("این گزینه شناخته‌شده نیست.", show_alert=True)
+        await callback.answer("فقط OpenRouter در این نسخه پشتیبانی می‌شود.", show_alert=True)
         return
     if not provider_ready(provider_id):
         env_name = {
@@ -1098,10 +1050,12 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
     the model selector misleading and causes users to receive answers from the
     wrong service.
     """
-    if provider_id not in PROVIDERS:
-        return "⚠️ سرویس انتخاب‌شده معتبر نیست. با /ai دوباره انتخابش کن."
+    if provider_id != "openrouter" or provider_id not in PROVIDERS:
+        return "⚠️ در این نسخه فقط OpenRouter قابل استفاده است."
+    if not feature_enabled("ai_chat"):
+        return "⛔ پاسخ‌گویی هوشمند توسط مدیر غیرفعال شده است."
     if not provider_ready(provider_id):
-        return f"🔒 {PROVIDERS[provider_id]['label']} هنوز فعال نشده؛ مدیر باید کلید API مربوط به این سرویس را در Render تنظیم کند."
+        return "🔒 OpenRouter فعال نیست؛ مدیر باید OPENROUTER_API_KEY را در تنظیمات سرور وارد کند."
 
     key = (user_id, provider_id)
     async with history_locks[key]:
@@ -1115,20 +1069,7 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
                 log.exception("Could not load persistent chat history for user=%s", user_id)
                 return "⚠️ بازیابی تاریخچه ناموفق بود؛ پیام ارسال نشد تا گفت‌وگو ناقص نشود."
         try:
-            if provider_id == "local":
-                status, data = await ask_local(history, user_text)
-            elif provider_id == "openai":
-                status, data = await ask_openai(history, user_text)
-            elif provider_id == "gemini":
-                status, data = await ask_gemini(history, user_text)
-            elif provider_id == "claude":
-                status, data = await ask_claude(history, user_text)
-            elif provider_id == "deepseek":
-                status, data = await ask_deepseek(history, user_text)
-            elif provider_id == "grok":
-                status, data = await ask_grok(history, user_text)
-            else:
-                status, data = await ask_compatible(provider_id, history, user_text)
+            status, data = await ask_compatible("openrouter", history, user_text)
 
             if status >= 400:
                 return api_error(provider_id, status, data)
@@ -2176,6 +2117,8 @@ async def admin_status(auth=Depends(require_admin)):
         "recent_users": admin_data.get("users", [])[-50:] if "users" in permissions else [],
         "recent_user_profiles": [admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}) for uid in recent_ids],
         "providers": [name for name in PROVIDERS if provider_ready(name)] if "providers" in permissions else [],
+        "features": {key: feature_enabled(key) for key in FEATURE_DEFINITIONS} if "system" in permissions else {},
+        "feature_definitions": FEATURE_DEFINITIONS if "system" in permissions else {},
         "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT) if "prompt" in permissions else "",
         "permissions": sorted(permissions),
         "admin_permissions": {str(uid): sorted(_admin_permissions_for(uid)) for uid in admins},
@@ -2299,6 +2242,23 @@ async def set_admin_permissions(user_id: int, payload: AdminPermissionsPayload, 
         except Exception as exc:
             log.warning("Permission update notification failed for user=%s: %s", user_id, type(exc).__name__)
     return {"message": "سطح دسترسی ذخیره شد." + (" اعلان ارسال شد." if notified else " اعلان تلگرام ارسال نشد؛ کاربر باید ربات را Start کند."), "permissions": permissions, "notification_sent": notified}
+
+
+class FeatureSettingsPayload(BaseModel):
+    features: dict[str, bool]
+
+
+@app.post("/admin/api/features")
+async def update_feature_settings(payload: FeatureSettingsPayload, _: str = Depends(require_admin)):
+    allowed = set(FEATURE_DEFINITIONS)
+    unknown = set(payload.features) - allowed
+    if unknown:
+        raise HTTPException(status_code=422, detail="یک یا چند قابلیت ناشناخته است.")
+    current = admin_data.setdefault("features", {})
+    current.update({key: bool(value) for key, value in payload.features.items()})
+    log_admin_action("feature_settings_updated", ", ".join(f"{key}={'on' if value else 'off'}" for key, value in payload.features.items()))
+    save_admin_data()
+    return {"features": {key: feature_enabled(key) for key in FEATURE_DEFINITIONS}, "message": "تنظیمات قابلیت‌ها ذخیره شد."}
 
 
 @app.post("/admin/api/bot-state")
