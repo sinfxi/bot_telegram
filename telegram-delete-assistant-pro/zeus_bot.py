@@ -2026,7 +2026,7 @@ async def security_headers_and_admin_origin_guard(request: Request, call_next):
         "connect-src 'self'; object-src 'none'; base-uri 'self'; "
         "form-action 'self'; frame-ancestors 'none'"
     )
-    if request.url.path == "/admin" or request.url.path.startswith("/admin/api/"):
+    if request.url.path == "/admin" or request.url.path.startswith("/admin/api/") or request.url.path.startswith("/admin/invite/"):
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
     if request.url.scheme == "https":
@@ -2271,7 +2271,7 @@ async def set_admin_permissions(user_id: int, payload: AdminPermissionsPayload, 
         raise HTTPException(status_code=404, detail="ادمین پیدا نشد.")
     if _is_primary_admin(user_id):
         raise HTTPException(status_code=400, detail="دسترسی مدیر اصلی قابل محدودسازی از این بخش نیست.")
-    permissions = sorted(set(payload.permissions))
+    permissions = sorted(set(payload.permissions) | {"dashboard"})
     unknown = set(permissions) - set(ADMIN_PERMISSIONS)
     if unknown:
         raise HTTPException(status_code=422, detail="یک یا چند سطح دسترسی ناشناخته است.")
