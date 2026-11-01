@@ -1981,10 +1981,19 @@ async def admin_export_users(_: str = Depends(require_admin)):
     writer = csv.writer(output)
     writer.writerow(["user_id", "username", "first_name", "last_name", "first_seen", "last_seen"])
     profiles = admin_data.get("user_profiles", {})
+
+    def safe_csv_cell(value):
+        # Prevent spreadsheet formula execution when an exported field is opened in Excel/Sheets.
+        text_value = str(value or "")
+        if text_value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
+            return "'" + text_value
+        return text_value
+
     for uid in admin_data.get("users", []):
         profile = profiles.get(str(uid), {})
-        writer.writerow([uid, profile.get("username", ""), profile.get("first_name", ""),
-                         profile.get("last_name", ""), profile.get("first_seen", ""), profile.get("last_seen", "")])
+        writer.writerow([uid, safe_csv_cell(profile.get("username")), safe_csv_cell(profile.get("first_name")),
+                         safe_csv_cell(profile.get("last_name")), safe_csv_cell(profile.get("first_seen")),
+                         safe_csv_cell(profile.get("last_seen"))])
     content = "\ufeff" + output.getvalue()
     return StreamingResponse(iter([content]), media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": "attachment; filename=fxi-users.csv",
@@ -2086,13 +2095,16 @@ async def set_bot_state(payload: BotStatePayload, _: str = Depends(require_admin
 
 @app.post("/admin/api/broadcast")
 async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
+    message_text = payload.text.strip()
+    if not message_text:
+        raise HTTPException(status_code=422, detail="متن پیام نمی‌تواند فقط شامل فاصله باشد.")
     if not bot:
         raise HTTPException(status_code=503, detail="اتصال ربات تلگرام فعال نیست")
-    log_admin_action("broadcast_started", f"recipients={len(admin_data.get('users', []))}; chars={len(payload.text)}")
+    log_admin_action("broadcast_started", f"recipients={len(admin_data.get('users', []))}; chars={len(message_text)}")
     sent = failed = 0
     for user_id in list(admin_data.get("users", [])):
         try:
-            await bot.send_message(user_id, payload.text)
+            await bot.send_message(user_id, message_text)
             sent += 1
         except Exception as exc:
             failed += 1
@@ -2105,7 +2117,10 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
 @app.post("/admin/api/prompt")
 async def update_prompt(payload: PromptPayload, _: str = Depends(require_admin)):
     global SYSTEM_PROMPT
-    SYSTEM_PROMPT = payload.prompt.strip()
+    prompt_text = payload.prompt.strip()
+    if len(prompt_text) < 10:
+        raise HTTPException(status_code=422, detail="دستورالعمل باید دست‌کم ۱۰ نویسهٔ معنادار داشته باشد.")
+    SYSTEM_PROMPT = prompt_text
     admin_data["system_prompt"] = SYSTEM_PROMPT
     log_admin_action("system_prompt_updated", f"chars={len(SYSTEM_PROMPT)}")
     save_admin_data()
