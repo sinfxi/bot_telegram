@@ -371,6 +371,21 @@ PROVIDERS = {
         "key": os.getenv("MISTRAL_API_KEY", "").strip(),
         "model": os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip(),
     },
+    "sambanova": {
+        "label": "🟢 SambaNova (رایگان با محدودیت)",
+        "key": os.getenv("SAMBANOVA_API_KEY", "").strip(),
+        "model": os.getenv("SAMBANOVA_MODEL", "DeepSeek-V3.1").strip(),
+    },
+    "nvidia": {
+        "label": "🟩 NVIDIA NIM (مدل‌های رایگان منتخب)",
+        "key": os.getenv("NVIDIA_API_KEY", "").strip(),
+        "model": os.getenv("NVIDIA_MODEL", "openai/gpt-oss-20b").strip(),
+    },
+    "cohere": {
+        "label": "🔷 Cohere (سهمیه آزمایشی)",
+        "key": os.getenv("COHERE_API_KEY", "").strip(),
+        "model": os.getenv("COHERE_MODEL", "command-a-03-2025").strip(),
+    },
     "openrouter": {
         "label": "🌐 OpenRouter",
         "key": os.getenv("OPENROUTER_API_KEY", "").strip(),
@@ -392,7 +407,7 @@ PROVIDERS = {
 # Runtime state: histories are isolated by both user and provider.
 histories = defaultdict(list)
 history_locks = defaultdict(asyncio.Lock)
-selected_provider = defaultdict(lambda: next((name for name in ("local", "groq", "gemini", "openrouter", "cloudflare", "mistral", "deepseek", "claude", "grok", "openai") if provider_ready(name)), "local"))
+selected_provider = defaultdict(lambda: next((name for name in ("groq", "gemini", "openrouter", "cloudflare", "mistral", "sambanova", "nvidia", "cohere", "deepseek", "claude", "grok", "openai", "local") if provider_ready(name)), "groq"))
 bot = None
 dp = Dispatcher()
 polling_task = None
@@ -400,7 +415,10 @@ polling_task = None
 
 def provider_ready(provider: str) -> bool:
     if provider == "local":
-        return os.getenv("FXI_LOCAL_AI_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+        # Ollama is not bundled with Render. Keep this disabled unless a real
+        # reachable Ollama server has explicitly been configured.
+        enabled = os.getenv("FXI_LOCAL_AI_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+        return enabled and bool(os.getenv("OLLAMA_BASE_URL", "").strip())
     if provider not in PROVIDERS or not PROVIDERS[provider]["key"]:
         return False
     if provider == "cloudflare":
@@ -470,6 +488,9 @@ async def choose_provider(callback: CallbackQuery):
             "grok": "XAI_API_KEY",
             "groq": "GROQ_API_KEY",
             "mistral": "MISTRAL_API_KEY",
+            "sambanova": "SAMBANOVA_API_KEY",
+            "nvidia": "NVIDIA_API_KEY",
+            "cohere": "COHERE_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
             "cloudflare": "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID",
             "local": "FXI_LOCAL_AI_ENABLED=true و اجرای Ollama",
@@ -822,6 +843,12 @@ async def ask_compatible(provider_id: str, history: list, user_text: str) -> tup
         url = "https://api.groq.com/openai/v1/chat/completions"
     elif provider_id == "mistral":
         url = "https://api.mistral.ai/v1/chat/completions"
+    elif provider_id == "sambanova":
+        url = "https://api.sambanova.ai/v1/chat/completions"
+    elif provider_id == "nvidia":
+        url = "https://integrate.api.nvidia.com/v1/chat/completions"
+    elif provider_id == "cohere":
+        url = "https://api.cohere.com/compatibility/v1/chat/completions"
     elif provider_id == "openrouter":
         url = "https://openrouter.ai/api/v1/chat/completions"
     elif provider_id == "cloudflare":
