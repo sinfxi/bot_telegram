@@ -485,10 +485,15 @@ def provider_ready(provider: str) -> bool:
 
 
 FEATURE_DEFINITIONS = {
-    "ai_chat": {"label": "پاسخ‌گویی هوشمند", "description": "پاسخ‌های متنی هوش مصنوعی در گفت‌وگوها"},
+    "ai_chat": {"label": "پاسخ‌گویی هوشمند", "description": "پاسخ‌های متنی و دستورالعمل دستیار با OpenRouter"},
     "voice_tools": {"label": "پیام صوتی (فعلاً غیرفعال)", "description": "در نسخه OpenRouter-only تبدیل گفتار فعال نیست.", "available": False},
-    "image_tools": {"label": "پردازش تصویر و رسید", "description": "دریافت و پردازش تصویر و رسیدهای پرداخت"},
-    "community_management": {"label": "مدیریت گروه و کانال", "description": "فرمان‌های مدیریتی جامعه تلگرام"},
+    "image_tools": {"label": "پردازش تصویر و رسید", "description": "دریافت تصویر و استخراج اطلاعات رسید با OpenRouter"},
+    "community_management": {"label": "مدیریت گروه و کانال", "description": "کلید اصلی برای قابلیت‌های مدیریتی گروه و کانال"},
+    "moderation": {"label": "مدیریت اعضا و پیام‌ها", "description": "دستورهای مسدودسازی، سکوت، رفع سکوت و سنجاق پیام"},
+    "rules_management": {"label": "قوانین گروه", "description": "مشاهده و تغییر قوانین ذخیره‌شده"},
+    "analytics": {"label": "آمار و گزارش‌ها", "description": "آمار جامعه و گزارش فعالیت کانال"},
+    "draft_generation": {"label": "پیش‌نویس و برنامه محتوا", "description": "تولید پیش‌نویس و تقویم محتوایی با OpenRouter"},
+    "engagement": {"label": "تعامل و پیشنهادها", "description": "چالش‌ها و پیشنهادهای جامعه"},
     "natural_commands": {"label": "دستورهای طبیعی", "description": "درخواست‌های مدیریتی با زبان طبیعی"},
     "payments": {"label": "بررسی پرداخت‌ها", "description": "ثبت و بررسی درخواست‌های پرداخت"},
     "user_tracking": {"label": "ثبت کاربران و آمار", "description": "ثبت کاربران و داده‌های آماری"},
@@ -500,8 +505,9 @@ def feature_enabled(feature: str) -> bool:
     if feature == "voice_tools":
         return False
     defaults = {"ai_chat": True, "voice_tools": False, "image_tools": True,
-                "community_management": True, "natural_commands": True,
-                "payments": True, "user_tracking": True}
+                "community_management": True, "moderation": True, "rules_management": True,
+                "analytics": True, "draft_generation": True, "engagement": True,
+                "natural_commands": True, "payments": True, "user_tracking": True}
     return bool(admin_data.get("features", {}).get(feature, defaults.get(feature, True)))
 
 
@@ -516,8 +522,18 @@ COMMUNITY_COMMANDS = {
 async def feature_message_gate(handler, event: Message, data):
     text_value = (event.text or "").strip() if isinstance(event, Message) else ""
     command = text_value.split(maxsplit=1)[0].split("@", 1)[0].lstrip("/").lower() if text_value.startswith("/") else ""
-    if command in COMMUNITY_COMMANDS and not feature_enabled("community_management"):
-        await event.answer("قابلیت مدیریت گروه و کانال توسط مدیر غیرفعال شده است.")
+    command_features = {
+        "ban": "moderation", "mute": "moderation", "unmute": "moderation", "pin": "moderation",
+        "rules": "rules_management", "setrules": "rules_management",
+        "channelreport": "analytics", "topposts": "analytics", "communitystats": "analytics",
+        "draft": "draft_generation", "contentplan": "draft_generation",
+        "challenge": "engagement", "suggest": "engagement",
+    }
+    if command in COMMUNITY_COMMANDS and (
+        not feature_enabled("community_management") or
+        not feature_enabled(command_features.get(command, "community_management"))
+    ):
+        await event.answer("این قابلیت گروه و کانال توسط مدیر غیرفعال شده است.")
         return None
     if command == "support" and not feature_enabled("payments"):
         await event.answer("قابلیت حمایت و پرداخت فعلاً غیرفعال است.")
