@@ -1581,6 +1581,7 @@ def _message_addresses_bot(message: Message, text_value: str | None = None) -> b
 def _natural_intent(text_value: str) -> str | None:
     value = re.sub(r"[،؛.!؟?]+", " ", (text_value or "").lower())
     value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)\s+", "", value).strip()
     # Only deterministic, low-risk actions are mapped directly. Other requests go to AI.
     if any(p in value for p in ("پاسخ گویی رو روشن", "پاسخگویی رو روشن", "پاسخ هوشمند رو روشن",
                                  "هوش مصنوعی رو فعال", "جواب دادن رو فعال", "ربات فعال شو")):
@@ -1634,7 +1635,8 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     elif intent == "help":
         await message.answer("منشنم کن یا به پیامم ریپلای بزن. می‌تونی بگی «آمار گروه رو بگو»، «قوانین رو بگو»، یا مدیر گروه بگه «پاسخ هوشمند رو روشن/خاموش کن». برای دستورهای کامل /community")
     elif intent == "draft":
-        topic = re.sub(r"^(پیش\s*نویس|پیشنویس|یه پست درباره)\s*", "", request_text.strip(), flags=re.I).strip()
+        topic_text = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)[،,:؛\s-]*", "", request_text.strip(), flags=re.I).strip()
+        topic = re.sub(r"^(پیش\s*نویس|پیشنویس|یه پست درباره)\s*", "", topic_text, flags=re.I).strip()
         if not topic:
             await message.answer("موضوع پست رو هم بگو؛ مثلاً «ربات، یه پست درباره امنیت حساب بساز».")
             return True
