@@ -10,7 +10,7 @@ import base64
 import hashlib
 import hmac
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from collections import defaultdict
 
@@ -19,7 +19,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageReactionCountUpdated, ChatMemberUpdated
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageReactionCountUpdated, ChatMemberUpdated, ChatPermissions
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -1051,6 +1051,75 @@ async def community_set_rules(message: Message):
     community_chat(message.chat.id)["rules"] = value
     save_admin_data()
     await message.answer("✅ قوانین گروه ذخیره شد.")
+
+@dp.message(Command("ban"))
+async def community_ban(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند عضو را مسدود کند."); return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.answer("برای استفاده، روی پیام فرد ریپلای کن و /ban بزن."); return
+    target = message.reply_to_message.from_user.id
+    if await community_is_admin(message.chat.id, target):
+        await message.answer("مدیران گروه از این دستور مستثنا هستند."); return
+    try:
+        await bot.ban_chat_member(message.chat.id, target)
+        await message.answer("🚫 کاربر از گروه مسدود شد.")
+    except Exception:
+        log.exception("Ban failed in chat=%s", message.chat.id)
+        await message.answer("عملیات انجام نشد؛ دسترسی ادمین ربات را بررسی کن.")
+
+@dp.message(Command("mute"))
+async def community_mute(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند عضو را محدود کند."); return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.answer("روی پیام فرد ریپلای کن و /mute [دقیقه] بزن."); return
+    parts = (message.text or "").split()
+    try: minutes = max(1, min(10080, int(parts[1]))) if len(parts) > 1 else 60
+    except ValueError:
+        await message.answer("مدت باید عددی بین ۱ تا ۱۰۰۸۰ دقیقه باشد."); return
+    target = message.reply_to_message.from_user.id
+    if await community_is_admin(message.chat.id, target):
+        await message.answer("مدیران گروه از این دستور مستثنا هستند."); return
+    try:
+        await bot.restrict_chat_member(message.chat.id, target,
+            permissions=ChatPermissions(can_send_messages=False),
+            until_date=datetime.now(timezone.utc) + timedelta(minutes=minutes))
+        await message.answer(f"🔇 کاربر به مدت {minutes} دقیقه محدود شد.")
+    except Exception:
+        log.exception("Mute failed in chat=%s", message.chat.id)
+        await message.answer("محدودسازی ناموفق بود؛ مجوز Restrict members را بررسی کن.")
+
+@dp.message(Command("unmute"))
+async def community_unmute(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند محدودیت را بردارد."); return
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.answer("روی پیام فرد ریپلای کن و /unmute بزن."); return
+    try:
+        await bot.restrict_chat_member(message.chat.id, message.reply_to_message.from_user.id,
+            permissions=ChatPermissions(can_send_messages=True, can_send_audios=True,
+                can_send_documents=True, can_send_photos=True, can_send_videos=True,
+                can_send_video_notes=True, can_send_voice_notes=True,
+                can_send_polls=True, can_send_other_messages=True,
+                can_add_web_page_previews=True))
+        await message.answer("🔊 محدودیت ارسال پیام برداشته شد.")
+    except Exception:
+        log.exception("Unmute failed in chat=%s", message.chat.id)
+        await message.answer("برداشتن محدودیت ناموفق بود؛ دسترسی Restrict members را بررسی کن.")
+
+@dp.message(Command("pin"))
+async def community_pin(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند پیام سنجاق کند."); return
+    if not message.reply_to_message:
+        await message.answer("روی پیامی که می‌خواهی سنجاق شود ریپلای کن و /pin بزن."); return
+    try:
+        await bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
+        await message.answer("📌 پیام سنجاق شد.")
+    except Exception:
+        log.exception("Pin failed in chat=%s", message.chat.id)
+        await message.answer("سنجاق پیام ناموفق بود؛ مجوز Pin messages را بررسی کن.")
 
 @dp.message(Command("communitystats"))
 async def community_stats(message: Message):
