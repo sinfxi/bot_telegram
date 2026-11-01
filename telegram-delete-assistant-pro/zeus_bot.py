@@ -344,7 +344,7 @@ PROVIDERS = {
     "gemini": {
         "label": "🟢 Google Gemini",
         "key": os.getenv("GEMINI_API_KEY", "").strip(),
-        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip(),
+        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
     },
     "claude": {
         "label": "🟣 Claude (Anthropic)",
@@ -364,7 +364,7 @@ PROVIDERS = {
     "groq": {
         "label": "🟠 Groq",
         "key": os.getenv("GROQ_API_KEY", "").strip(),
-        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip(),
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip(),
     },
     "mistral": {
         "label": "🟡 Mistral",
@@ -379,7 +379,7 @@ PROVIDERS = {
     "nvidia": {
         "label": "🟩 NVIDIA NIM (مدل‌های رایگان منتخب)",
         "key": os.getenv("NVIDIA_API_KEY", "").strip(),
-        "model": os.getenv("NVIDIA_MODEL", "openai/gpt-oss-20b").strip(),
+        "model": os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct").strip(),
     },
     "cohere": {
         "label": "🔷 Cohere (سهمیه آزمایشی)",
@@ -848,7 +848,7 @@ async def ask_compatible(provider_id: str, history: list, user_text: str) -> tup
     elif provider_id == "nvidia":
         url = "https://integrate.api.nvidia.com/v1/chat/completions"
     elif provider_id == "cohere":
-        url = "https://api.cohere.com/compatibility/v1/chat/completions"
+        url = "https://api.cohere.ai/compatibility/v1/chat/completions"
     elif provider_id == "openrouter":
         url = "https://openrouter.ai/api/v1/chat/completions"
     elif provider_id == "cloudflare":
