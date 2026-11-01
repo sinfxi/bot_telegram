@@ -72,19 +72,24 @@ ADMIN_ALLOWED_ORIGINS = {
 
 
 def _admin_origin_allowed(request: Request) -> bool:
-    """Allow same-origin requests and explicitly configured trusted panel origins."""
+    """Allow same-host requests and explicitly configured trusted panel origins."""
     origin = request.headers.get("origin")
     if not origin:
         return True
     try:
         parsed = urlsplit(origin.strip())
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
             return False
-        origin_value = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
-    except ValueError:
+        origin_value = f"{parsed.scheme.lower()}://{parsed.netloc.lower().rstrip('.')}"
+        origin_host = parsed.hostname.lower().rstrip(".")
+        # Render may expose an internal port in Host while browsers send the public
+        # hostname without it. Compare normalized hostnames for same-origin checks.
+        request_host = (request.url.hostname or "").lower().rstrip(".")
+    except (ValueError, TypeError):
         return False
-    request_host = request.headers.get("host", "").strip().lower()
-    return origin_value in ADMIN_ALLOWED_ORIGINS or parsed.netloc.lower() == request_host
+    configured_match = origin_value in ADMIN_ALLOWED_ORIGINS
+    same_host = bool(request_host) and origin_host == request_host
+    return configured_match or same_host
 ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
 SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") if BOT_TOKEN else None
