@@ -1026,13 +1026,62 @@ async def community_help(message: Message):
         await message.answer("این بخش را داخل گروه یا کانالی که ربات در آن دسترسی دارد اجرا کن.")
         return
     await message.answer(
-        "🛡 مدیریت جامعه FXI\n\n"
-        "/community — راهنما\n/challenge — ساخت چالش گروهی\n"
-        "/suggest — پنج پیشنهاد برای کانال/گروه\n"
-        "/rules — نمایش قوانین\n/setrules متن — تنظیم قوانین (مدیر)\n"
-        "/communitystats — آمار فعالیت\n\n"
-        "برای مدیریت اعضا، ربات باید در گروه ادمین باشد و مجوز حذف پیام/محدودسازی را داشته باشد."
+        "🛡 راهنمای FXI Community Manager\\n\\n"
+        "/fxi_enable — فعال‌سازی پاسخ هوشمند در گروه (مدیر)\\n"
+        "/fxi_disable — غیرفعال‌سازی پاسخ هوشمند (مدیر)\\n"
+        "در گروه: نام ربات را منشن کن یا به پیامش ریپلای بزن تا طبیعی پاسخ دهد.\\n"
+        "/draft موضوع — پیش‌نویس پست کانال (مدیر)\\n"
+        "/channelreport — گزارش تحلیل کانال\\n/topposts — ۱۰ پست برتر\\n"
+        "/contentplan — برنامه ۵ محتوای بعدی\\n"
+        "/challenge — چالش گروهی\\n/suggest — دقیقاً ۵ پیشنهاد\\n"
+        "/rules و /setrules — قوانین\\n/communitystats — آمار\\n"
+        "/ban /mute /unmute /pin — مدیریت اعضا (با دسترسی لازم)"
     )
+
+@dp.message(Command("fxi_enable"))
+async def community_ai_enable(message: Message):
+    if message.chat.type not in {"group", "supergroup"}:
+        await message.answer("پاسخ هوشمند فقط در گروه فعال می‌شود؛ در کانال از /draft استفاده کن.")
+        return
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند پاسخ هوشمند را فعال کند.")
+        return
+    community_chat(message.chat.id).setdefault("settings", {})["ai_enabled"] = True
+    save_admin_data()
+    await message.answer("🧠 پاسخ هوشمند فعال شد. فقط وقتی منشنم کنی یا به پیامم ریپلای بزنی وارد گفتگو می‌شوم؛ پیام‌های عادی را قطع نمی‌کنم.")
+
+@dp.message(Command("fxi_disable"))
+async def community_ai_disable(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند پاسخ هوشمند را غیرفعال کند.")
+        return
+    community_chat(message.chat.id).setdefault("settings", {})["ai_enabled"] = False
+    save_admin_data()
+    await message.answer("🔕 پاسخ هوشمند این گروه غیرفعال شد. ابزارهای مدیریتی همچنان فعال‌اند.")
+
+@dp.message(Command("draft"))
+async def channel_draft(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ ساخت پیش‌نویس فقط برای مدیر کانال/گروه است.")
+        return
+    topic = (message.text or "").partition(" ")[2].strip()
+    if not topic:
+        await message.answer("روش استفاده: /draft موضوع یا ایده پست")
+        return
+    uid = message.from_user.id
+    provider_id = selected_provider[uid]
+    if not provider_ready(provider_id):
+        await message.answer("🔒 هیچ سرویس هوش مصنوعی فعالی برای ساخت پیش‌نویس تنظیم نشده است.")
+        return
+    prompt = (
+        "تو دستیار سردبیر یک کانال تلگرامی فارسی هستی. فقط یک پیش‌نویس آماده انتشار بساز؛ "
+        "عنوان جذاب اما غیرگمراه‌کننده، متن روان، ساختار مناسب موبایل و دعوت طبیعی به تعامل داشته باشد. "
+        "اطلاعات قطعی یا خبر و آمار را جعل نکن؛ اگر موضوع نیازمند داده تازه است، جای منبع و تاریخ را مشخص کن. "
+        "از کلیشه و هشتگ زیاد پرهیز کن. موضوع: " + topic[:2500]
+    )
+    await message.answer("✍️ دارم پیش‌نویس را آماده می‌کنم...")
+    answer = await ask_ai(-abs(message.chat.id), provider_id, prompt)
+    await send_long_message(message, answer)
 
 @dp.message(Command("rules"))
 async def community_rules(message: Message):
@@ -1305,6 +1354,41 @@ async def collect_community_message(message: Message):
                 await message.answer("⚠️ لطفاً از ارسال پشت‌سرهم پیام خودداری کنید.")
             except Exception:
                 log.warning("Anti-flood could not delete message in chat=%s", message.chat.id)
+
+    # Natural group assistant: respond only when explicitly addressed, never to every message.
+    if message.chat.type in {"group", "supergroup"} and message.from_user and not message.from_user.is_bot and text_value:
+        settings = data.setdefault("settings", {})
+        if settings.get("ai_enabled", False):
+            bot_username = TELEGRAM_BOT_USERNAME.lower()
+            mentioned = bool(bot_username and ("@" + bot_username) in text_value.lower())
+            replied_to_bot = False
+            if message.reply_to_message and message.reply_to_message.from_user and bot:
+                try:
+                    me = await bot.get_me()
+                    replied_to_bot = message.reply_to_message.from_user.id == me.id
+                except Exception:
+                    log.exception("Could not identify bot for reply detection")
+            if mentioned or replied_to_bot:
+                provider_id = selected_provider[message.from_user.id]
+                if not provider_ready(provider_id):
+                    await message.reply("🧠 قابلیت گفتگو فعلاً آماده نیست؛ مدیر باید سرویس هوش مصنوعی را در تنظیمات سرور فعال کند.")
+                else:
+                    clean_text = text_value.replace("@" + TELEGRAM_BOT_USERNAME, "").strip()
+                    prompt = (
+                        "تو دستیار اجتماعی همین گروه تلگرامی هستی؛ صمیمی، طبیعی، باحوصله و دقیق جواب بده. "
+                        "فارسی محاوره‌ای را ترجیح بده و با لحن اعضا هماهنگ شو، اما ادعا نکن انسان واقعی هستی. "
+                        "به تاریخچه زیر فقط به‌عنوان زمینه محدود نگاه کن و اطلاعات خصوصی اعضا را افشا نکن. "
+                        "اگر سؤال مبهم است یک سؤال کوتاه بپرس؛ اگر پاسخ را نمی‌دانی صادقانه بگو. "
+                        "برای بحث‌های حساس، بی‌طرف و محترمانه بمان. درخواست حذف/بن/تغییر تنظیمات را خودسرانه اجرا نکن؛ "
+                        "این کارها فقط با دستور مدیریتی و مجوز لازم انجام می‌شود. پیام عضو: " + clean_text[:3500]
+                    )
+                    try:
+                        await bot.send_chat_action(message.chat.id, "typing")
+                        answer = await ask_ai(-abs(message.chat.id) - message.from_user.id, provider_id, prompt)
+                        await message.reply(answer[:3900])
+                    except Exception:
+                        log.exception("Community AI reply failed chat=%s", message.chat.id)
+                        await message.reply("الان نتونستم درست جواب بدم؛ یکم بعد دوباره امتحان کن.")
 
 @dp.message_reaction_count()
 async def collect_reaction_counts(event: MessageReactionCountUpdated):
