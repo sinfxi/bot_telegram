@@ -687,7 +687,7 @@ async def choose_provider(callback: CallbackQuery):
 async def providers_status(callback: CallbackQuery):
     lines = ["📡 وضعیت سرویس‌های هوش مصنوعی:"]
     for provider_id, config in PROVIDERS.items():
-        state = "فعال ✅" if provider_ready(provider_id) else "نیازمند API Key 🔒"
+        state = "فعال ✅" if provider_ready(provider_id) else "نیازمند تنظیم کلید API 🔒"
         lines.append(f"• {config['label']}: {state}")
     if callback.message:
         await callback.message.answer("\n".join(lines))
