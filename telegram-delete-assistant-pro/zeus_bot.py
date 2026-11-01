@@ -624,8 +624,14 @@ async def start_menu_actions(callback: CallbackQuery):
         if not is_admin(callback.from_user.id):
             await callback.answer("این بخش فقط برای مدیرانه.", show_alert=True)
             return
-        panel_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com/admin")
-        await callback.message.answer(f"🛠 پنل مدیریت FXI\n{panel_url}")
+        token = _make_admin_invite(callback.from_user.id)
+        base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
+        panel_url = base_url + "/admin/invite/" + token
+        await callback.message.answer(
+            "🛠 پنل اختصاصی مدیریت FXI\n\n"
+            "این لینک یک‌بارمصرف است و تا ۳۰ دقیقه اعتبار دارد.\n\n"
+            f"{panel_url}"
+        )
     await callback.answer()
 
 
@@ -2211,6 +2217,11 @@ async def remove_admin(user_id: int, _: str = Depends(require_admin)):
             admin_data["admin_invites"].pop(digest, None)
     log_admin_action("admin_removed", f"user_id={user_id}")
     save_admin_data()
+    if bot:
+        try:
+            await bot.send_message(user_id, "🔒 دسترسی مدیریتی شما در FXI لغو شد. نشست‌های قبلی دیگر مجوز دسترسی به پنل ندارند.")
+        except Exception as exc:
+            log.warning("Admin removal notification failed for user=%s: %s", user_id, type(exc).__name__)
     return {"message": f"مدیر {user_id} حذف شد"}
 
 
