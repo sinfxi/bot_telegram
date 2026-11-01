@@ -72,7 +72,7 @@ ADMIN_ALLOWED_ORIGINS = {
 
 
 def _admin_origin_allowed(request: Request) -> bool:
-    """Allow same-host requests and explicitly configured trusted panel origins."""
+    """Allow configured origins or the public same-origin host behind a trusted proxy."""
     origin = request.headers.get("origin")
     if not origin:
         return True
@@ -82,28 +82,27 @@ def _admin_origin_allowed(request: Request) -> bool:
             return False
         origin_value = f"{parsed.scheme.lower()}://{parsed.netloc.lower().rstrip('.')}"
         origin_host = parsed.hostname.lower().rstrip(".")
-        # Render may expose an internal port in Host while browsers send the public
-        # hostname without it. Compare normalized hostnames for same-origin checks.
-        request_host = (request.url.hostname or "").lower().rstrip(".")
+        origin_scheme = parsed.scheme.lower()
+
+        # Render terminates TLS at its proxy, so request.url may show internal HTTP.
+        # Prefer forwarded public host/protocol when provided, then fall back to Host.
+        forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+        raw_hosts = [forwarded_host, request.headers.get("host", "").strip()]
+        request_hosts = set()
+        for raw_host in raw_hosts:
+            if not raw_host:
+                continue
+            candidate = urlsplit("//" + raw_host)
+            if candidate.hostname:
+                request_hosts.add(candidate.hostname.lower().rstrip("."))
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        request_scheme = forwarded_proto if forwarded_proto in {"http", "https"} else request.url.scheme.lower()
     except (ValueError, TypeError):
         return False
+
     configured_match = origin_value in ADMIN_ALLOWED_ORIGINS
-    same_host = bool(request_host) and origin_host == request_host
-    return configured_match or same_host
-ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
-TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
-SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") if BOT_TOKEN else None
-STATIC_DIR = Path(__file__).parent / "static"
-ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-DATABASE_READY = False
-admin_security = HTTPBasic(auto_error=False)
-# Per-process throttling for repeated failed admin logins.
-admin_auth_failures: dict[str, list[float]] = defaultdict(list)
-ADMIN_AUTH_WINDOW_SECONDS = 900
-ADMIN_AUTH_MAX_FAILURES = 8
-admin_data_lock = asyncio.Lock()
-bot_enabled = True
+    same_origin_host = origin_host in request_hosts and origin_scheme == request_scheme
+    return configured_match or same_origin_host
 
 
 def _db_connect():
