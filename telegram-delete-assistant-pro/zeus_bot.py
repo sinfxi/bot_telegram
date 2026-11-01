@@ -57,7 +57,7 @@ SUPPORT_CARD = '5859831211613988'
 SUPPORT_CARDHOLDER = 'سینا نوبخت'
 ADMIN_REQUEST_MIN_TOMAN = 100_000
 pending_receipts = set()
-ADMIN_IDS = {int(value) for value in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if value.isdigit()}
+ADMIN_IDS = {int(part.strip()) for part in os.getenv("ADMIN_IDS", "").replace(";", ",").split(",") if part.strip().isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
 ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
 ADMIN_ALLOWED_ORIGINS = {
@@ -428,10 +428,16 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
         raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
     if credentials is None:
         raise HTTPException(status_code=401, detail="آیدی عددی تلگرام و رمز عبور را وارد کنید.", headers={"WWW-Authenticate": "Basic"})
-    try:
-        login_user_id = int(credentials.username.strip())
-    except (TypeError, ValueError):
-        login_user_id = 0
+    submitted_username = credentials.username.strip()
+    # Accept the configured panel username when exactly one primary admin is configured.
+    # This keeps the admin-ID allowlist in force while avoiding confusion at the browser login prompt.
+    if submitted_username == ADMIN_PANEL_USERNAME and len(ADMIN_IDS) == 1:
+        login_user_id = next(iter(ADMIN_IDS))
+    else:
+        try:
+            login_user_id = int(submitted_username)
+        except (TypeError, ValueError):
+            login_user_id = 0
     valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PANEL_PASSWORD)
     if not valid_password:
         attempts.append(now)
@@ -442,7 +448,7 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
         raise HTTPException(status_code=401, detail="رمز عبور نادرست است.", headers={"WWW-Authenticate": "Basic"})
     if not login_user_id or not is_admin(login_user_id):
         admin_auth_failures.pop(client_ip, None)
-        raise HTTPException(status_code=403, detail="شما ادمین نیستید.")
+        raise HTTPException(status_code=403, detail="ورود تأیید نشد؛ نام کاربری یا تنظیمات مدیر را بررسی کنید.")
     admin_auth_failures.pop(client_ip, None)
     return {"user_id": login_user_id, "auth_type": "root_basic", "permissions": sorted(_admin_permissions_for(login_user_id))}
 
