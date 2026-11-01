@@ -56,7 +56,114 @@ body{background-image:radial-gradient(ellipse at 84% -5%,rgba(55,112,86,.26),tra
 .btn:focus-visible,.nav button:focus-visible,.conv-item:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
 .field::placeholder{color:#718780}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
-.modal-backdrop{position:fixed;inset:0;z-index:20;background:#02080cbb;display:grid;place-items:center;padding:18px;backdrop-filter:blur(8px)}.modal-backdrop[hidden]{display:none}.modal-card{width:min(640px,100%);max-height:90vh;overflow:auto;padding:24px;border:1px solid #42685a;border-radius:22px;background:#101e25;box-shadow:0 30px 100px #0008}.permission-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.permission-option{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid #30464e;background:#172831;border-radius:12px;font-size:12px}.permission-option input{accent-color:#79c99f;width:17px;height:17px}.permission-option:has(input:checked){border-color:#79c99f;background:#203a32}@media(max-width:520px){.permission-grid{grid-template-columns:1fr}.modal-card{padding:16px}}</style></head><body><div class="layout"><aside class="side"><div class="brand"><div class="logo">F</div><div><b>FXI CONTROL</b><small>ADMINISTRATION SUITE</small></div></div><div class="navlabel">مدیریت سیستم</div><nav class="nav"><button class="active" data-page="overview">◫ نمای کلی</button><button data-page="providers">✦ سرویس‌های هوش مصنوعی</button><button data-page="users">♙ کاربران و مدیران</button><button data-page="community">◉ گروه‌ها و کانال‌ها</button><button data-page="conversations">▤ تاریخچه مکالمات</button><button data-page="audit">▣ گزارش فعالیت‌ها</button><button data-page="payments">▣ بررسی پرداخت‌ها</button><button data-page="broadcast">◉ پیام همگانی</button><button data-page="prompt">⌘ دستورالعمل دستیار</button><button data-page="system">⚙ سلامت و تنظیمات</button><button data-page="features">🎛 قابلیت‌های ربات</button></nav><div class="sidefoot">کنترل دقیق، تجربه بهتر<p>پنل مدیریت FXI · نسخه بازطراحی‌شده</p></div></aside>
+.modal-backdrop{position:fixed;inset:0;z-index:20;background:#02080cbb;display:grid;place-items:center;padding:18px;backdrop-filter:blur(8px)}.modal-backdrop[hidden]{display:none}.modal-card{width:min(640px,100%);max-height:90vh;overflow:auto;padding:24px;border:1px solid #42685a;border-radius:22px;background:#101e25;box-shadow:0 30px 100px #0008}.permission-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.permission-option{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid #30464e;background:#172831;border-radius:12px;font-size:12px}.permission-option input{accent-color:#79c99f;width:17px;height:17px}.permission-option:has(input:checked){border-color:#79c99f;background:#203a32}@media(max-width:520px){.permission-grid{grid-template-columns:1fr}.modal-card{padding:16px}}
+/* FXI NEON SIGNATURE — premium cyber command center */
+:root{
+ --bg:#070b13;--panel:#0d1422;--panel2:#111d30;--line:#25344d;
+ --text:#edf5ff;--muted:#92a5c3;--mint:#a6ffdc;--green:#55f0b0;
+ --accent:#8b7cff;--accent2:#4ee7ff;--gold:#ffd58a;
+ --fxi-glass:rgba(14,22,38,.82);--fxi-edge:rgba(139,124,255,.22);
+}
+html{scroll-behavior:smooth;color-scheme:dark}
+body{
+ background:
+  radial-gradient(ellipse at 78% 0%,rgba(104,77,255,.19),transparent 31%),
+  radial-gradient(ellipse at 5% 30%,rgba(43,211,235,.10),transparent 28%),
+  radial-gradient(ellipse at 80% 100%,rgba(60,255,180,.07),transparent 30%),
+  linear-gradient(145deg,#070b13 0%,#0a1020 52%,#070c15 100%);
+ background-attachment:fixed;
+}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;opacity:.18;background-image:linear-gradient(rgba(145,166,213,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(145,166,213,.07) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,black,transparent 88%)}
+.layout{max-width:1840px;grid-template-columns:270px minmax(0,1fr);gap:18px;padding:18px}
+.side,.main{background:var(--fxi-glass);border:1px solid rgba(129,153,204,.18);border-radius:26px;box-shadow:0 24px 90px rgba(0,0,0,.30),inset 0 1px rgba(255,255,255,.035);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+.side{padding:22px;overflow:hidden}
+.brand{position:relative;border-bottom:1px solid rgba(139,124,255,.22);padding-bottom:22px}
+.logo{width:48px;height:48px;border-radius:16px;background:linear-gradient(140deg,#b9fff0 0%,#75dfff 38%,#9a86ff 100%);color:#07111b;font-size:23px;box-shadow:0 0 0 5px rgba(139,124,255,.08),0 8px 32px rgba(78,231,255,.18);position:relative}
+.logo:after{content:"";position:absolute;inset:-4px;border-radius:19px;border:1px solid rgba(78,231,255,.3);animation:fxiPulse 3.2s ease-in-out infinite}
+.brand b{font-size:17px;letter-spacing:1.3px;background:linear-gradient(90deg,#f5fbff,#a9b7ff 65%,#7ceeff);background-clip:text;-webkit-background-clip:text;color:transparent}
+.brand small{font-size:9px;letter-spacing:1.8px;color:#8296bd;margin-top:3px}
+.navlabel{font-size:10px;letter-spacing:1px;color:#7186ad;margin:25px 8px 10px}
+.nav{display:grid;gap:5px}
+.nav button{position:relative;isolation:isolate;display:flex;align-items:center;gap:10px;min-height:44px;padding:11px 13px;border-radius:13px;color:#aab9d3;font-size:12px;transition:all .22s ease}
+.nav button:before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(100deg,rgba(139,124,255,.15),rgba(78,231,255,.06));opacity:0;z-index:-1;transition:opacity .22s ease}
+.nav button:hover{color:#f0f5ff;border-color:rgba(139,124,255,.24);transform:translateX(-2px)}
+.nav button:hover:before,.nav button.active:before{opacity:1}
+.nav button.active{color:#e5e6ff;border-color:rgba(139,124,255,.36);background:linear-gradient(100deg,rgba(139,124,255,.16),rgba(78,231,255,.055));box-shadow:inset -3px 0 0 #9b8cff,0 6px 24px rgba(0,0,0,.12)}
+.sidefoot{border:1px solid rgba(78,231,255,.22);background:linear-gradient(140deg,rgba(78,231,255,.09),rgba(139,124,255,.11));border-radius:17px;color:#a8f5ff;box-shadow:inset 0 1px rgba(255,255,255,.04)}
+.sidefoot p{color:#8296b8}
+.main{min-width:0;overflow:hidden}
+.top{padding:23px 28px;background:rgba(9,15,27,.83);border-bottom:1px solid rgba(139,124,255,.18);backdrop-filter:blur(22px)}
+.top h1{font-size:20px;letter-spacing:-.3px;color:#f1f5ff}
+.top p{font-size:11px;color:#91a4c4}
+.status{border:1px solid rgba(85,240,176,.27);background:rgba(29,201,139,.10);color:#8dffd0;box-shadow:0 0 24px rgba(85,240,176,.06);padding:9px 13px}
+.content{padding:27px}
+.notice{background:linear-gradient(100deg,rgba(78,231,255,.065),rgba(139,124,255,.07));border-color:rgba(125,157,218,.19);color:#c3d5f2;border-radius:14px}
+.notice:before{color:#70f2c1;text-shadow:0 0 12px #55f0b0}
+.hero{padding:27px 28px;border-radius:22px;border:1px solid rgba(139,124,255,.28);background:linear-gradient(115deg,rgba(37,31,80,.91),rgba(15,40,58,.94) 58%,rgba(12,46,47,.88));box-shadow:inset 0 1px rgba(255,255,255,.055),0 15px 45px rgba(0,0,0,.12);margin-bottom:20px}
+.hero:before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 12% 0%,rgba(78,231,255,.15),transparent 44%),linear-gradient(115deg,transparent 45%,rgba(255,255,255,.025),transparent 70%);pointer-events:none}
+.hero:after{color:rgba(172,178,255,.055);font-size:130px;left:22px;bottom:-42px}
+.hero small{position:relative;color:#8fefff;font-size:10px;letter-spacing:2px}
+.hero h2{position:relative;font-size:24px;line-height:1.6;color:#f4f5ff;margin:10px 0}
+.hero p{position:relative;max-width:780px;color:#b1c5e3;font-size:12px}
+.grid{gap:15px}
+.card,.provider,.listitem,.mini-stat{background:linear-gradient(145deg,rgba(20,31,52,.96),rgba(13,24,40,.96));border:1px solid rgba(125,151,204,.18);box-shadow:inset 0 1px rgba(255,255,255,.025)}
+.card{border-radius:19px;padding:19px;position:relative;overflow:hidden}
+.grid>.card:before{content:"";position:absolute;top:0;right:20px;left:20px;height:1px;background:linear-gradient(90deg,transparent,rgba(78,231,255,.4),rgba(139,124,255,.4),transparent);opacity:.65}
+.card label{color:#9db0cf;font-size:11px}
+.num{font-size:31px;line-height:1.3;margin-top:12px;color:#f0f5ff;letter-spacing:-.6px;text-shadow:0 0 28px rgba(78,231,255,.08)}
+.sub{font-size:10px;color:#7186a9;line-height:1.8}
+.section{margin-top:20px}
+.section-head h3{font-size:14px;color:#e7efff}
+.btn{background:linear-gradient(115deg,#b2ffe2,#6ee5f5 55%,#a99aff);color:#07141b;border-radius:12px;padding:10px 16px;box-shadow:0 7px 24px rgba(78,231,255,.11),inset 0 1px rgba(255,255,255,.45);font-size:12px}
+.btn:hover{filter:brightness(1.08);transform:translateY(-2px);box-shadow:0 10px 30px rgba(78,231,255,.15)}
+.btn.secondary{background:linear-gradient(130deg,rgba(139,124,255,.12),rgba(78,231,255,.07));border:1px solid rgba(139,124,255,.29);color:#c9d4ff;box-shadow:none}
+.btn.secondary:hover{background:linear-gradient(130deg,rgba(139,124,255,.22),rgba(78,231,255,.13));border-color:rgba(78,231,255,.38);color:#effaff}
+.btn.danger{background:linear-gradient(135deg,rgba(255,100,133,.16),rgba(150,38,76,.22));border:1px solid rgba(255,116,148,.28);color:#ffb7c6;box-shadow:none}
+.field{background:rgba(7,13,24,.8);border:1px solid rgba(125,151,204,.24);border-radius:13px;color:#eef5ff;padding:13px}
+.field:focus{border-color:#7cddf7;box-shadow:0 0 0 3px rgba(78,231,255,.09),0 0 24px rgba(78,231,255,.045)}
+.field::placeholder{color:#687da0}
+.provider{border-radius:15px;padding:16px;transition:transform .2s,border-color .2s,box-shadow .2s}
+.provider:hover{transform:translateY(-3px);border-color:rgba(78,231,255,.35);box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.provider b{color:#e5efff;font-size:12px}
+.provider span{color:#8da3c4;line-height:1.8}
+.dot{background:#62f5b8;box-shadow:0 0 12px rgba(85,240,176,.7)}
+.dot.off{background:#ffb66e;box-shadow:0 0 10px rgba(255,182,110,.25)}
+.listitem{border-radius:14px;padding:13px 15px;color:#e3edff;line-height:1.8}
+.listitem span{color:#a2b4d1}
+.listitem:hover{border-color:rgba(139,124,255,.32);background:linear-gradient(120deg,rgba(26,35,62,.98),rgba(13,29,44,.98))}
+.muted{color:#91a5c5}
+.badge{border-color:rgba(85,240,176,.24);background:rgba(35,201,142,.09);color:#9bffda}
+.badge.off{background:rgba(255,125,125,.08);border-color:rgba(255,125,125,.2);color:#ffb5be}
+.stat-strip{gap:12px}
+.mini-stat{border-radius:16px;padding:16px;position:relative;overflow:hidden}
+.mini-stat:after{content:"";position:absolute;bottom:-35px;left:-25px;width:90px;height:90px;border-radius:50%;background:rgba(139,124,255,.08);filter:blur(2px)}
+.mini-stat span{color:#8ea4c7}
+.mini-stat b{font-size:24px;color:#e9f4ff;font-variant-numeric:tabular-nums}
+.quick-actions{gap:10px}
+.quick-actions button{border-radius:13px}
+.conv-item{background:rgba(15,26,44,.9);border-color:rgba(125,151,204,.19);color:#dfeaff}
+.conv-item.active{background:linear-gradient(110deg,rgba(93,76,173,.23),rgba(24,73,86,.22));border-color:rgba(139,124,255,.45);box-shadow:inset -3px 0 #9b8cff}
+.conv-thread{background:rgba(7,13,24,.65);border-color:rgba(125,151,204,.2)}
+.conv-msg.user{background:rgba(38,91,83,.35);border-color:rgba(85,240,176,.16)}
+.conv-msg.assistant{background:rgba(35,43,77,.5);border-color:rgba(139,124,255,.2)}
+.conv-msg small{color:#8fefff}
+.empty{border-color:rgba(125,151,204,.2);color:#8297b9}
+.modal-card{background:rgba(12,20,36,.97);border-color:rgba(139,124,255,.38);box-shadow:0 30px 100px rgba(0,0,0,.6),0 0 45px rgba(139,124,255,.08)}
+.permission-option{background:rgba(17,29,49,.95);border-color:rgba(125,151,204,.2)}
+.permission-option:has(input:checked){border-color:rgba(85,240,176,.5);background:rgba(36,89,73,.25)}
+input[type=checkbox]{accent-color:#70e8d0}
+.table-wrap{border:1px solid rgba(125,151,204,.18)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #73e9f7;outline-offset:3px}
+::selection{background:rgba(139,124,255,.35);color:#fff}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-track{background:#09101b}::-webkit-scrollbar-thumb{background:linear-gradient(#6f64d7,#3a8fa4);border:2px solid #09101b;border-radius:99px}
+@keyframes fxiPulse{0%,100%{opacity:.35;transform:scale(1)}50%{opacity:.85;transform:scale(1.045)}}
+@keyframes fxiShimmer{0%{background-position:0% 50%}100%{background-position:200% 50%}}
+@media(min-width:1200px){.content{padding:30px}.hero{padding:30px 32px}.grid{gap:17px}.card{padding:21px}}
+@media(max-width:950px){.layout{grid-template-columns:minmax(0,1fr);padding:10px;gap:12px}.side{position:static;height:auto;padding:15px}.brand{padding-bottom:14px}.nav{display:flex;gap:6px;overflow-x:auto;padding:12px 0 3px}.nav button{flex:0 0 auto;white-space:nowrap;min-height:40px}.navlabel,.sidefoot{display:none}.top{position:static;padding:18px 20px}.content{padding:18px}.side,.main{border-radius:21px}}
+@media(max-width:560px){.layout{padding:6px}.side{padding:12px}.brand b{font-size:15px}.top{padding:15px;gap:10px}.top h1{font-size:18px}.top .row{width:100%;flex-wrap:wrap}.content{padding:12px}.hero{padding:19px}.hero h2{font-size:20px}.grid,.providers,.stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:9px}.grid .card{padding:14px}.num{font-size:24px}.section.card{padding:14px}.quick-actions button{min-width:100%}.filterbar{flex-direction:column;align-items:stretch}.conv-layout{grid-template-columns:1fr!important}.conv-thread{max-height:440px}.permission-grid{grid-template-columns:1fr}.status{font-size:10px}.btn{padding:10px 12px}}
+@media(max-width:370px){.grid,.providers,.stat-strip{grid-template-columns:1fr!important}.nav button{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.logo:after{animation:none}html{scroll-behavior:auto}}
+</style></head><body><div class="layout"><aside class="side"><div class="brand"><div class="logo">F</div><div><b>FXI CONTROL</b><small>ADMINISTRATION SUITE</small></div></div><div class="navlabel">مدیریت سیستم</div><nav class="nav"><button class="active" data-page="overview">◫ نمای کلی</button><button data-page="providers">✦ سرویس‌های هوش مصنوعی</button><button data-page="users">♙ کاربران و مدیران</button><button data-page="community">◉ گروه‌ها و کانال‌ها</button><button data-page="conversations">▤ تاریخچه مکالمات</button><button data-page="audit">▣ گزارش فعالیت‌ها</button><button data-page="payments">▣ بررسی پرداخت‌ها</button><button data-page="broadcast">◉ پیام همگانی</button><button data-page="prompt">⌘ دستورالعمل دستیار</button><button data-page="system">⚙ سلامت و تنظیمات</button><button data-page="features">🎛 قابلیت‌های ربات</button></nav><div class="sidefoot">کنترل دقیق، تجربه بهتر<p>پنل مدیریت FXI · نسخه بازطراحی‌شده</p></div></aside>
 <main class="main"><header class="top"><div><h1 id="title">نمای کلی</h1><p>مرکز مدیریت و پایش ربات هوشمند FXI</p></div><div class="row"><button class="btn secondary" id="autoRefreshBtn" type="button" onclick="toggleAutoRefresh()">⏱ به‌روزرسانی خودکار: روشن</button><div class="status" id="status">● در حال اتصال</div></div></header><div class="content"><div id="notice" class="notice">در حال دریافت اطلاعات از سرور…</div>
 <section id="page-overview" class="page active" data-page-permission="dashboard"><div class="hero"><small>FXI SYSTEM OVERVIEW</small><h2>همه‌چیز تحت کنترل توست.</h2><p>وضعیت ربات، کاربران و سرویس‌های متصل را از یک پنل یکپارچه مدیریت کن.</p></div><div class="grid"><div class="card"><label>کاربران ثبت‌شده</label><div class="num" id="users">—</div><div class="sub">کاربرانی که ربات را شروع کرده‌اند</div></div><div class="card"><label>مدیران</label><div class="num" id="adminsCount">—</div><div class="sub">سطح دسترسی مدیریتی</div></div><div class="card"><label>سرویس‌های فعال</label><div class="num" id="providerCount">—</div><div class="sub">دارای کلید API معتبر در تنظیمات</div></div><div class="card"><label>وضعیت ربات</label><div class="num" id="bot">—</div><button class="btn secondary" onclick="toggleBot()">تغییر وضعیت ربات</button></div></div><div class="section card" id="providerOverviewCard"><div class="section-head"><h3>وضعیت اتصال مدل‌ها</h3><button class="btn secondary" onclick="refresh()">به‌روزرسانی</button></div><div class="providers" id="providerOverview"></div></div><div class="section card" id="communityOverviewCard"><div class="section-head"><h3>نمای جامعه تلگرام</h3><span class="badge">تحلیل داده‌های ثبت‌شده</span></div><div class="stat-strip"><div class="mini-stat"><span>گروه‌ها و کانال‌ها</span><b id="communityChats">—</b></div><div class="mini-stat"><span>پیام‌های ثبت‌شده</span><b id="communityMessages">—</b></div><div class="mini-stat"><span>اعضای مشاهده‌شده</span><b id="communityMembers">—</b></div><div class="mini-stat"><span>پست‌های قابل تحلیل</span><b id="communityPosts">—</b></div></div><div class="quick-actions"><button class="btn secondary" onclick="loadMetrics()">↻ به‌روزرسانی آمار</button><button class="btn secondary" onclick="goPage('system')" data-required-permission="system">⚙ مشاهده سلامت سیستم</button><button class="btn secondary" onclick="goPage('broadcast')" data-required-permission="broadcast">✉ رفتن به پیام همگانی</button></div><p class="muted">این اعداد مربوط به داده‌هایی است که ربات از زمان دسترسی ثبت کرده؛ به معنی دسترسی به تاریخچه کامل تلگرام نیست.</p></div></section>
 <section id="page-providers" class="page" data-page-permission="providers"><div class="hero"><small>AI PROVIDERS</small><h2>سرویس‌های متصل</h2><p>وضعیت پیکربندی را بررسی کن. کلیدهای API فقط از طریق متغیرهای محیطی سرور مدیریت می‌شوند و در این پنل نمایش داده نمی‌شوند.</p></div><div class="providers" id="providerList"></div><div class="notice section">برای فعال‌کردن سرویس قفل‌شده، متغیر API مربوطه را در Render تنظیم و سرویس را دوباره Deploy کن.</div></section>
