@@ -47,3 +47,14 @@ FXI is being shifted from a private AI-chat bot to a Telegram group/channel mana
 - Add configurable moderation thresholds, allowlists, warning/ban escalation, link policy, join-request review, polls, scheduled posts, and full dashboard workflows before calling this production-complete.
 - Admin-only commands currently rely on Telegram group administrator status or configured FXI admin IDs.
 - Do not enable automatic bans or mass deletions without explicit per-community policy and admin controls.
+
+
+## قابلیت‌های اختصاصی کانال
+
+- `/channelreport`: گزارش پست‌های ثبت‌شده، رتبه‌بندی تعامل و واژه‌های پرتکرار.
+- `/topposts`: نمایش ۱۰ پست برتر بر اساس داده‌های واکنش، بازدید و فوروارد.
+- `/contentplan`: ساخت برنامه پیشنهادی پنج‌پستی برای انتشار بعدی.
+- ثبت متن پست، نوع رسانه، شناسه پیام و داده‌های قابل‌دسترسی بازدید/فوروارد؛ واکنش‌ها از رویدادهای شمارش واکنش تلگرام به‌روزرسانی می‌شوند.
+- رتبه‌بندی از یک امتیاز شفاف استفاده می‌کند: واکنش‌ها وزن ۳، فوروارد وزن ۲ و بازدید وزن ۱ به ازای هر هزار بازدید (با سقف محاسباتی ۱۰۰ هزار).
+
+**محدودیت‌های تحلیل:** ربات فقط از زمان اضافه‌شدن و فقط از رویدادهایی که تلگرام برای آن می‌فرستد داده دارد؛ تاریخچه قدیمی کانال را خودکار بازیابی نمی‌کند. تعداد مشترکان، نرخ تعامل دقیق، بهترین ساعت انتشار و خبرهای روز بدون داده/منبع مستقل قابل محاسبه یا تأیید نیستند. گزارش‌ها این موارد را حدس نمی‌زنند. برای دریافت پست‌ها و واکنش‌ها، ربات باید در کانال ادمین باشد و دسترسی‌های لازم را داشته باشد.
