@@ -331,7 +331,7 @@ def remember_user(user_id: int, *, username: str | None = None,
 ADMIN_PERMISSIONS = {
     "dashboard": "نمای کلی", "providers": "سرویس‌های هوش مصنوعی", "users": "کاربران",
     "admins": "مدیریت ادمین‌ها", "community": "گروه‌ها و کانال‌ها",
-    "conversations": "تاریخچه مکالمات", "audit": "گزارش فعالیت‌ها",
+    "conversations": "تاریخچهٔ مکالمات", "audit": "گزارش فعالیت‌ها",
     "payments": "بررسی پرداخت‌ها", "broadcast": "پیام همگانی",
     "prompt": "دستورالعمل دستیار", "system": "سلامت و تنظیمات",
 }
@@ -400,7 +400,7 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
     if len(attempts) >= ADMIN_AUTH_MAX_FAILURES:
         raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
     if credentials is None:
-        raise HTTPException(status_code=401, detail="برای ورود از لینک اختصاصی ادمین استفاده کن.", headers={"WWW-Authenticate": "Basic"})
+        raise HTTPException(status_code=401, detail="برای ورود، از لینک اختصاصی ادمین استفاده کن.", headers={"WWW-Authenticate": "Basic"})
     valid_user = secrets.compare_digest(credentials.username, ADMIN_PANEL_USERNAME)
     valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PANEL_PASSWORD)
     if not (valid_user and valid_password):
@@ -408,7 +408,7 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
         admin_auth_failures[client_ip] = attempts
         if len(admin_auth_failures) > 5000:
             for ip in list(admin_auth_failures)[:1000]: admin_auth_failures.pop(ip, None)
-        raise HTTPException(status_code=401, detail="ورود نامعتبر است", headers={"WWW-Authenticate": "Basic"})
+        raise HTTPException(status_code=401, detail="اطلاعات ورود معتبر نیست.", headers={"WWW-Authenticate": "Basic"})
     admin_auth_failures.pop(client_ip, None)
     return {"auth_type": "root_basic", "permissions": sorted(ADMIN_PERMISSIONS)}
 
@@ -587,9 +587,9 @@ async def start(message: Message):
         "بررسی فعالیت‌ها و پاسخ‌گویی هوشمند کمک کنم.\n\n"
         "🚀 برای شروع:\n"
         "• من رو به گروه یا کانالت اضافه کن.\n"
-        "• در گروه، فقط مجوزهایی رو بده که برای قابلیت‌های موردنیازت لازمه.\n"
+        "• در گروه، فقط مجوزهایی رو بده که برای قابلیت‌های موردنیازت لازم‌اند.\n"
         "• برای فعال‌کردن پاسخ هوشمند گروه، مدیر می‌تونه بگه «ربات، پاسخ هوشمند رو روشن کن».\n"
-        "• برای انتخاب مدل /ai و دیدن دستورها /help رو بزن.\n\n"
+        "• برای انتخاب مدل /ai و دیدن دستورهای /help رو ببین.\n\n"
         "🔐 دسترسی مدیریتی و عملیات حساس فقط با بررسی مجوز انجام می‌شن.",
         reply_markup=keyboard,
     )
@@ -799,7 +799,7 @@ async def admin_command(message: Message):
     active = "، ".join(ADMIN_PERMISSIONS[p] for p in sorted(permissions))
     await message.answer(
         "🛠 پنل اختصاصی مدیریت FXI\n\n"
-        "این لینک ورود یک‌بارمصرف است و تا ۳۰ دقیقه اعتبار دارد. بعد از ورود، نشست تا ۱۲ ساعت فعال می‌ماند.\n\n"
+        "این لینک یک‌بارمصرف است و تا ۳۰ دقیقه اعتبار دارد. پس از ورود، نشست شما تا ۱۲ ساعت فعال می‌ماند.\n\n"
         f"{panel_url}\n\n"
         f"دسترسی‌های فعلی: {active}"
     )
@@ -820,7 +820,7 @@ async def help_command(message: Message):
         "• /challenge و /suggest — تعامل و پیشنهاد\n"
         "• /rules — قوانین گروه، در صورت تنظیم\n\n"
         "برای پاسخ هوشمند گروه، مدیر باید قابلیت را روشن کند و پیام باید ربات را خطاب قرار دهد. "
-        "تاریخچه هر کاربر و هر سرویس جدا نگه داشته می‌شود. پاسخ مدل ممکن است اشتباه باشد؛ اطلاعات مهم را بررسی کن."
+        "تاریخچهٔ هر کاربر و هر سرویس جداگانه نگه‌داری می‌شود. پاسخ مدل ممکن است اشتباه باشد؛ اطلاعات مهم را بررسی کن."
     )
 
 
@@ -1094,7 +1094,7 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
     if provider_id not in PROVIDERS:
         return "⚠️ سرویس انتخاب‌شده معتبر نیست. با /ai دوباره انتخابش کن."
     if not provider_ready(provider_id):
-        return f"🔒 {PROVIDERS[provider_id]['label']} هنوز فعال نشده؛ مدیر باید کلید API مربوطه را در Render تنظیم کند."
+        return f"🔒 {PROVIDERS[provider_id]['label']} هنوز فعال نشده؛ مدیر باید کلید API مربوط به این سرویس را در Render تنظیم کند."
 
     key = (user_id, provider_id)
     async with history_locks[key]:
@@ -1192,7 +1192,7 @@ async def community_is_admin(chat_id: int, user_id: int) -> bool:
 @dp.message(Command("community"))
 async def community_help(message: Message):
     if message.chat.type not in {"group", "supergroup", "channel"}:
-        await message.answer("این بخش را داخل گروه یا کانالی که ربات در آن دسترسی دارد اجرا کن.")
+        await message.answer("این دستور را در گروه یا کانالی اجرا کن که ربات به آن دسترسی دارد.")
         return
     await message.answer(
         "🛡 راهنمای FXI Community Manager\n\n"
@@ -1200,7 +1200,7 @@ async def community_help(message: Message):
         "/fxi_disable — غیرفعال‌سازی پاسخ هوشمند (مدیر)\n"
         "در گروه: «ربات، ...» بنویس یا منشن کن؛ برای ویس به پیام ربات ریپلای بزن یا کپشن «ربات» بگذار.\n"
         "نمونه: «ربات، آمار گروه رو بگو»، «ربات، قوانین رو بگو»، «ربات، پاسخ هوشمند رو روشن کن».\n"
-        "تشخیص ویس نیازمند GROQ_API_KEY یا OPENAI_API_KEY در Environment است.\n"
+        "تشخیص پیام صوتی به تنظیم GROQ_API_KEY یا OPENAI_API_KEY در متغیرهای محیطی (Environment) نیاز دارد.\n"
         "/draft موضوع — پیش‌نویس پست کانال (مدیر)\n"
         "/channelreport — گزارش تحلیل کانال\n/topposts — ۱۰ پست برتر\n"
         "/contentplan — برنامه ۵ محتوای بعدی\n"
@@ -1219,7 +1219,7 @@ async def community_ai_enable(message: Message):
         return
     community_chat(message.chat.id).setdefault("settings", {})["ai_enabled"] = True
     save_admin_data()
-    await message.answer("🧠 پاسخ هوشمند فعال شد. فقط وقتی منشنم کنی یا به پیامم ریپلای بزنی وارد گفتگو می‌شوم؛ پیام‌های عادی را قطع نمی‌کنم.")
+    await message.answer("🧠 پاسخ هوشمند فعال شد. فقط وقتی من را منشن کنی یا به پیامم ریپلای بزنی، وارد گفتگو می‌شوم؛ به پیام‌های عادی پاسخ نمی‌دهم.")
 
 @dp.message(Command("fxi_disable"))
 async def community_ai_disable(message: Message):
@@ -1302,7 +1302,7 @@ async def community_ban(message: Message):
         await message.answer("برای استفاده، روی پیام فرد ریپلای کن و /ban بزن."); return
     target = message.reply_to_message.from_user.id
     if await community_is_admin(message.chat.id, target):
-        await message.answer("مدیران گروه از این دستور مستثنا هستند."); return
+        await message.answer("این دستور شامل مدیران گروه نمی‌شود."); return
     try:
         await bot.ban_chat_member(message.chat.id, target)
         await message.answer("🚫 کاربر از گروه مسدود شد.")
@@ -1322,7 +1322,7 @@ async def community_mute(message: Message):
         await message.answer("مدت باید عددی بین ۱ تا ۱۰۰۸۰ دقیقه باشد."); return
     target = message.reply_to_message.from_user.id
     if await community_is_admin(message.chat.id, target):
-        await message.answer("مدیران گروه از این دستور مستثنا هستند."); return
+        await message.answer("این دستور شامل مدیران گروه نمی‌شود."); return
     try:
         await bot.restrict_chat_member(message.chat.id, target,
             permissions=ChatPermissions(can_send_messages=False),
@@ -1330,7 +1330,7 @@ async def community_mute(message: Message):
         await message.answer(f"🔇 کاربر به مدت {minutes} دقیقه محدود شد.")
     except Exception:
         log.exception("Mute failed in chat=%s", message.chat.id)
-        await message.answer("محدودسازی ناموفق بود؛ مجوز Restrict members را بررسی کن.")
+        await message.answer("محدودسازی ناموفق بود؛ مجوز «Restrict members» را بررسی کن.")
 
 @dp.message(Command("unmute"))
 async def community_unmute(message: Message):
@@ -1348,7 +1348,7 @@ async def community_unmute(message: Message):
         await message.answer("🔊 محدودیت ارسال پیام برداشته شد.")
     except Exception:
         log.exception("Unmute failed in chat=%s", message.chat.id)
-        await message.answer("برداشتن محدودیت ناموفق بود؛ دسترسی Restrict members را بررسی کن.")
+        await message.answer("برداشتن محدودیت ناموفق بود؛ مجوز «Restrict members» را بررسی کن.")
 
 @dp.message(Command("pin"))
 async def community_pin(message: Message):
@@ -1361,7 +1361,7 @@ async def community_pin(message: Message):
         await message.answer("📌 پیام سنجاق شد.")
     except Exception:
         log.exception("Pin failed in chat=%s", message.chat.id)
-        await message.answer("سنجاق پیام ناموفق بود؛ مجوز Pin messages را بررسی کن.")
+        await message.answer("سنجاق پیام ناموفق بود؛ مجوز «Pin messages» را بررسی کن.")
 
 def channel_post_score(post: dict) -> float:
     """Transparent ranking proxy; Telegram may not expose every engagement metric."""
@@ -1407,7 +1407,7 @@ async def channel_report(message: Message):
         lines.append("هنوز داده کافی ندارم؛ از زمان اضافه‌شدن ربات، پست‌های جدید را ثبت می‌کنم.")
     if insight["topics"]:
         lines.extend(["", "🔎 موضوعات پرتکرار: " + "، ".join(f"{word} ({count})" for word, count in insight["topics"])])
-    lines.extend(["", "⚠️ این رتبه‌بندی فقط بر اساس داده‌هایی است که تلگرام تحویل داده؛ نرخ تعامل واقعی به تعداد مشترکان و داده کامل نیاز دارد."])
+    lines.extend(["", "⚠️ این رتبه‌بندی فقط بر اساس داده‌هایی است که تلگرام در اختیار ربات گذاشته است؛ محاسبهٔ نرخ تعامل واقعی به تعداد مشترکان و داده‌های کامل نیاز دارد."])
     await send_long_message(message, "\n".join(lines))
 
 
@@ -1434,7 +1434,7 @@ async def channel_content_plan(message: Message):
     insight = channel_insights(community_chat(message.chat.id))
     topics = [word for word, _ in insight["topics"]]
     topic = "، ".join(topics[:3]) if topics else "موضوع اصلی کانال"
-    plan = ["🗓 برنامه پیشنهادی ۵ محتوای بعدی", f"مبنای موضوعی ثبت‌شده: {topic}", "",
+    plan = ["🗓 برنامه پیشنهادی ۵ محتوای بعدی", f"موضوع بر اساس داده‌های ثبت‌شده: {topic}", "",
             "۱. پست آموزشی کوتاه: یک نکته کاربردی و قابل ذخیره درباره موضوع محبوب.",
             "۲. پست تعاملی: یک سؤال مشخص با دو تا چهار گزینه برای نظرسنجی.",
             "۳. محتوای عمیق: راهنمای مرحله‌ای یا چک‌لیست قابل استفاده.",
@@ -1801,7 +1801,7 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     elif intent == "rules":
         await message.answer("📌 قوانین:\n" + (data.get("rules") or "هنوز قانونی ثبت نشده است."))
     elif intent == "help":
-        await message.answer("منشنم کن یا به پیامم ریپلای بزن. می‌تونی بگی «آمار گروه رو بگو»، «قوانین رو بگو»، یا مدیر گروه بگه «پاسخ هوشمند رو روشن/خاموش کن». برای دستورهای کامل /community")
+        await message.answer("من را منشن کن یا به پیامم ریپلای بزن. می‌تونی بگی «آمار گروه رو بگو»، «قوانین رو بگو»، یا مدیر گروه بگه «پاسخ هوشمند رو روشن/خاموش کن». برای دستورهای کامل /community")
     elif intent == "draft":
         topic_text = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)[،,:؛\s-]*", "", request_text.strip(), flags=re.I).strip()
         topic = re.sub(r"^(پیش\s*نویس|پیشنویس|یه پست درباره)\s*", "", topic_text, flags=re.I).strip()
@@ -1830,13 +1830,13 @@ async def transcribe_telegram_voice(message: Message) -> str:
     if not voice:
         raise RuntimeError("فایل صوتی پیدا نشد.")
     if voice.file_size and voice.file_size > 20 * 1024 * 1024:
-        raise RuntimeError("حجم فایل صوتی بیشتر از ۲۰ مگابایت است.")
+        raise RuntimeError("حجم حجم فایل صوتی از ۲۰ مگابایت بیشتر است.")
     file_info = await bot.get_file(voice.file_id)
     buffer = io.BytesIO()
     await bot.download_file(file_info.file_path, destination=buffer)
     audio_bytes = buffer.getvalue()
     if not audio_bytes:
-        raise RuntimeError("فایل صوتی خالی است.")
+        raise RuntimeError("فایل صوتی خالی است یا داده‌ای ندارد.")
     form = aiohttp.FormData()
     form.add_field("file", audio_bytes, filename="voice.ogg", content_type="audio/ogg")
     if os.getenv("GROQ_API_KEY", "").strip():
