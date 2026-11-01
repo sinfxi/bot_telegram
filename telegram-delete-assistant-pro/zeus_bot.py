@@ -486,7 +486,7 @@ def provider_ready(provider: str) -> bool:
 
 FEATURE_DEFINITIONS = {
     "ai_chat": {"label": "پاسخ‌گویی هوشمند", "description": "پاسخ‌های متنی هوش مصنوعی در گفت‌وگوها"},
-    "voice_tools": {"label": "پیام صوتی", "description": "پردازش پیام‌های صوتی؛ در نسخه فعلی به سرویس گفتار مستقل وابسته است"},
+    "voice_tools": {"label": "پیام صوتی (فعلاً غیرفعال)", "description": "در نسخه OpenRouter-only تبدیل گفتار فعال نیست.", "available": False},
     "image_tools": {"label": "پردازش تصویر و رسید", "description": "دریافت و پردازش تصویر و رسیدهای پرداخت"},
     "community_management": {"label": "مدیریت گروه و کانال", "description": "فرمان‌های مدیریتی جامعه تلگرام"},
     "natural_commands": {"label": "دستورهای طبیعی", "description": "درخواست‌های مدیریتی با زبان طبیعی"},
@@ -2167,6 +2167,8 @@ async def update_feature_settings(payload: FeatureSettingsPayload, _: str = Depe
     unknown = set(payload.features) - allowed
     if unknown:
         raise HTTPException(status_code=422, detail="یک یا چند قابلیت ناشناخته است.")
+    if payload.features.get("voice_tools") is True:
+        raise HTTPException(status_code=422, detail="تبدیل گفتار در نسخه OpenRouter-only پشتیبانی نمی‌شود.")
     current = admin_data.setdefault("features", {})
     current.update({key: bool(value) for key, value in payload.features.items()})
     log_admin_action("feature_settings_updated", ", ".join(f"{key}={'on' if value else 'off'}" for key, value in payload.features.items()))
