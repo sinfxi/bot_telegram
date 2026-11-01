@@ -7,6 +7,7 @@ FXI is being shifted from a private AI-chat bot to a Telegram group/channel mana
 - Private `/start` now explains how to add FXI to a group or channel; private free-form messages no longer trigger AI chat replies.
 - Community message capture stores chat title/type, message count, recently observed member identity, and a bounded sample of recent text.
 - Conservative anti-flood protection removes repeated rapid messages in groups when the bot has delete-message permission. Group administrators are exempt.
+- Reply-based `/ban`, `/mute [minutes]`, `/unmute`, and `/pin` commands are available to group administrators.
 - Group rules: `/rules` and administrator-only `/setrules <text>`.
 - Group activity summary: `/communitystats`.
 - Administrator-only challenge publishing: `/challenge`.
@@ -31,6 +32,10 @@ FXI is being shifted from a private AI-chat bot to a Telegram group/channel mana
 | `/rules` | Show group rules |
 | `/setrules <text>` | Change rules (group administrator only) |
 | `/communitystats` | Show observed activity totals |
+| `/ban` (reply) | Ban the replied-to member (administrator only) |
+| `/mute [minutes]` (reply) | Restrict the replied-to member, default 60 minutes (administrator only) |
+| `/unmute` (reply) | Restore sending permissions (administrator only) |
+| `/pin` (reply) | Pin the replied-to message (administrator only) |
 | `/challenge` | Publish a group challenge (administrator only) |
 | `/suggest` | Produce five content/community ideas (administrator only) |
 
