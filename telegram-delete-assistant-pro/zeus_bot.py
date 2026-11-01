@@ -275,14 +275,28 @@ def get_web_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="نشست شما منقضی شده؛ دوباره وارد شو.")
 
 
-def remember_user(user_id: int) -> None:
+def remember_user(user_id: int, *, username: str | None = None,
+                  first_name: str | None = None, last_name: str | None = None) -> None:
+    """Persist Telegram identity fields when Telegram supplies them."""
     users = admin_data.setdefault("users", [])
     if user_id not in users:
         users.append(user_id)
-        try:
-            save_admin_data()
-        except OSError:
-            log.exception("Could not persist Telegram user registry")
+    profiles = admin_data.setdefault("user_profiles", {})
+    key = str(user_id)
+    profile = profiles.setdefault(key, {"user_id": user_id, "first_seen": datetime.now(timezone.utc).isoformat()})
+    # Telegram usernames and display names are optional and can change over time.
+    if username is not None:
+        profile["username"] = username
+    if first_name is not None:
+        profile["first_name"] = first_name
+    if last_name is not None:
+        profile["last_name"] = last_name
+    profile["display_name"] = " ".join(part for part in [profile.get("first_name"), profile.get("last_name")] if part).strip()
+    profile["last_seen"] = datetime.now(timezone.utc).isoformat()
+    try:
+        save_admin_data()
+    except OSError:
+        log.exception("Could not persist Telegram user registry/profile")
 
 
 def require_admin(credentials: HTTPBasicCredentials = Depends(admin_security)):
@@ -454,7 +468,7 @@ def provider_menu_text(user_id: int) -> str:
 @dp.message(CommandStart())
 async def start(message: Message):
     user_id = message.from_user.id if message.from_user else 0
-    remember_user(user_id)
+    remember_user(user_id, username=message.from_user.username if message.from_user else None, first_name=message.from_user.first_name if message.from_user else None, last_name=message.from_user.last_name if message.from_user else None)
     await message.answer(
         "سلام! 👋 به دستیار هوش مصنوعی FXI خوش اومدی.\n"
         "از منو سرویس موردنظرت رو انتخاب کن، بعد پیام بفرست.\n\n"
@@ -982,7 +996,7 @@ async def chat(message: Message):
     if not message.from_user or not message.text:
         await message.answer("فعلاً فقط پیام متنی رو پشتیبانی می‌کنم. 🙂")
         return
-    remember_user(message.from_user.id)
+    remember_user(message.from_user.id, username=message.from_user.username, first_name=message.from_user.first_name, last_name=message.from_user.last_name)
     if not bot_enabled:
         await message.answer('⛔ ربات موقتاً توسط مدیریت غیرفعال شده است.')
         return
@@ -1077,6 +1091,7 @@ async def admin_status(_: str = Depends(require_admin)):
         "admins": sorted(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
         "primary_admins": sorted(ADMIN_IDS),
         "recent_users": admin_data.get("users", [])[-50:],
+        "recent_user_profiles": [admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}) for uid in admin_data.get("users", [])[-100:]],
         "providers": [name for name in PROVIDERS if provider_ready(name)],
         "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT),
     }
