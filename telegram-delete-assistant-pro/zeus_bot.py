@@ -19,7 +19,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageReactionCountUpdated, ChatMemberUpdated
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -449,7 +449,7 @@ def provider_keyboard() -> InlineKeyboardMarkup:
             callback_data=f"provider:{provider_id}",
         )])
     rows.append([InlineKeyboardButton(text="ℹ️ وضعیت سرویس‌ها", callback_data="providers:status")])
-    rows.append([InlineKeyboardButton(text="🌐 ورود به پنل وب FXI", url="https://telegram-delete-assistant-pro.onrender.com/app")])
+
     rows.append([InlineKeyboardButton(text="❤️ حمایت / درخواست ادمینی", callback_data="support:start")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -989,6 +989,185 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
 async def send_long_message(message: Message, text: str):
     for i in range(0, len(text), 3900):
         await message.answer(text[i:i + 3900])
+
+
+
+# Community management: collect only updates Telegram delivers after the bot is added.
+COMMUNITY_WINDOW_SECONDS = 30
+COMMUNITY_MAX_MESSAGES = 7
+COMMUNITY_MAX_TEXT = 2500
+COMMUNITY_URL_LIMIT = 3
+
+def community_store() -> dict:
+    return admin_data.setdefault("community", {"chats": {}, "messages": {}, "challenges": {}, "settings": {}})
+
+def community_chat(chat_id: int) -> dict:
+    store = community_store()
+    return store.setdefault("chats", {}).setdefault(str(chat_id), {
+        "title": "", "type": "", "message_count": 0, "members_seen": {},
+        "activity": [], "top_posts": [], "rules": "به اعضا احترام بگذارید؛ از اسپم و تبلیغات ناخواسته خودداری کنید."
+    })
+
+async def community_is_admin(chat_id: int, user_id: int) -> bool:
+    if is_admin(user_id):
+        return True
+    if not bot:
+        return False
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        return member.status in {"creator", "administrator"}
+    except Exception:
+        return False
+
+@dp.message(Command("community"))
+async def community_help(message: Message):
+    if message.chat.type not in {"group", "supergroup", "channel"}:
+        await message.answer("این بخش را داخل گروه یا کانالی که ربات در آن دسترسی دارد اجرا کن.")
+        return
+    await message.answer(
+        "🛡 مدیریت جامعه FXI\n\n"
+        "/community — راهنما\n/challenge — ساخت چالش گروهی\n"
+        "/suggest — پنج پیشنهاد برای کانال/گروه\n"
+        "/rules — نمایش قوانین\n/setrules متن — تنظیم قوانین (مدیر)\n"
+        "/communitystats — آمار فعالیت\n\n"
+        "برای مدیریت اعضا، ربات باید در گروه ادمین باشد و مجوز حذف پیام/محدودسازی را داشته باشد."
+    )
+
+@dp.message(Command("rules"))
+async def community_rules(message: Message):
+    data = community_chat(message.chat.id)
+    await message.answer("📜 قوانین گروه:\n" + data.get("rules", "قوانینی ثبت نشده است."))
+
+@dp.message(Command("setrules"))
+async def community_set_rules(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند قوانین را تغییر دهد.")
+        return
+    value = (message.text or "").partition(" ")[2].strip()
+    if not value or len(value) > 3000:
+        await message.answer("استفاده: /setrules متن قوانین")
+        return
+    community_chat(message.chat.id)["rules"] = value
+    save_admin_data()
+    await message.answer("✅ قوانین گروه ذخیره شد.")
+
+@dp.message(Command("communitystats"))
+async def community_stats(message: Message):
+    data = community_chat(message.chat.id)
+    users = len(data.get("members_seen", {}))
+    await message.answer(
+        f"📊 آمار از زمان اتصال ربات\nپیام‌های ثبت‌شده: {data.get('message_count', 0)}\n"
+        f"اعضای مشاهده‌شده: {users}\nپست‌های دارای تعامل ثبت‌شده: {len(data.get('top_posts', []))}"
+    )
+
+@dp.message(Command("challenge"))
+async def community_challenge(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند چالش رسمی منتشر کند.")
+        return
+    topics = community_chat(message.chat.id).get("activity", [])[-30:]
+    topic = max((x.get("text", "") for x in topics), key=len, default="موضوع آزاد")
+    challenge = f"🎯 چالش FXI امروز\n\nموضوع: {topic[:100] or 'موضوع آزاد'}\nهر عضو یک پاسخ یا ایده مفید ارسال کند. مدیر گروه می‌تواند بهترین پاسخ را انتخاب کند!"
+    community_store()["challenges"][str(message.chat.id)] = {"text": challenge, "created_at": datetime.now(timezone.utc).isoformat()}
+    save_admin_data()
+    await message.answer(challenge)
+
+@dp.message(Command("suggest"))
+async def community_suggestions(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ این گزارش فقط برای مدیران گروه/کانال است.")
+        return
+    data = community_chat(message.chat.id)
+    posts = sorted(data.get("top_posts", []), key=lambda x: (x.get("reactions", 0), x.get("views", 0)), reverse=True)
+    activity = data.get("activity", [])
+    recent = [x.get("text", "")[:120] for x in activity[-20:] if x.get("text")]
+    top = posts[:2]
+    suggestions = [
+        "📌 بازنشر موضوع موفق: یک پست تازه با زاویه متفاوت از «" + (top[0].get("text", "موضوع محبوب")[:65] if top else "موضوعات محبوب گروه") + "» بساز.",
+        "💬 تعامل‌سازی: یک نظرسنجی دوگزینه‌ای درباره پرتکرارترین موضوع گفتگوهای اخیر منتشر کن.",
+        "🏆 چالش اعضا: از اعضا بخواه تجربه یا راهکار خود را درباره «" + (recent[-1][:65] if recent else "موضوع اصلی کانال") + "» ارسال کنند.",
+        "🧩 محتوای تکمیلی: برای یکی از پست‌های پربازخورد، نسخه آموزشی/مرحله‌به‌مرحله تهیه کن.",
+        "🌍 موضوع روز: یک خبر تازه و مرتبط با حوزه کانال از منبع خبری معتبر پیدا و پس از بررسی مدیر منتشر کن."
+    ]
+    lines = ["✨ پنج پیشنهاد FXI بر اساس داده‌های ثبت‌شده:", ""]
+    lines.extend(f"{i+1}. {item}" for i, item in enumerate(suggestions))
+    lines.append("\nℹ️ این پیشنهادها بر پایه سابقه‌ای است که ربات از زمان اضافه‌شدن ثبت کرده؛ پیشنهاد خبر روز تا زمان اتصال منبع خبری، نیازمند بررسی دستی است.")
+    await message.answer("\n".join(lines))
+
+@dp.message(F.chat.type.in_({"group", "supergroup", "channel"}))
+async def collect_community_message(message: Message):
+    # Channel posts may not have from_user; group posts normally do.
+    if not bot_enabled:
+        return
+    data = community_chat(message.chat.id)
+    data["title"] = message.chat.title or data.get("title") or str(message.chat.id)
+    data["type"] = message.chat.type
+    data["message_count"] = int(data.get("message_count", 0)) + 1
+    text_value = (message.text or message.caption or "").strip()
+    if message.from_user:
+        uid = str(message.from_user.id)
+        data.setdefault("members_seen", {})[uid] = {
+            "name": message.from_user.full_name,
+            "username": message.from_user.username,
+            "last_seen": datetime.now(timezone.utc).isoformat()
+        }
+    if text_value:
+        data.setdefault("activity", []).append({
+            "text": text_value[:COMMUNITY_MAX_TEXT],
+            "date": datetime.now(timezone.utc).isoformat(),
+            "user_id": message.from_user.id if message.from_user else None
+        })
+        data["activity"] = data["activity"][-200:]
+    save_admin_data()
+
+    # Conservative anti-flood: only repeated rapid messages, no blanket link ban.
+    if message.from_user and message.chat.type in {"group", "supergroup"} and text_value:
+        if await community_is_admin(message.chat.id, message.from_user.id):
+            return
+        bucket_key = f"{message.chat.id}:{message.from_user.id}"
+        buckets = admin_data.setdefault("community_flood", {})
+        now = time.time()
+        bucket = [t for t in buckets.get(bucket_key, []) if now - t < COMMUNITY_WINDOW_SECONDS]
+        bucket.append(now)
+        buckets[bucket_key] = bucket[-20:]
+        if len(bucket) > COMMUNITY_MAX_MESSAGES:
+            try:
+                await bot.delete_message(message.chat.id, message.message_id)
+                await message.answer("⚠️ لطفاً از ارسال پشت‌سرهم پیام خودداری کنید.")
+            except Exception:
+                log.warning("Anti-flood could not delete message in chat=%s", message.chat.id)
+
+@dp.message_reaction_count()
+async def collect_reaction_counts(event: MessageReactionCountUpdated):
+    data = community_chat(event.chat.id)
+    counts = []
+    total = 0
+    for item in event.reactions:
+        count = int(item.total_count)
+        total += count
+        counts.append(count)
+    posts = data.setdefault("top_posts", [])
+    record = next((p for p in posts if p.get("message_id") == event.message_id), None)
+    if record is None:
+        record = {"message_id": event.message_id, "text": "", "reactions": 0, "updated_at": ""}
+        posts.append(record)
+    record["reactions"] = total
+    record["updated_at"] = datetime.now(timezone.utc).isoformat()
+    data["top_posts"] = sorted(posts, key=lambda x: x.get("reactions", 0), reverse=True)[:50]
+    save_admin_data()
+
+@dp.chat_member()
+async def community_member_update(event: ChatMemberUpdated):
+    data = community_chat(event.chat.id)
+    old_status = event.old_chat_member.status
+    new_status = event.new_chat_member.status
+    if old_status in {"left", "kicked"} and new_status in {"member", "restricted", "administrator"}:
+        if bot:
+            try:
+                await bot.send_message(event.chat.id, f"👋 خوش اومدی {event.new_chat_member.user.full_name}! قوانین گروه رو با /rules بخون.")
+            except Exception:
+                log.info("Welcome message unavailable for chat=%s", event.chat.id)
+    save_admin_data()
 
 
 @dp.message()
