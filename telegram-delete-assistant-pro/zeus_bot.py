@@ -1862,22 +1862,24 @@ async def _telegram_watchdog() -> None:
             continue
         try:
             await asyncio.wait_for(bot.get_me(), timeout=20)
-            if polling_task is None or polling_task.done():
-                if polling_task is not None:
-                    try:
-                        error = polling_task.exception()
-                    except (asyncio.CancelledError, Exception):
-                        error = None
-                    if error:
-                        log.error("Watchdog: Telegram polling stopped: %s", error)
-                polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
-                log.warning("Watchdog: restarted stopped Telegram polling task")
-            else:
-                log.info("Watchdog: Telegram API reachable; polling task running")
+            log.info("Watchdog: Telegram API reachable")
         except asyncio.CancelledError:
             raise
         except Exception:
-            log.exception("Watchdog: Telegram API check failed; polling will retry automatically")
+            # A temporary API/network issue should not prevent recovery of a dead polling task.
+            log.exception("Watchdog: Telegram API check failed; checking polling task anyway")
+        if polling_task is None or polling_task.done():
+            if polling_task is not None:
+                try:
+                    error = polling_task.exception()
+                except (asyncio.CancelledError, Exception):
+                    error = None
+                if error:
+                    log.error("Watchdog: Telegram polling stopped: %s", error)
+            polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+            log.warning("Watchdog: restarted stopped Telegram polling task")
+        else:
+            log.info("Watchdog: polling task is running")
 
 
 @asynccontextmanager
