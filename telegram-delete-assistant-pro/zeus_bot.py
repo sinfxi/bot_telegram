@@ -1692,9 +1692,6 @@ async def community_voice(message: Message):
         await message.answer("🎙 ویس رو داخل گروهی که ربات عضو شده بفرست. برای تشخیص صدا، کلید Groq یا OpenAI باید در سرور تنظیم شده باشه.")
         return
     data = community_chat(message.chat.id)
-    if not data.get("settings", {}).get("ai_enabled", False):
-        await message.answer("🔕 پاسخ هوشمند این گروه خاموشه. مدیر گروه می‌تونه بگه «ربات، پاسخ هوشمند رو روشن کن».")
-        return
     if not message.from_user:
         return
     try:
@@ -1705,7 +1702,11 @@ async def community_voice(message: Message):
         await message.answer(f"🎙 نتونستم ویس رو به متن تبدیل کنم. {exc}")
         return
     await message.answer("🎙 چیزی که شنیدم:\n«" + transcript[:700] + "»")
+    # Voice can be used to enable AI too; deterministic actions are checked before the AI toggle.
     if await _handle_natural_request(message, transcript, from_voice=True):
+        return
+    if not data.get("settings", {}).get("ai_enabled", False):
+        await message.answer("🔕 پاسخ هوشمند این گروه خاموشه. مدیر گروه می‌تونه با ویس یا متن بگه «ربات، پاسخ هوشمند رو روشن کن».")
         return
     provider_id = selected_provider[message.from_user.id]
     if not provider_ready(provider_id):
