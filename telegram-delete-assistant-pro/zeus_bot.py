@@ -1057,112 +1057,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
 
 
-@app.post("/auth/telegram")
-async def telegram_web_login(payload: TelegramAuthPayload):
-    if not verify_telegram_login(payload):
-        raise HTTPException(status_code=401, detail="ورود تلگرام معتبر نیست یا منقضی شده است.")
-    user = {
-        "id": payload.id,
-        "first_name": payload.first_name or "",
-        "last_name": payload.last_name or "",
-        "username": payload.username or "",
-        "photo_url": payload.photo_url or "",
-    }
-    remember_user(payload.id)
-    token = SESSION_SERIALIZER.dumps(user)
-    result = JSONResponse({"ok": True, "user": user})
-    result.set_cookie("fxi_session", token, max_age=7 * 24 * 60 * 60,
-                      httponly=True, secure=True, samesite="lax", path="/")
-    return result
-
-
-@app.post("/auth/logout")
-async def web_logout():
-    result = JSONResponse({"ok": True})
-    result.delete_cookie("fxi_session", path="/")
-    return result
-
-
-@app.get("/api/me")
-async def web_me(user: dict = Depends(get_web_user)):
-    user_id = int(user["id"])
-    selected = selected_provider[user_id]
-    return {
-        **user,
-        "selected_provider": selected,
-        "providers": [{"id": name, "label": config["label"], "ready": provider_ready(name)}
-                      for name, config in PROVIDERS.items()],
-        "history_persistent": bool(DATABASE_URL and DATABASE_READY),
-    }
-
-
-@app.post("/api/provider")
-async def web_select_provider(payload: ProviderPayload, user: dict = Depends(get_web_user)):
-    provider_id = payload.provider_id
-    if provider_id not in PROVIDERS:
-        raise HTTPException(status_code=404, detail="این سرویس شناخته‌شده نیست.")
-    if not provider_ready(provider_id):
-        raise HTTPException(status_code=409, detail="این سرویس هنوز توسط مدیر پیکربندی نشده است.")
-    selected_provider[int(user["id"])] = provider_id
-    return {"selected_provider": provider_id, "label": PROVIDERS[provider_id]["label"]}
-
-
-@app.get("/api/history")
-async def web_history(user: dict = Depends(get_web_user)):
-    user_id = int(user["id"])
-    provider_id = selected_provider[user_id]
-    if DATABASE_URL:
-        if not DATABASE_READY:
-            raise HTTPException(status_code=503, detail="پایگاه داده تاریخچه در دسترس نیست.")
-        key = (user_id, provider_id)
-        async with history_locks[key]:
-            try:
-                messages = await asyncio.to_thread(_load_chat_history_sync, user_id, provider_id, 40)
-                histories[key][:] = messages[-MAX_HISTORY_MESSAGES:]
-                return {"provider_id": provider_id, "messages": messages}
-            except Exception:
-                log.exception("Persistent history read failed for user=%s", user_id)
-                raise HTTPException(status_code=503, detail="بازیابی تاریخچه از پایگاه داده ممکن نشد.")
-    return {"provider_id": provider_id, "messages": histories[(user_id, provider_id)][-40:]}
-
-
-@app.post("/api/reset")
-async def web_reset(user: dict = Depends(get_web_user)):
-    user_id = int(user["id"])
-    provider_id = selected_provider[user_id]
-    key = (user_id, provider_id)
-    async with history_locks[key]:
-        if DATABASE_URL:
-            if not DATABASE_READY:
-                raise HTTPException(status_code=503, detail="پایگاه داده تاریخچه در دسترس نیست.")
-            try:
-                await asyncio.to_thread(_clear_chat_history_sync, user_id, provider_id)
-            except Exception:
-                log.exception("Persistent history reset failed for user=%s", user_id)
-                raise HTTPException(status_code=503, detail="پاک‌کردن تاریخچه از پایگاه داده ممکن نشد.")
-        histories[key].clear()
-    return {"ok": True}
-
-
-@app.post("/api/chat")
-async def web_chat(payload: ChatPayload, user: dict = Depends(get_web_user)):
-    if not bot_enabled:
-        raise HTTPException(status_code=503, detail="ربات موقتاً غیرفعال است.")
-    user_id = int(user["id"])
-    provider_id = selected_provider[user_id]
-    if not provider_ready(provider_id):
-        raise HTTPException(status_code=409, detail="مدل فعلی فعال نیست؛ یک مدل آماده انتخاب کن.")
-    answer = await ask_ai(user_id, provider_id, payload.message.strip())
-    return {"answer": answer, "provider_id": provider_id,
-            "provider_label": PROVIDERS[provider_id]["label"]}
-
-
 @app.get("/")
 @app.get("/app")
 async def user_web_app():
-    return FileResponse(STATIC_DIR / "user.html")
-
-
+    # User-facing web chat has been removed; the web root is the admin console.
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/admin", status_code=307)
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -1265,6 +1165,68 @@ async def update_prompt(payload: PromptPayload, _: str = Depends(require_admin))
     save_admin_data()
     return {"message": "دستورالعمل هوش مصنوعی ذخیره شد"}
 
+
+
+
+@app.get("/admin/api/payments")
+async def admin_payments(_: str = Depends(require_admin)):
+    payments = admin_data.get("payments", {})
+    items = []
+    for pid, record in payments.items():
+        items.append({"id": pid, **record})
+    items.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+    return {"items": items, "pending": sum(1 for item in items if item.get("status") == "pending_review")}
+
+
+@app.post("/admin/api/payments/{payment_id}/{action}")
+async def admin_payment_action(payment_id: str, action: str, _: str = Depends(require_admin)):
+    if action not in {"approve", "reject"}:
+        raise HTTPException(status_code=400, detail="عملیات نامعتبر است.")
+    payment = admin_data.get("payments", {}).get(payment_id)
+    if not payment or payment.get("status") != "pending_review":
+        raise HTTPException(status_code=404, detail="درخواست در انتظار بررسی پیدا نشد.")
+    user_id = int(payment["user_id"])
+    payment["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+    payment["reviewed_via"] = "admin_panel"
+    if action == "approve":
+        if user_id not in admin_data.setdefault("admins", []):
+            admin_data["admins"].append(user_id)
+        payment["status"] = "approved_admin"
+        message = "درخواست تأیید شد و دسترسی مدیریتی فعال شد."
+        if bot:
+            try:
+                await bot.send_message(user_id, "درخواستت پس از بررسی ادمین تأیید شد و دسترسی مدیریتی FXI فعال شد.")
+            except Exception:
+                log.exception("Could not notify approved payment user=%s", user_id)
+    else:
+        payment["status"] = "rejected"
+        message = "درخواست رد شد."
+        if bot:
+            try:
+                await bot.send_message(user_id, "درخواست ادمینی شما پس از بررسی تأیید نشد. از همراهی شما ممنونیم.")
+            except Exception:
+                log.exception("Could not notify rejected payment user=%s", user_id)
+    save_admin_data()
+    return {"message": message, "status": payment["status"]}
+
+
+@app.get("/admin/api/metrics")
+async def admin_metrics(_: str = Depends(require_admin)):
+    users = admin_data.get("users", [])
+    payments = list(admin_data.get("payments", {}).values())
+    return {
+        "users_total": len(users),
+        "admins_total": len(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
+        "payments_total": len(payments),
+        "payments_pending": sum(1 for item in payments if item.get("status") == "pending_review"),
+        "payments_approved": sum(1 for item in payments if item.get("status") == "approved_admin"),
+        "payments_rejected": sum(1 for item in payments if item.get("status") == "rejected"),
+        "database_ready": bool(DATABASE_READY),
+        "telegram_connected": bool(bot and polling_task and not polling_task.done()),
+        "providers_configured": sum(1 for name in PROVIDERS if provider_ready(name)),
+        "providers_total": len(PROVIDERS),
+        "uptime_state": "running" if bot_enabled else "paused",
+    }
 
 @app.get("/health")
 async def health():
