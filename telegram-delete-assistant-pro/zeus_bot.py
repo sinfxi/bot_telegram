@@ -502,6 +502,45 @@ def feature_enabled(feature: str) -> bool:
     return bool(admin_data.get("features", {}).get(feature, defaults.get(feature, True)))
 
 
+COMMUNITY_COMMANDS = {
+    "community", "fxi_enable", "fxi_disable", "draft", "rules", "setrules", "ban", "mute",
+    "unmute", "pin", "channelreport", "topposts", "contentplan", "communitystats",
+    "challenge", "suggest",
+}
+
+
+@dp.message.outer_middleware()
+async def feature_message_gate(handler, event: Message, data):
+    text_value = (event.text or "").strip() if isinstance(event, Message) else ""
+    command = text_value.split(maxsplit=1)[0].split("@", 1)[0].lstrip("/").lower() if text_value.startswith("/") else ""
+    if command in COMMUNITY_COMMANDS and not feature_enabled("community_management"):
+        await event.answer("قابلیت مدیریت گروه و کانال توسط مدیر غیرفعال شده است.")
+        return None
+    if command == "support" and not feature_enabled("payments"):
+        await event.answer("قابلیت حمایت و پرداخت فعلاً غیرفعال است.")
+        return None
+    if isinstance(event, Message) and (event.photo or event.document) and not feature_enabled("image_tools"):
+        await event.answer("پردازش تصویر و فایل توسط مدیر غیرفعال شده است.")
+        return None
+    if isinstance(event, Message) and (event.voice or event.audio) and not feature_enabled("voice_tools"):
+        await event.answer("پردازش پیام صوتی توسط مدیر غیرفعال شده است.")
+        return None
+    return await handler(event, data)
+
+
+@dp.callback_query.outer_middleware()
+async def feature_callback_gate(handler, event: CallbackQuery, data):
+    callback_data = event.data or ""
+    if callback_data.startswith("pay:") and not feature_enabled("payments"):
+        await event.answer("قابلیت پرداخت غیرفعال است.", show_alert=True)
+        return None
+    if callback_data.startswith("provider:") and not feature_enabled("ai_chat"):
+        await event.answer("پاسخ‌گویی هوشمند غیرفعال است.", show_alert=True)
+        return None
+    return await handler(event, data)
+
+
+
 def provider_keyboard() -> InlineKeyboardMarkup:
     rows = []
     for provider_id, config in PROVIDERS.items():
@@ -531,7 +570,7 @@ def provider_menu_text(user_id: int) -> str:
 async def start(message: Message):
     user = message.from_user
     user_id = user.id if user else 0
-    if user:
+    if user and feature_enabled("user_tracking"):
         remember_user(user_id, username=user.username, first_name=user.first_name, last_name=user.last_name)
     name = (user.first_name or "دوست من") if user else "دوست من"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -573,6 +612,9 @@ async def start_menu_actions(callback: CallbackQuery):
             "در گروه، پاسخ هوشمند فقط وقتی فعال می‌شه که به ربات اشاره کنی و مدیر گروه اون رو روشن کرده باشه."
         )
     elif action == "ai":
+        if not feature_enabled("ai_chat"):
+            await callback.answer("پاسخ‌گویی هوشمند توسط مدیر غیرفعال شده است.", show_alert=True)
+            return
         await callback.message.answer(provider_menu_text(callback.from_user.id), reply_markup=provider_keyboard())
     elif action == "community":
         await callback.message.answer(
@@ -597,12 +639,18 @@ async def start_menu_actions(callback: CallbackQuery):
 @dp.message(Command("ai"))
 @dp.message(Command("models"))
 async def choose_ai(message: Message):
+    if not feature_enabled("ai_chat"):
+        await message.answer("⛔ پاسخ‌گویی هوشمند توسط مدیر غیرفعال شده است.")
+        return
     user_id = message.from_user.id if message.from_user else 0
     await message.answer(provider_menu_text(user_id), reply_markup=provider_keyboard())
 
 
 @dp.callback_query(F.data.startswith("provider:"))
 async def choose_provider(callback: CallbackQuery):
+    if not feature_enabled("ai_chat"):
+        await callback.answer("پاسخ‌گویی هوشمند غیرفعال است.", show_alert=True)
+        return
     if not callback.from_user:
         await callback.answer()
         return
@@ -703,17 +751,26 @@ def payment_review_keyboard(pid: str) -> InlineKeyboardMarkup:
 
 @dp.message(Command("support"))
 async def support_command(message: Message):
+    if not feature_enabled("payments"):
+        await message.answer("درخواست‌های حمایت و پرداخت فعلاً غیرفعال هستند.")
+        return
     if message.from_user: pending_receipts.add(message.from_user.id)
     await message.answer(f"❤️ حمایت از FXI و درخواست ادمینی\n\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\n\nحداقل مبلغ برای درخواست ادمینی: ۱۰۰٬۰۰۰ تومان. پس از واریز تصویر رسید را همین‌جا بفرست. تحلیل تصویر تأیید نهایی پرداخت نیست.")
 
 @dp.callback_query(F.data == "support:start")
 async def support_callback(callback: CallbackQuery):
+    if not feature_enabled("payments"):
+        await callback.answer("قابلیت پرداخت غیرفعال است.", show_alert=True)
+        return
     if callback.from_user: pending_receipts.add(callback.from_user.id)
     await callback.answer()
     if callback.message: await callback.message.answer(f"❤️ حمایت از FXI / درخواست ادمینی\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\nحداقل مبلغ: ۱۰۰٬۰۰۰ تومان\nپس از واریز، تصویر رسید را ارسال کن. تأیید نهایی با ادمین اصلی است.")
 
 @dp.message(F.photo)
 async def receive_payment_receipt(message: Message):
+    if not feature_enabled("image_tools") or not feature_enabled("payments"):
+        await message.answer("دریافت و پردازش رسیدها توسط مدیر غیرفعال شده است.")
+        return
     if not message.from_user or not bot: return
     uid=message.from_user.id
     if uid not in pending_receipts:
@@ -1831,6 +1888,9 @@ async def transcribe_telegram_voice(message: Message) -> str:
 
 @dp.message(F.voice | F.audio)
 async def community_voice(message: Message):
+    if not feature_enabled("voice_tools"):
+        await message.answer("پردازش پیام صوتی توسط مدیر غیرفعال شده است.")
+        return
     if message.from_user:
         remember_user(message.from_user.id, username=message.from_user.username,
                       first_name=message.from_user.first_name, last_name=message.from_user.last_name)
@@ -1869,13 +1929,15 @@ async def community_voice(message: Message):
 
 @dp.message()
 async def chat(message: Message):
-    if message.from_user:
+    if message.from_user and feature_enabled("user_tracking"):
         remember_user(message.from_user.id, username=message.from_user.username,
                       first_name=message.from_user.first_name, last_name=message.from_user.last_name)
     if message.chat.type == "private":
         await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. من را به گروه یا کانالت اضافه کن و دسترسی‌های لازم را بده. برای راهنما /community را بزن.")
         return
     if message.chat.type not in {"group", "supergroup"} or not message.from_user or not message.text:
+        return
+    if not feature_enabled("community_management"):
         return
     # Record only text that Telegram actually delivers to the bot.
     data = community_chat(message.chat.id)
@@ -1894,9 +1956,9 @@ async def chat(message: Message):
         data["activity"] = data["activity"][-200:]
         save_admin_data()
     addressed = _message_addresses_bot(message)
-    if addressed and await _handle_natural_request(message, message.text):
+    if addressed and feature_enabled("natural_commands") and await _handle_natural_request(message, message.text):
         return
-    if not addressed or not data.get("settings", {}).get("ai_enabled", False):
+    if not feature_enabled("ai_chat") or not addressed or not data.get("settings", {}).get("ai_enabled", False):
         return
     # Avoid flooding when several members mention the bot repeatedly.
     cooldowns = data.setdefault("settings", {}).setdefault("user_cooldowns", {})
@@ -2341,6 +2403,8 @@ async def admin_payments(_: str = Depends(require_admin)):
 
 @app.post("/admin/api/payments/{payment_id}/{action}")
 async def admin_payment_action(payment_id: str, action: str, _: str = Depends(require_admin)):
+    if not feature_enabled("payments"):
+        raise HTTPException(status_code=403, detail="قابلیت بررسی پرداخت‌ها غیرفعال است.")
     if action not in {"approve", "reject"}:
         raise HTTPException(status_code=400, detail="عملیات نامعتبر است.")
     payment = admin_data.get("payments", {}).get(payment_id)
