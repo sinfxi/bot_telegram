@@ -785,11 +785,17 @@ async def admin_command(message: Message):
     if not message.from_user or not is_admin(message.from_user.id):
         await message.answer("⛔ دسترسی مدیران لازم است.")
         return
-    panel_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com/admin")
+    user_id = message.from_user.id
+    token = _make_admin_invite(user_id)
+    base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
+    panel_url = base_url + "/admin/invite/" + token
+    permissions = _admin_permissions_for(user_id)
+    active = "، ".join(ADMIN_PERMISSIONS[p] for p in sorted(permissions))
     await message.answer(
-        "🛠 پنل مدیریت FXI\n"
-        f"پنل تحت وب: {panel_url}\n\n"
-        "برای مدیریت کامل از پنل وب وارد شو."
+        "🛠 پنل اختصاصی مدیریت FXI\n\n"
+        "این لینک ورود یک‌بارمصرف است و تا ۳۰ دقیقه اعتبار دارد. بعد از ورود، نشست تا ۱۲ ساعت فعال می‌ماند.\n\n"
+        f"{panel_url}\n\n"
+        f"دسترسی‌های فعلی: {active}"
     )
 
 
@@ -2126,6 +2132,7 @@ async def admin_status(auth=Depends(require_admin)):
     return {
         "bot_enabled": bot_enabled,
         "users_count": len(admin_data.get("users", [])),
+        "admins_count": len(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
         "admins": admins,
         "primary_admins": sorted(ADMIN_IDS) if "admins" in permissions else [],
         "recent_users": admin_data.get("users", [])[-50:] if "users" in permissions else [],
@@ -2320,13 +2327,19 @@ async def admin_payment_action(payment_id: str, action: str, _: str = Depends(re
     if action == "approve":
         if user_id not in admin_data.setdefault("admins", []):
             admin_data["admins"].append(user_id)
+        admin_data.setdefault("admin_permissions", {}).setdefault(str(user_id), ["dashboard"])
+        token = _make_admin_invite(user_id)
+        link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/invite/" + token
         payment["status"] = "approved_admin"
         message = "درخواست تأیید شد و دسترسی مدیریتی فعال شد."
         if bot:
             try:
-                await bot.send_message(user_id, "درخواستت پس از بررسی ادمین تأیید شد و دسترسی مدیریتی FXI فعال شد.")
-            except Exception:
-                log.exception("Could not notify approved payment user=%s", user_id)
+                await bot.send_message(user_id,
+                    "🎉 درخواست ادمینی شما تأیید شد و دسترسی مدیریتی FXI فعال شد.\n\n"
+                    "برای ورود به پنل اختصاصی روی لینک یک‌بارمصرف زیر بزنید؛ لینک تا ۳۰ دقیقه معتبر است.\n\n"
+                    f"{link}\n\nدسترسی اولیه: نمای کلی. مدیر اصلی می‌تواند امکانات بیشتری فعال کند.")
+            except Exception as exc:
+                log.warning("Could not notify approved payment user=%s: %s", user_id, type(exc).__name__)
     else:
         payment["status"] = "rejected"
         message = "درخواست رد شد."
