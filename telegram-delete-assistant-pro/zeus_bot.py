@@ -654,26 +654,48 @@ async def providers_status(callback: CallbackQuery):
 
 
 async def analyze_receipt_image(image_bytes: bytes, mime_type: str) -> dict:
-    if not provider_ready("gemini"):
-        raise RuntimeError("برای تحلیل رسید باید GEMINI_API_KEY تنظیم شده باشد.")
-    prompt = ("از تصویر رسید مبلغ را استخراج کن. مبلغ را به تومان برگردان؛ اگر مبلغ ریالی است بر ۱۰ تقسیم کن. "
-              "اگر مبلغ یا واحد پول نامشخص است amount_toman را null بگذار. فقط JSON معتبر با کلیدهای "
-              "amount_toman عدد یا null، transaction_reference رشته یا null، confidence عدد بین صفر و یک، "
-              "currency_seen رشته و notes رشته برگردان. این فقط OCR است و اعتبار پرداخت را تأیید نمی‌کند.")
-    payload = {"contents":[{"role":"user","parts":[{"text":prompt},{"inline_data":{"mime_type":mime_type,"data":base64.b64encode(image_bytes).decode("ascii")}}]}],
-               "generationConfig":{"temperature":0,"maxOutputTokens":350}}
-    status, data = await post_json(f"https://generativelanguage.googleapis.com/v1beta/models/{PROVIDERS['gemini']['model']}:generateContent",
-        {"x-goog-api-key":PROVIDERS["gemini"]["key"],"Content-Type":"application/json"}, payload)
-    if status >= 400: raise RuntimeError(f"خطای تحلیل تصویر: HTTP {status}")
-    candidates=data.get("candidates") or []; parts=((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
-    raw="\n".join(p.get("text","") for p in parts if p.get("text")).strip()
-    raw=raw.replace("```json","").replace("```","").strip()
-    try: result=json.loads(raw)
-    except (json.JSONDecodeError, TypeError) as exc: raise RuntimeError("مبلغ از تصویر قابل استخراج نیست.") from exc
-    amount=result.get("amount_toman")
-    result["amount_toman"]=int(amount) if isinstance(amount,(int,float)) and not isinstance(amount,bool) and amount>0 else None
-    try: result["confidence"]=max(0.0,min(1.0,float(result.get("confidence") or 0)))
-    except (TypeError,ValueError): result["confidence"]=0.0
+    """Extract receipt fields through OpenRouter only; OCR output is never payment proof."""
+    if not provider_ready("openrouter"):
+        raise RuntimeError("برای تحلیل رسید، OPENROUTER_API_KEY باید تنظیم شده باشد.")
+    prompt = (
+        "Extract receipt information from this image. Return only valid JSON with keys "
+        "amount_toman (positive integer or null), transaction_reference (string or null), "
+        "confidence (0..1), currency_seen (string), and notes (string). "
+        "Do not claim the payment is valid; OCR can be wrong."
+    )
+    payload = {
+        "model": PROVIDERS["openrouter"]["model"],
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {
+                "url": "data:" + (mime_type if mime_type.startswith("image/") else "image/jpeg") +
+                       ";base64," + base64.b64encode(image_bytes).decode("ascii")
+            }}
+        ]}],
+        "temperature": 0,
+        "max_tokens": 350,
+        "response_format": {"type": "json_object"},
+    }
+    status, data = await post_json(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {"Authorization": "Bearer " + PROVIDERS["openrouter"]["key"],
+         "Content-Type": "application/json", "HTTP-Referer": os.getenv("ADMIN_PANEL_URL", ""),
+         "X-Title": "FXI Telegram Assistant"},
+        payload,
+    )
+    if status >= 400:
+        raise RuntimeError(f"خطای تحلیل رسید از OpenRouter: HTTP {status}")
+    raw = extract_answer("openrouter", data)
+    try:
+        result = json.loads(raw.replace("```json", "").replace("```", "").strip())
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise RuntimeError("مبلغ از تصویر قابل استخراج نیست.") from exc
+    amount = result.get("amount_toman")
+    result["amount_toman"] = int(amount) if isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0 else None
+    try:
+        result["confidence"] = max(0.0, min(1.0, float(result.get("confidence") or 0)))
+    except (TypeError, ValueError):
+        result["confidence"] = 0.0
     return result
 
 def payment_review_keyboard(pid: str) -> InlineKeyboardMarkup:
