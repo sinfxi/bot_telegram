@@ -2041,10 +2041,33 @@ async def admin_root_redirect():
     return RedirectResponse(url="/admin", status_code=307)
 
 
-@app.get("/admin/invite/{token}")
-async def accept_admin_invite(token: str):
+@app.get("/admin/invite/{token}", response_class=HTMLResponse)
+async def preview_admin_invite(token: str):
+    # Do not consume a one-time invite on GET: link previews and security scanners may open it.
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    record = admin_data.get("admin_invites", {}).get(digest)
+    if not record or int(record.get("expires_at", 0)) < int(time.time()):
+        raise HTTPException(status_code=410, detail="لینک ورود نامعتبر یا منقضی شده است؛ از مدیر اصلی لینک تازه بخواه.")
+    page = (
+        '<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="referrer" content="no-referrer"><title>ورود امن FXI</title>'
+        '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1318;color:#edf5f2;font:16px Arial,sans-serif}'
+        'main{max-width:460px;margin:20px;padding:28px;border:1px solid #35594b;border-radius:22px;background:#121f26;line-height:2}'
+        'button{border:0;border-radius:12px;padding:12px 18px;background:#a8e7c7;color:#13251b;font-weight:bold;cursor:pointer}</style>'
+        '<main><h1>ورود اختصاصی FXI</h1><p>این لینک برای ورود به پنل مدیریت صادر شده است. با ادامه‌دادن، لینک یک‌بارمصرف می‌شود و نشست شما تا ۱۲ ساعت اعتبار دارد.</p>'
+        f'<form method="post" action="/admin/invite/{token}"><button type="submit">تأیید و ورود به پنل</button></form></main></html>'
+    )
+    return HTMLResponse(page, headers={"Cache-Control": "no-store, max-age=0", "Referrer-Policy": "no-referrer"})
+
+
+@app.post("/admin/invite/{token}")
+async def accept_admin_invite(token: str, request: Request):
     if not SESSION_SERIALIZER:
         raise HTTPException(status_code=503, detail="نشست امن تنظیم نشده است.")
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower():
+        raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
     digest = hashlib.sha256(token.encode()).hexdigest()
     record = admin_data.setdefault("admin_invites", {}).pop(digest, None)
     if not record or int(record.get("expires_at", 0)) < int(time.time()):
@@ -2060,6 +2083,8 @@ async def accept_admin_invite(token: str):
     response.set_cookie("fxi_admin_session", SESSION_SERIALIZER.dumps({"user_id": user_id}),
                         max_age=12 * 60 * 60, httponly=True, secure=True,
                         samesite="strict", path="/")
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
 
