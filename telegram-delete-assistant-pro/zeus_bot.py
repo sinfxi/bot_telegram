@@ -59,6 +59,8 @@ ADMIN_REQUEST_MIN_TOMAN = 100_000
 pending_receipts = set()
 ADMIN_IDS = {int(part.strip()) for part in os.getenv("ADMIN_IDS", "").replace(";", ",").split(",") if part.strip().isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
+# Internal identity for password-authenticated panel login when no Telegram ID is supplied.
+ADMIN_PANEL_AUTH_ID = -1
 ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
 ADMIN_ALLOWED_ORIGINS = {
     f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
@@ -302,7 +304,7 @@ bot_enabled = bool(admin_data.get("bot_enabled", True))
 
 
 def is_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS or user_id in admin_data.get("admins", [])
+    return user_id == ADMIN_PANEL_AUTH_ID or user_id in ADMIN_IDS or user_id in admin_data.get("admins", [])
 
 
 def verify_telegram_login(payload: TelegramAuthPayload) -> bool:
@@ -380,7 +382,7 @@ def _permission_for_path(path: str) -> str:
 
 
 def _is_primary_admin(user_id: int) -> bool:
-    return user_id in ADMIN_IDS
+    return user_id == ADMIN_PANEL_AUTH_ID or user_id in ADMIN_IDS
 
 
 def _admin_permissions_for(user_id: int) -> set[str]:
@@ -429,16 +431,15 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
     if credentials is None:
         raise HTTPException(status_code=401, detail="آیدی عددی تلگرام و رمز عبور را وارد کنید.", headers={"WWW-Authenticate": "Basic"})
     submitted_username = credentials.username.strip()
-    # Accept the configured panel username when exactly one primary admin is configured.
-    # This keeps the admin-ID allowlist in force while avoiding confusion at the browser login prompt.
-    if submitted_username == ADMIN_PANEL_USERNAME and len(ADMIN_IDS) == 1:
-        login_user_id = next(iter(ADMIN_IDS))
+    valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PANEL_PASSWORD)
+    # Panel access is controlled by the configured username + password; a Telegram numeric ID is not required.
+    if submitted_username == ADMIN_PANEL_USERNAME:
+        login_user_id = next(iter(ADMIN_IDS)) if ADMIN_IDS else ADMIN_PANEL_AUTH_ID
     else:
         try:
             login_user_id = int(submitted_username)
         except (TypeError, ValueError):
             login_user_id = 0
-    valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PANEL_PASSWORD)
     if not valid_password:
         attempts.append(now)
         admin_auth_failures[client_ip] = attempts
@@ -446,9 +447,9 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
             for ip in list(admin_auth_failures)[:1000]:
                 admin_auth_failures.pop(ip, None)
         raise HTTPException(status_code=401, detail="رمز عبور نادرست است.", headers={"WWW-Authenticate": "Basic"})
-    if not login_user_id or not is_admin(login_user_id):
+    if not login_user_id or (submitted_username != ADMIN_PANEL_USERNAME and not is_admin(login_user_id)):
         admin_auth_failures.pop(client_ip, None)
-        raise HTTPException(status_code=403, detail="ورود تأیید نشد؛ نام کاربری یا تنظیمات مدیر را بررسی کنید.")
+        raise HTTPException(status_code=403, detail="نام کاربری پنل یا آیدی مدیر معتبر نیست.")
     admin_auth_failures.pop(client_ip, None)
     return {"user_id": login_user_id, "auth_type": "root_basic", "permissions": sorted(_admin_permissions_for(login_user_id))}
 
