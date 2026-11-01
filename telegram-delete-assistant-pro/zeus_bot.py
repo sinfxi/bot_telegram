@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import os
 import json
 import secrets
@@ -1562,6 +1563,160 @@ async def community_member_update(event: ChatMemberUpdated):
     save_admin_data()
 
 
+def _message_addresses_bot(message: Message, text_value: str | None = None) -> bool:
+    text_value = text_value if text_value is not None else (message.text or message.caption or "")
+    username = TELEGRAM_BOT_USERNAME.lower().lstrip("@")
+    if username and re.search(rf"(?<![\w])@{re.escape(username)}\b", text_value.lower()):
+        return True
+    reply = message.reply_to_message
+    return bool(reply and bot and reply.from_user and reply.from_user.id == bot.id)
+
+
+def _natural_intent(text_value: str) -> str | None:
+    value = re.sub(r"[،؛.!؟?]+", " ", (text_value or "").lower())
+    value = re.sub(r"\s+", " ", value).strip()
+    # Only deterministic, low-risk actions are mapped directly. Other requests go to AI.
+    if any(p in value for p in ("پاسخ گویی رو روشن", "پاسخگویی رو روشن", "پاسخ هوشمند رو روشن",
+                                 "هوش مصنوعی رو فعال", "جواب دادن رو فعال", "ربات فعال شو")):
+        return "enable_ai"
+    if any(p in value for p in ("پاسخ گویی رو خاموش", "پاسخگویی رو خاموش", "پاسخ هوشمند رو خاموش",
+                                 "هوش مصنوعی رو غیرفعال", "دیگه جواب نده", "ربات ساکت شو")):
+        return "disable_ai"
+    if any(p in value for p in ("آمار گروه", "آمار کانال", "وضعیت گروه", "آمار جامعه")):
+        return "stats"
+    if any(p in value for p in ("قوانین گروه", "قانون های گروه", "قوانین کانال")):
+        return "rules"
+    if any(p in value for p in ("راهنمای ربات", "چه دستورهایی", "چه کارهایی بلدی", "کمک ربات")):
+        return "help"
+    if value.startswith("پیش نویس ") or value.startswith("پیشنویس ") or value.startswith("یه پست درباره "):
+        return "draft"
+    return None
+
+
+async def _handle_natural_request(message: Message, request_text: str, *, from_voice: bool = False) -> bool:
+    """Handle a small allowlist of explicit Persian intents; return True if handled."""
+    if not message.from_user or message.chat.type not in {"group", "supergroup"}:
+        return False
+    intent = _natural_intent(request_text)
+    if not intent:
+        return False
+    if intent in {"enable_ai", "disable_ai", "draft"}:
+        if not await community_is_admin(message.chat.id, message.from_user.id):
+            await message.answer("⛔ این دستور فقط برای مدیر گروه است.")
+            return True
+    data = community_chat(message.chat.id)
+    if intent == "enable_ai":
+        data.setdefault("settings", {})["ai_enabled"] = True
+        save_admin_data()
+        await message.answer("🧠 پاسخ هوشمند فعال شد. منشنم کن، به پیامم ریپلای بزن یا ویس بفرست.")
+    elif intent == "disable_ai":
+        data.setdefault("settings", {})["ai_enabled"] = False
+        save_admin_data()
+        await message.answer("🔕 پاسخ هوشمند این گروه خاموش شد؛ ابزارهای مدیریتی همچنان فعال‌اند.")
+    elif intent == "stats":
+        members = len(data.get("members_seen", {}))
+        await message.answer(
+            f"📊 آمار ثبت‌شده این گفتگو\n"
+            f"نام: {data.get('title') or message.chat.title or 'بدون نام'}\n"
+            f"پیام‌ها/پست‌های ثبت‌شده: {data.get('message_count', 0)}\n"
+            f"اعضای مشاهده‌شده: {members}\n"
+            f"پست‌های ذخیره‌شده برای تحلیل: {len(data.get('top_posts', []))}\n\n"
+            "توجه: آمار از زمان دسترسی ربات جمع‌آوری می‌شود و الزاماً آمار کامل تلگرام نیست."
+        )
+    elif intent == "rules":
+        await message.answer("📌 قوانین:\n" + (data.get("rules") or "هنوز قانونی ثبت نشده است."))
+    elif intent == "help":
+        await message.answer("منشنم کن یا به پیامم ریپلای بزن. می‌تونی بگی «آمار گروه رو بگو»، «قوانین رو بگو»، یا مدیر گروه بگه «پاسخ هوشمند رو روشن/خاموش کن». برای دستورهای کامل /community")
+    elif intent == "draft":
+        topic = re.sub(r"^(پیش\s*نویس|پیشنویس|یه پست درباره)\s*", "", request_text.strip(), flags=re.I).strip()
+        if not topic:
+            await message.answer("موضوع پست رو هم بگو؛ مثلاً «ربات، یه پست درباره امنیت حساب بساز».")
+            return True
+        provider_id = selected_provider[message.from_user.id]
+        if not provider_ready(provider_id):
+            await message.answer("🔒 برای ساخت پیش‌نویس، مدیر باید سرویس هوش مصنوعی را تنظیم کند.")
+            return True
+        await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        answer = await ask_ai(-abs(message.chat.id) - message.from_user.id, provider_id,
+                              "یک پیش‌نویس فارسی برای پست کانال بساز. موضوع: " + topic +
+                              "\nواقعیت یا آمار ساختگی اضافه نکن. این فقط پیش‌نویس است و خودکار منتشر نشود.")
+        await send_long_message(message, "📝 پیش‌نویس (برای بازبینی مدیر):\n\n" + answer)
+    return True
+
+
+async def transcribe_telegram_voice(message: Message) -> str:
+    """Transcribe Telegram voice with Groq or OpenAI; API key is required."""
+    if not bot or not HTTP_SESSION:
+        raise RuntimeError("سرویس دریافت صدا آماده نیست.")
+    if not os.getenv("GROQ_API_KEY", "").strip() and not os.getenv("OPENAI_API_KEY", "").strip():
+        raise RuntimeError("برای تشخیص ویس باید GROQ_API_KEY یا OPENAI_API_KEY در متغیرهای محیطی تنظیم شود.")
+    voice = message.voice or message.audio
+    if not voice:
+        raise RuntimeError("فایل صوتی پیدا نشد.")
+    if voice.file_size and voice.file_size > 20 * 1024 * 1024:
+        raise RuntimeError("حجم فایل صوتی بیشتر از ۲۰ مگابایت است.")
+    file_info = await bot.get_file(voice.file_id)
+    buffer = io.BytesIO()
+    await bot.download_file(file_info.file_path, destination=buffer)
+    audio_bytes = buffer.getvalue()
+    if not audio_bytes:
+        raise RuntimeError("فایل صوتی خالی است.")
+    form = aiohttp.FormData()
+    form.add_field("file", audio_bytes, filename="voice.ogg", content_type="audio/ogg")
+    if os.getenv("GROQ_API_KEY", "").strip():
+        endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
+        form.add_field("model", os.getenv("FXI_STT_MODEL", "whisper-large-v3-turbo"))
+        headers = {"Authorization": f"Bearer {os.getenv('GROQ_API_KEY').strip()}"}
+    else:
+        endpoint = "https://api.openai.com/v1/audio/transcriptions"
+        form.add_field("model", os.getenv("FXI_STT_MODEL", "gpt-4o-mini-transcribe"))
+        headers = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY').strip()}"}
+    form.add_field("language", "fa")
+    async with HTTP_SESSION.post(endpoint, data=form, headers=headers) as response:
+        payload = await response.json(content_type=None)
+        if response.status >= 400:
+            log.warning("Speech transcription failed status=%s", response.status)
+            raise RuntimeError("تشخیص صدا ناموفق بود؛ کلید API، سهمیه یا تنظیمات سرویس را بررسی کن.")
+        result = str(payload.get("text", "")).strip()
+        if not result:
+            raise RuntimeError("از ویس متن قابل تشخیصی به دست نیامد.")
+        return result[:MAX_MESSAGE_CHARS]
+
+
+@dp.message(F.voice | F.audio)
+async def community_voice(message: Message):
+    if message.from_user:
+        remember_user(message.from_user.id, username=message.from_user.username,
+                      first_name=message.from_user.first_name, last_name=message.from_user.last_name)
+    if message.chat.type not in {"group", "supergroup"}:
+        await message.answer("🎙 ویس رو داخل گروهی که ربات عضو شده بفرست. برای تشخیص صدا، کلید Groq یا OpenAI باید در سرور تنظیم شده باشه.")
+        return
+    data = community_chat(message.chat.id)
+    if not data.get("settings", {}).get("ai_enabled", False):
+        await message.answer("🔕 پاسخ هوشمند این گروه خاموشه. مدیر گروه می‌تونه بگه «ربات، پاسخ هوشمند رو روشن کن».")
+        return
+    if not message.from_user:
+        return
+    try:
+        await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        transcript = await transcribe_telegram_voice(message)
+    except Exception as exc:
+        log.info("Voice transcription unavailable: %s", type(exc).__name__)
+        await message.answer(f"🎙 نتونستم ویس رو به متن تبدیل کنم. {exc}")
+        return
+    await message.answer("🎙 چیزی که شنیدم:\n«" + transcript[:700] + "»")
+    if await _handle_natural_request(message, transcript, from_voice=True):
+        return
+    provider_id = selected_provider[message.from_user.id]
+    if not provider_ready(provider_id):
+        await message.answer("🔒 سرویس هوش مصنوعی فعال نیست؛ مدیر باید یک ارائه‌دهنده را تنظیم کند.")
+        return
+    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    answer = await ask_ai(-abs(message.chat.id) - message.from_user.id, provider_id,
+                          "کاربر این پیام صوتی را فرستاده و متن تشخیص‌داده‌شده این است. به فارسی محاوره‌ای پاسخ بده:\n" + transcript)
+    await send_long_message(message, answer)
+
+
 @dp.message()
 async def chat(message: Message):
     if message.from_user:
@@ -1569,6 +1724,46 @@ async def chat(message: Message):
                       first_name=message.from_user.first_name, last_name=message.from_user.last_name)
     if message.chat.type == "private":
         await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. من را به گروه یا کانالت اضافه کن و دسترسی‌های لازم را بده. برای راهنما /community را بزن.")
+        return
+    if message.chat.type not in {"group", "supergroup"} or not message.from_user or not message.text:
+        return
+    # Record only text that Telegram actually delivers to the bot.
+    data = community_chat(message.chat.id)
+    data["title"] = message.chat.title or data.get("title", "")
+    data["type"] = message.chat.type
+    data["message_count"] = int(data.get("message_count", 0)) + 1
+    data.setdefault("members_seen", {})[str(message.from_user.id)] = datetime.now(timezone.utc).isoformat()
+    if message.text.strip() and not message.text.startswith("/"):
+        data.setdefault("activity", []).append({
+            "text": message.text[:COMMUNITY_MAX_TEXT],
+            "date": datetime.now(timezone.utc).isoformat(),
+            "user_id": message.from_user.id,
+            "message_id": message.message_id,
+            "media_type": "text"
+        })
+        data["activity"] = data["activity"][-200:]
+        save_admin_data()
+    addressed = _message_addresses_bot(message)
+    if addressed and await _handle_natural_request(message, message.text):
+        return
+    if not addressed or not data.get("settings", {}).get("ai_enabled", False):
+        return
+    # Avoid flooding when several members mention the bot repeatedly.
+    cooldowns = data.setdefault("settings", {}).setdefault("user_cooldowns", {})
+    now = time.time()
+    last = float(cooldowns.get(str(message.from_user.id), 0))
+    if now - last < 8:
+        return
+    cooldowns[str(message.from_user.id)] = now
+    save_admin_data()
+    provider_id = selected_provider[message.from_user.id]
+    if not provider_ready(provider_id):
+        await message.reply("🔒 سرویس هوش مصنوعی فعال نیست؛ مدیر باید کلید API را در سرور تنظیم کند.")
+        return
+    prompt = "به فارسی محاوره‌ای و طبیعی پاسخ بده. اگر پیام درخواست اقدام مدیریتی است، فقط راهنمایی کن؛ اجرای اقدام مدیریتی فقط از طریق دستورهای مجاز و بررسی نقش مدیر انجام می‌شود. هرگز ادعا نکن انسان هستی.\nپیام کاربر: " + message.text
+    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    answer = await ask_ai(-abs(message.chat.id) - message.from_user.id, provider_id, prompt)
+    await send_long_message(message, answer)
 
 
 @asynccontextmanager
