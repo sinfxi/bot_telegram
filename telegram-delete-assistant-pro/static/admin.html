@@ -70,7 +70,7 @@ body{background-image:radial-gradient(ellipse at 84% -5%,rgba(55,112,86,.26),tra
 </div><div id="permissionsModal" class="modal-backdrop" hidden><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="permissionsTitle"><div class="section-head"><h3 id="permissionsTitle">مدیریت دسترسی ادمین</h3><button class="btn secondary" type="button" onclick="closePermissions()">بستن</button></div><p id="permissionsSubtitle" class="muted"></p><div id="permissionsChoices" class="permission-grid"></div><div class="row" style="margin-top:18px"><button class="btn" type="button" onclick="savePermissions()">ذخیره دسترسی‌ها</button><span class="muted" id="permissionsStatus"></span></div></div></div>
 </main></div>
 <script>
-let data=null;const $=id=>document.getElementById(id);const labels={openai:'OpenAI · ChatGPT',gemini:'Google Gemini',claude:'Claude',deepseek:'DeepSeek',grok:'Grok',groq:'Groq',mistral:'Mistral',openrouter:'OpenRouter',cloudflare:'Cloudflare AI'};
+let data=null;const $=id=>document.getElementById(id);const labels={openai:'OpenAI · ChatGPT',gemini:'Google Gemini',claude:'Claude',deepseek:'DeepSeek',grok:'Grok',groq:'Groq',mistral:'Mistral',sambanova:'SambaNova',nvidia:'NVIDIA NIM',cohere:'Cohere',openrouter:'OpenRouter',cloudflare:'Cloudflare AI'};
 const permissionNames={dashboard:'نمای کلی',providers:'سرویس‌های هوش مصنوعی',users:'کاربران',admins:'مدیریت ادمین‌ها',community:'گروه‌ها و کانال‌ها',conversations:'تاریخچه مکالمات',audit:'گزارش فعالیت‌ها',payments:'بررسی پرداخت‌ها',broadcast:'پیام همگانی',prompt:'دستورالعمل دستیار',system:'سلامت و تنظیمات'};
 const currentPermissions=new Set((document.querySelector('meta[name="fxi-permissions"]')?.content||'dashboard').split(',').filter(Boolean));
 let editingAdminId=null;
