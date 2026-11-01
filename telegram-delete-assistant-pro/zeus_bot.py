@@ -2119,16 +2119,21 @@ async def admin_community(_: str = Depends(require_admin)):
 
 
 @app.get("/admin/api/status")
-async def admin_status(_: str = Depends(require_admin)):
+async def admin_status(auth=Depends(require_admin)):
+    permissions = set(auth.get("permissions", []))
+    admins = sorted(set(ADMIN_IDS) | set(admin_data.get("admins", []))) if "admins" in permissions else []
+    recent_ids = admin_data.get("users", [])[-100:] if "users" in permissions else []
     return {
         "bot_enabled": bot_enabled,
         "users_count": len(admin_data.get("users", [])),
-        "admins": sorted(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
-        "primary_admins": sorted(ADMIN_IDS),
-        "recent_users": admin_data.get("users", [])[-50:],
-        "recent_user_profiles": [admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}) for uid in admin_data.get("users", [])[-100:]],
-        "providers": [name for name in PROVIDERS if provider_ready(name)],
-        "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT),
+        "admins": admins,
+        "primary_admins": sorted(ADMIN_IDS) if "admins" in permissions else [],
+        "recent_users": admin_data.get("users", [])[-50:] if "users" in permissions else [],
+        "recent_user_profiles": [admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}) for uid in recent_ids],
+        "providers": [name for name in PROVIDERS if provider_ready(name)] if "providers" in permissions else [],
+        "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT) if "prompt" in permissions else "",
+        "permissions": sorted(permissions),
+        "admin_permissions": {str(uid): sorted(_admin_permissions_for(uid)) for uid in admins},
     }
 
 
@@ -2172,7 +2177,7 @@ async def add_admin(payload: AdminIdPayload, auth=Depends(require_admin)):
     token = _make_admin_invite(payload.user_id)
     log_admin_action("admin_added", f"user_id={payload.user_id}; permissions=dashboard")
     save_admin_data()
-    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/") + "/admin/invite/" + token
+    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/invite/" + token
     notified = False
     if bot:
         try:
@@ -2235,7 +2240,7 @@ async def set_admin_permissions(user_id: int, payload: AdminPermissionsPayload, 
     log_admin_action("admin_permissions_updated", f"user_id={user_id}; permissions={','.join(permissions)}")
     save_admin_data()
     token = _make_admin_invite(user_id)
-    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/") + "/admin/invite/" + token
+    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/invite/" + token
     notified = False
     if bot:
         try:
