@@ -30,7 +30,7 @@ jobs:
           scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
           if not scripts:
               raise SystemExit("No inline admin script found")
-          Path("/tmp/fxi-admin.js").write_text("\\n".join(scripts), encoding="utf-8")
+          Path("/tmp/fxi-admin.js").write_text("\n".join(scripts), encoding="utf-8")
           PY
           node --check /tmp/fxi-admin.js
       - name: Import app module
