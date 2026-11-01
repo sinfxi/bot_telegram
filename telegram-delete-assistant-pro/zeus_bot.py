@@ -1361,14 +1361,19 @@ async def collect_community_message(message: Message):
         if settings.get("ai_enabled", False):
             bot_username = TELEGRAM_BOT_USERNAME.lower()
             mentioned = bool(bot_username and ("@" + bot_username) in text_value.lower())
-            replied_to_bot = False
-            if message.reply_to_message and message.reply_to_message.from_user and bot:
-                try:
-                    me = await bot.get_me()
-                    replied_to_bot = message.reply_to_message.from_user.id == me.id
-                except Exception:
-                    log.exception("Could not identify bot for reply detection")
+            replied_to_bot = bool(
+                message.reply_to_message and message.reply_to_message.from_user
+                and message.reply_to_message.from_user.is_bot
+                and (not message.reply_to_message.from_user.username
+                     or message.reply_to_message.from_user.username.lower() == bot_username)
+            )
             if mentioned or replied_to_bot:
+                cooldowns = admin_data.setdefault("community_ai_cooldowns", {})
+                cooldown_key = f"{message.chat.id}:{message.from_user.id}"
+                now = time.time()
+                if now - float(cooldowns.get(cooldown_key, 0)) < 8:
+                    return
+                cooldowns[cooldown_key] = now
                 provider_id = selected_provider[message.from_user.id]
                 if not provider_ready(provider_id):
                     await message.reply("🧠 قابلیت گفتگو فعلاً آماده نیست؛ مدیر باید سرویس هوش مصنوعی را در تنظیمات سرور فعال کند.")
