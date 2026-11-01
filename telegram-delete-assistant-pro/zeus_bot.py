@@ -1395,6 +1395,52 @@ async def collect_community_message(message: Message):
                         log.exception("Community AI reply failed chat=%s", message.chat.id)
                         await message.reply("الان نتونستم درست جواب بدم؛ یکم بعد دوباره امتحان کن.")
 
+async def record_channel_post(message: Message):
+    """Capture native channel_post updates (they are not ordinary group messages)."""
+    if not bot_enabled or message.chat.type != "channel":
+        return
+    data = community_chat(message.chat.id)
+    data["title"] = message.chat.title or data.get("title") or str(message.chat.id)
+    data["type"] = "channel"
+    data["message_count"] = int(data.get("message_count", 0)) + 1
+    text_value = (message.text or message.caption or "").strip()
+    posts = data.setdefault("top_posts", [])
+    record = next((p for p in posts if p.get("message_id") == message.message_id), None)
+    if record is None:
+        record = {"message_id": message.message_id, "text": text_value[:COMMUNITY_MAX_TEXT],
+                  "reactions": 0, "views": getattr(message, "views", 0) or 0,
+                  "forwards": getattr(message, "forward_count", 0) or 0,
+                  "date": datetime.now(timezone.utc).isoformat(),
+                  "media_type": ("photo" if message.photo else "video" if message.video else "document" if message.document else "text")}
+        posts.append(record)
+    else:
+        record.update({"text": text_value[:COMMUNITY_MAX_TEXT],
+                       "views": getattr(message, "views", 0) or 0,
+                       "forwards": getattr(message, "forward_count", 0) or 0})
+    data["top_posts"] = posts[-300:]
+    if text_value:
+        data.setdefault("activity", []).append({
+            "text": text_value[:COMMUNITY_MAX_TEXT],
+            "date": datetime.now(timezone.utc).isoformat(),
+            "user_id": None, "message_id": message.message_id,
+            "views": getattr(message, "views", None),
+            "forwards": getattr(message, "forward_count", None),
+            "media_type": record.get("media_type", "text")
+        })
+        data["activity"] = data["activity"][-200:]
+    save_admin_data()
+
+
+@dp.channel_post()
+async def collect_channel_post(message: Message):
+    await record_channel_post(message)
+
+
+@dp.edited_channel_post()
+async def update_channel_post(message: Message):
+    await record_channel_post(message)
+
+
 @dp.message_reaction_count()
 async def collect_reaction_counts(event: MessageReactionCountUpdated):
     data = community_chat(event.chat.id)
