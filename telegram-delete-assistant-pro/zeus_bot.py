@@ -490,15 +490,63 @@ def provider_menu_text(user_id: int) -> str:
 
 @dp.message(CommandStart())
 async def start(message: Message):
-    user_id = message.from_user.id if message.from_user else 0
-    remember_user(user_id, username=message.from_user.username if message.from_user else None, first_name=message.from_user.first_name if message.from_user else None, last_name=message.from_user.last_name if message.from_user else None)
+    user = message.from_user
+    user_id = user.id if user else 0
+    if user:
+        remember_user(user_id, username=user.username, first_name=user.first_name, last_name=user.last_name)
+    name = (user.first_name or "دوست من") if user else "دوست من"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📘 راهنمای کامل", callback_data="menu:help"),
+         InlineKeyboardButton(text="🧠 انتخاب هوش مصنوعی", callback_data="menu:ai")],
+        [InlineKeyboardButton(text="📊 آمار جامعه", callback_data="menu:community"),
+         InlineKeyboardButton(text="🛠 پنل مدیریت", callback_data="menu:admin")],
+    ])
     await message.answer(
-        "سلام! 👋 به FXI Community خوش اومدی.\n\n"
-        "من دیگه ربات چت خصوصی نیستم؛ برای مدیریت و تحلیل گروه یا کانالت من رو به آن اضافه کن.\n"
-        "• در گروه: دسترسی ادمین و مجوز حذف پیام بده.\n"
-        "• در کانال: من رو ادمین کن تا پست‌های جدید و واکنش‌ها را دریافت کنم.\n\n"
-        "دستورهای اصلی داخل گروه: /community ، /challenge ، /suggest ، /rules ، /communitystats"
+        f"سلام {name}! 👋 به FXI خوش اومدی.\\n\\n"
+        "من دستیار مدیریت و تعامل جامعه تلگرام هستم؛ می‌تونم به مدیرها در مدیریت گروه، "
+        "بررسی فعالیت‌ها و پاسخ‌گویی هوشمند کمک کنم.\\n\\n"
+        "🚀 برای شروع:\\n"
+        "• من رو به گروه یا کانالت اضافه کن.\\n"
+        "• در گروه، فقط مجوزهایی رو بده که برای قابلیت‌های موردنیازت لازمه.\\n"
+        "• برای فعال‌کردن پاسخ هوشمند گروه، مدیر می‌تونه بگه «ربات، پاسخ هوشمند رو روشن کن».\\n"
+        "• برای انتخاب مدل /ai و دیدن دستورها /help رو بزن.\\n\\n"
+        "🔐 دسترسی مدیریتی و عملیات حساس فقط با بررسی مجوز انجام می‌شن.",
+        reply_markup=keyboard,
     )
+
+
+@dp.callback_query(F.data.startswith("menu:"))
+async def start_menu_actions(callback: CallbackQuery):
+    if not callback.from_user or not callback.message:
+        await callback.answer()
+        return
+    action = callback.data.split(":", 1)[1]
+    if action == "help":
+        await callback.message.answer(
+            "📘 راهنمای FXI\\n\\n"
+            "• /help — راهنما و دستورهای اصلی\\n"
+            "• /ai یا /models — انتخاب سرویس هوش مصنوعی\\n"
+            "• /new — پاک‌کردن تاریخچه سرویس فعلی\\n"
+            "• /community — راهنمای مدیریت جامعه\\n"
+            "• /communitystats — آمار فعالیت ثبت‌شده\\n"
+            "• /rules — مشاهده قوانین گروه، اگر تنظیم شده باشد\\n"
+            "• /admin — لینک پنل مدیریت، فقط برای مدیران\\n\\n"
+            "در گروه، پاسخ هوشمند فقط وقتی فعال می‌شه که به ربات اشاره کنی و مدیر گروه اون رو روشن کرده باشه."
+        )
+    elif action == "ai":
+        await callback.message.answer(provider_menu_text(callback.from_user.id), reply_markup=provider_keyboard())
+    elif action == "community":
+        await callback.message.answer(
+            "📊 برای دیدن آمار جامعه، ربات باید داخل گروه یا کانال حضور داشته باشه.\\n"
+            "دستور /communitystats رو در همون گروه اجرا کن. آمار فقط شامل داده‌هاییه که ربات واقعاً دریافت کرده."
+        )
+    elif action == "admin":
+        if not is_admin(callback.from_user.id):
+            await callback.answer("این بخش فقط برای مدیرانه.", show_alert=True)
+            return
+        panel_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com/admin")
+        await callback.message.answer(f"🛠 پنل مدیریت FXI\\n{panel_url}")
+    await callback.answer()
 
 
 @dp.message(Command("ai"))
@@ -668,13 +716,19 @@ async def admin_command(message: Message):
 @dp.message(Command("help"))
 async def help_command(message: Message):
     await message.answer(
-        "راهنمای استفاده 🤖\n\n"
-        "• پیام متنی بفرست تا هوش مصنوعی انتخاب‌شده پاسخ بدهد.\n"
-        "• /ai یا /models — انتخاب هوش مصنوعی\n"
-        "• /new — پاک‌کردن سابقهٔ سرویس فعلی\n"
-        "• /help — راهنما\n• /support — حمایت و ارسال رسید برای درخواست ادمینی\n\n"
-        "تاریخچهٔ هر سرویس برای هر کاربر جدا نگه داشته می‌شود. "
-        "ممکن است پاسخ هوش مصنوعی اشتباه باشد؛ اطلاعات مهم را بررسی کن."
+        "راهنمای FXI 🤖\\n\\n"
+        "در گفت‌وگوی خصوصی:\\n"
+        "• /ai یا /models — انتخاب مدل هوش مصنوعی\\n"
+        "• /new یا /reset — پاک‌کردن تاریخچه سرویس فعلی\\n"
+        "• /support — اطلاعات حمایت و درخواست ادمینی\\n"
+        "• /admin — دریافت لینک پنل (ویژه مدیران)\\n\\n"
+        "در گروه و کانال:\\n"
+        "• /community — راهنمای مدیریت جامعه\\n"
+        "• /communitystats — آمار فعالیت‌هایی که ربات ثبت کرده\\n"
+        "• /challenge و /suggest — تعامل و پیشنهاد\\n"
+        "• /rules — قوانین گروه، در صورت تنظیم\\n\\n"
+        "برای پاسخ هوشمند گروه، مدیر باید قابلیت را روشن کند و پیام باید ربات را خطاب قرار دهد. "
+        "تاریخچه هر کاربر و هر سرویس جدا نگه داشته می‌شود. پاسخ مدل ممکن است اشتباه باشد؛ اطلاعات مهم را بررسی کن."
     )
 
 
