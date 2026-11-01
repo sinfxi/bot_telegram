@@ -84,7 +84,7 @@ def _ensure_db_table(conn) -> None:
 
 def load_admin_data() -> dict:
     defaults = {"admins": [], "users": [], "bot_enabled": True,
-                "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": []}
+                "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": []}
     if DATABASE_URL:
         try:
             with _db_connect() as conn:
@@ -109,6 +109,21 @@ def load_admin_data() -> dict:
     except (OSError, json.JSONDecodeError):
         pass
     return defaults
+
+
+def log_admin_action(action: str, details: str = "") -> None:
+    """Keep a bounded, privacy-conscious audit trail for admin-side changes."""
+    entries = admin_data.setdefault("audit_log", [])
+    entries.append({
+        "at": datetime.now(timezone.utc).isoformat(),
+        "action": str(action)[:80],
+        "details": str(details)[:240],
+    })
+    del entries[:-500]
+    try:
+        save_admin_data()
+    except Exception:
+        log.exception("Could not persist admin audit event")
 
 
 def save_admin_data() -> None:
@@ -1844,6 +1859,49 @@ async def admin_panel(_: str = Depends(require_admin)):
     return HTMLResponse(ADMIN_PANEL_HTML)
 
 
+@app.get("/admin/api/audit")
+async def admin_audit(_: str = Depends(require_admin)):
+    entries = admin_data.get("audit_log", [])
+    return {"items": list(reversed(entries[-200:])), "total": len(entries)}
+
+
+@app.get("/admin/api/users/export")
+async def admin_export_users(_: str = Depends(require_admin)):
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+    output = _io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["user_id", "username", "first_name", "last_name", "first_seen", "last_seen"])
+    profiles = admin_data.get("user_profiles", {})
+    for uid in admin_data.get("users", []):
+        profile = profiles.get(str(uid), {})
+        writer.writerow([uid, profile.get("username", ""), profile.get("first_name", ""),
+                         profile.get("last_name", ""), profile.get("first_seen", ""), profile.get("last_seen", "")])
+    content = "\ufeff" + output.getvalue()
+    return StreamingResponse(iter([content]), media_type="text/csv; charset=utf-8",
+                             headers={"Content-Disposition": "attachment; filename=fxi-users.csv",
+                                      "Cache-Control": "no-store"})
+
+
+@app.get("/admin/api/community")
+async def admin_community(_: str = Depends(require_admin)):
+    chats = admin_data.get("community", {}).get("chats", {})
+    items = []
+    for chat_id, record in chats.items():
+        items.append({
+            "chat_id": chat_id,
+            "title": record.get("title") or record.get("username") or str(chat_id),
+            "type": record.get("type", "unknown"),
+            "message_count": int(record.get("message_count", 0)),
+            "members_seen": len(record.get("members_seen", {})),
+            "ai_enabled": bool(record.get("settings", {}).get("ai_enabled", False)),
+            "last_activity": record.get("last_activity") or record.get("last_message_at", ""),
+        })
+    items.sort(key=lambda item: item["message_count"], reverse=True)
+    return {"items": items[:200], "total": len(items)}
+
+
 @app.get("/admin/api/status")
 async def admin_status(_: str = Depends(require_admin)):
     return {
@@ -1892,6 +1950,7 @@ async def add_admin(payload: AdminIdPayload, _: str = Depends(require_admin)):
     if payload.user_id in ADMIN_IDS or payload.user_id in admin_data["admins"]:
         return {"message": "این کاربر از قبل مدیر است"}
     admin_data["admins"].append(payload.user_id)
+    log_admin_action("admin_added", f"user_id={payload.user_id}")
     save_admin_data()
     return {"message": f"مدیر {payload.user_id} اضافه شد"}
 
@@ -1903,6 +1962,7 @@ async def remove_admin(user_id: int, _: str = Depends(require_admin)):
     if user_id not in admin_data["admins"]:
         raise HTTPException(status_code=404, detail="این مدیر پیدا نشد")
     admin_data["admins"].remove(user_id)
+    log_admin_action("admin_removed", f"user_id={user_id}")
     save_admin_data()
     return {"message": f"مدیر {user_id} حذف شد"}
 
@@ -1912,6 +1972,7 @@ async def set_bot_state(payload: BotStatePayload, _: str = Depends(require_admin
     global bot_enabled
     bot_enabled = payload.enabled
     admin_data["bot_enabled"] = bot_enabled
+    log_admin_action("bot_enabled" if bot_enabled else "bot_disabled")
     save_admin_data()
     return {"message": "ربات روشن شد" if bot_enabled else "ربات خاموش شد"}
 
@@ -1920,6 +1981,7 @@ async def set_bot_state(payload: BotStatePayload, _: str = Depends(require_admin
 async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
     if not bot:
         raise HTTPException(status_code=503, detail="اتصال ربات تلگرام فعال نیست")
+    log_admin_action("broadcast_started", f"recipients={len(admin_data.get('users', []))}; chars={len(payload.text)}")
     sent = failed = 0
     for user_id in list(admin_data.get("users", [])):
         try:
@@ -1929,6 +1991,7 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
             failed += 1
             log.warning("Broadcast failed for user %s: %s", user_id, type(exc).__name__)
         await asyncio.sleep(0.04)
+    log_admin_action("broadcast_finished", f"sent={sent}; failed={failed}")
     return {"sent": sent, "failed": failed}
 
 
@@ -1937,6 +2000,7 @@ async def update_prompt(payload: PromptPayload, _: str = Depends(require_admin))
     global SYSTEM_PROMPT
     SYSTEM_PROMPT = payload.prompt.strip()
     admin_data["system_prompt"] = SYSTEM_PROMPT
+    log_admin_action("system_prompt_updated", f"chars={len(SYSTEM_PROMPT)}")
     save_admin_data()
     return {"message": "دستورالعمل هوش مصنوعی ذخیره شد"}
 
@@ -1981,6 +2045,7 @@ async def admin_payment_action(payment_id: str, action: str, _: str = Depends(re
                 await bot.send_message(user_id, "درخواست ادمینی شما پس از بررسی تأیید نشد. از همراهی شما ممنونیم.")
             except Exception:
                 log.exception("Could not notify rejected payment user=%s", user_id)
+    log_admin_action("payment_" + action, f"payment_id={payment_id}; user_id={user_id}")
     save_admin_data()
     return {"message": message, "status": payment["status"]}
 
