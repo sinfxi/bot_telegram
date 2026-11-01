@@ -561,8 +561,7 @@ def provider_menu_text(user_id: int) -> str:
     return (
         "🤖 انتخاب هوش مصنوعی\n\n"
         f"مدل فعلی: {current_label}\n\n"
-        "سرویس دلخواهت رو انتخاب کن. گزینه‌های قفل‌شده هنوز کلید API ندارن؛ "
-        "بعد از تنظیم کلید در Render فعال می‌شن."
+        "در این نسخه فقط OpenRouter استفاده می‌شود. کلید API در تنظیمات محیطی سرور نگهداری می‌شود."
     )
 
 
@@ -668,7 +667,7 @@ async def choose_provider(callback: CallbackQuery):
     if callback.message:
         await callback.message.answer(
             f"✅ هوش مصنوعی فعال شد: {PROVIDERS[provider_id]['label']}\n"
-            "حالا پیامت رو بفرست. برای تغییر سرویس /ai رو بزن."
+            "حالا پیامت رو بفرست؛ تنها ارائه‌دهندهٔ فعال OpenRouter است."
         )
 
 
@@ -932,37 +931,31 @@ def api_error(provider_id: str, status: int, data: dict) -> str:
     return f"⚠️ درخواست به {PROVIDERS[provider_id]['label']} ناموفق بود (HTTP {status}). جزئیات فنی در لاگ سرور ثبت شد."
 
 async def ask_compatible(provider_id: str, history: list, user_text: str) -> tuple[int, dict]:
+    """OpenRouter-compatible chat completions; this build deliberately supports no other provider."""
+    if provider_id != "openrouter":
+        raise ValueError("Only OpenRouter is supported")
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": item["role"], "content": item["content"]}
                     for item in history[-MAX_HISTORY_MESSAGES:])
     messages.append({"role": "user", "content": user_text})
-    config = PROVIDERS[provider_id]
-    if provider_id == "groq":
-        url = "https://api.groq.com/openai/v1/chat/completions"
-    elif provider_id == "mistral":
-        url = "https://api.mistral.ai/v1/chat/completions"
-    elif provider_id == "sambanova":
-        url = "https://api.sambanova.ai/v1/chat/completions"
-    elif provider_id == "nvidia":
-        url = "https://integrate.api.nvidia.com/v1/chat/completions"
-    elif provider_id == "cohere":
-        url = "https://api.cohere.ai/compatibility/v1/chat/completions"
-    elif provider_id == "openrouter":
-        url = "https://openrouter.ai/api/v1/chat/completions"
-    elif provider_id == "cloudflare":
-        url = f"https://api.cloudflare.com/client/v4/accounts/{config['account_id']}/ai/v1/chat/completions"
-    else:
-        raise ValueError("Unsupported compatible provider")
-    headers = {"Authorization": f"Bearer {config['key']}", "Content-Type": "application/json"}
-    if provider_id == "openrouter":
-        headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL", "https://telegram-delete-assistant-pro.onrender.com")
-        headers["X-Title"] = "FXI Telegram AI"
-    return await post_json(url, headers, {
+    config = PROVIDERS["openrouter"]
+    headers = {
+        "Authorization": f"Bearer {config['key']}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "https://telegram-delete-assistant-pro.onrender.com"),
+        "X-Title": "FXI Telegram AI",
+    }
+    return await post_json("https://openrouter.ai/api/v1/chat/completions", headers, {
         "model": config["model"], "messages": messages,
         "temperature": 0.7, "max_tokens": 1800,
     })
 
 
+def extract_answer(provider_id: str, data: dict) -> str:
+    if provider_id != "openrouter":
+        return ""
+    choices = data.get("choices") or []
+    return str(((choices[0].get("message") or {}).get("content") or "")).strip() if choices else ""
 def extract_answer(provider_id: str, data: dict) -> str:
     if provider_id == "openai":
         # Responses API returns text in output message content blocks.
