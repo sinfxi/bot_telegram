@@ -1121,6 +1121,87 @@ async def community_pin(message: Message):
         log.exception("Pin failed in chat=%s", message.chat.id)
         await message.answer("سنجاق پیام ناموفق بود؛ مجوز Pin messages را بررسی کن.")
 
+def channel_post_score(post: dict) -> float:
+    """Transparent ranking proxy; Telegram may not expose every engagement metric."""
+    reactions = max(0, int(post.get("reactions", 0) or 0))
+    views = max(0, int(post.get("views", 0) or 0))
+    forwards = max(0, int(post.get("forwards", 0) or 0))
+    return reactions * 3 + forwards * 2 + min(views, 100000) / 1000
+
+
+def channel_insights(data: dict) -> dict:
+    posts = data.get("top_posts", [])
+    ranked = sorted(posts, key=channel_post_score, reverse=True)
+    activity = data.get("activity", [])
+    texts = [str(x.get("text", "")).strip() for x in activity if x.get("text")]
+    words = {}
+    for value in texts[-100:]:
+        for word in value.replace("\\n", " ").split():
+            clean = "".join(ch for ch in word.lower() if ch.isalnum() or "\\u0600" <= ch <= "\\u06ff")
+            if len(clean) >= 4:
+                words[clean] = words.get(clean, 0) + 1
+    topics = sorted(words.items(), key=lambda item: item[1], reverse=True)[:5]
+    return {"ranked": ranked, "topics": topics, "posts_count": len(posts), "activity_count": len(texts)}
+
+
+@dp.message(Command("channelreport"))
+async def channel_report(message: Message):
+    if message.chat.type != "channel" and (not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id)):
+        await message.answer("⛔ این گزارش فقط برای مدیر کانال/گروه است.")
+        return
+    data = community_chat(message.chat.id)
+    insight = channel_insights(data)
+    ranked = insight["ranked"][:5]
+    lines = ["📈 گزارش هوشمند کانال FXI",
+             f"کانال: {data.get('title') or message.chat.title or message.chat.id}",
+             f"پست‌های دارای داده تعامل: {insight['posts_count']}",
+             f"متن‌های ثبت‌شده: {insight['activity_count']}", "",
+             "🏆 بهترین پست‌ها بر اساس امتیاز تعامل:"]
+    if ranked:
+        for index, post in enumerate(ranked, 1):
+            preview = (post.get("text") or "متن پست هنگام ثبت در دسترس نبوده است").replace("\\n", " ")[:90]
+            lines.append(f"{index}. {preview} | واکنش: {post.get('reactions', 0)} | بازدید: {post.get('views', 'نامشخص')} | امتیاز: {channel_post_score(post):.1f}")
+    else:
+        lines.append("هنوز داده کافی ندارم؛ از زمان اضافه‌شدن ربات، پست‌های جدید را ثبت می‌کنم.")
+    if insight["topics"]:
+        lines.extend(["", "🔎 موضوعات پرتکرار: " + "، ".join(f"{word} ({count})" for word, count in insight["topics"])])
+    lines.extend(["", "⚠️ این رتبه‌بندی فقط بر اساس داده‌هایی است که تلگرام تحویل داده؛ نرخ تعامل واقعی به تعداد مشترکان و داده کامل نیاز دارد."])
+    await send_long_message(message, "\\n".join(lines))
+
+
+@dp.message(Command("topposts"))
+async def channel_top_posts(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر می‌تواند پست‌های برتر را ببیند.")
+        return
+    ranked = channel_insights(community_chat(message.chat.id))["ranked"][:10]
+    if not ranked:
+        await message.answer("هنوز داده‌ای برای رتبه‌بندی پست‌ها ثبت نشده است.")
+        return
+    lines = ["🏅 ۱۰ پست برتر ثبت‌شده:"]
+    for i, post in enumerate(ranked, 1):
+        lines.append(f"{i}) پیام {post.get('message_id')} — {post.get('reactions', 0)} واکنش — {post.get('views', 0)} بازدید")
+    await message.answer("\\n".join(lines))
+
+
+@dp.message(Command("contentplan"))
+async def channel_content_plan(message: Message):
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر کانال می‌تواند برنامه محتوا بسازد.")
+        return
+    insight = channel_insights(community_chat(message.chat.id))
+    topics = [word for word, _ in insight["topics"]]
+    topic = "، ".join(topics[:3]) if topics else "موضوع اصلی کانال"
+    plan = ["🗓 برنامه پیشنهادی ۵ محتوای بعدی", f"مبنای موضوعی ثبت‌شده: {topic}", "",
+            "۱. پست آموزشی کوتاه: یک نکته کاربردی و قابل ذخیره درباره موضوع محبوب.",
+            "۲. پست تعاملی: یک سؤال مشخص با دو تا چهار گزینه برای نظرسنجی.",
+            "۳. محتوای عمیق: راهنمای مرحله‌ای یا چک‌لیست قابل استفاده.",
+            "۴. محتوای روز: یک اتفاق تازه و مرتبط؛ تاریخ و منبع را پیش از انتشار بررسی کن.",
+            "۵. جمع‌بندی: پاسخ به پرسش‌های پرتکرار و دعوت به واکنش یا ارسال نظر.",
+            "", "این برنامه از داده‌های فعلی ساخته شده؛ زمان انتشار بهینه بدون تاریخچه زمانی کافی قابل محاسبه نیست."]
+    await message.answer("\\n".join(plan))
+
+
 @dp.message(Command("communitystats"))
 async def community_stats(message: Message):
     data = community_chat(message.chat.id)
@@ -1185,9 +1266,27 @@ async def collect_community_message(message: Message):
         data.setdefault("activity", []).append({
             "text": text_value[:COMMUNITY_MAX_TEXT],
             "date": datetime.now(timezone.utc).isoformat(),
-            "user_id": message.from_user.id if message.from_user else None
+            "user_id": message.from_user.id if message.from_user else None,
+            "message_id": message.message_id,
+            "views": getattr(message, "views", None),
+            "forwards": getattr(message, "forward_count", None),
+            "media_type": ("photo" if message.photo else "video" if message.video else "document" if message.document else "text")
         })
         data["activity"] = data["activity"][-200:]
+    if message.chat.type == "channel":
+        posts = data.setdefault("top_posts", [])
+        record = next((p for p in posts if p.get("message_id") == message.message_id), None)
+        if record is None:
+            record = {"message_id": message.message_id, "text": text_value[:COMMUNITY_MAX_TEXT],
+                      "reactions": 0, "views": getattr(message, "views", 0) or 0,
+                      "forwards": getattr(message, "forward_count", 0) or 0,
+                      "date": datetime.now(timezone.utc).isoformat()}
+            posts.append(record)
+        else:
+            record.update({"text": text_value[:COMMUNITY_MAX_TEXT],
+                           "views": getattr(message, "views", 0) or 0,
+                           "forwards": getattr(message, "forward_count", 0) or 0})
+        data["top_posts"] = posts[-300:]
     save_admin_data()
 
     # Conservative anti-flood: only repeated rapid messages, no blanket link ban.
@@ -1223,7 +1322,7 @@ async def collect_reaction_counts(event: MessageReactionCountUpdated):
         posts.append(record)
     record["reactions"] = total
     record["updated_at"] = datetime.now(timezone.utc).isoformat()
-    data["top_posts"] = sorted(posts, key=lambda x: x.get("reactions", 0), reverse=True)[:50]
+    data["top_posts"] = sorted(posts, key=channel_post_score, reverse=True)[:300]
     save_admin_data()
 
 @dp.chat_member()
