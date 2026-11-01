@@ -1136,8 +1136,8 @@ def channel_insights(data: dict) -> dict:
     texts = [str(x.get("text", "")).strip() for x in activity if x.get("text")]
     words = {}
     for value in texts[-100:]:
-        for word in value.replace("\\n", " ").split():
-            clean = "".join(ch for ch in word.lower() if ch.isalnum() or "\\u0600" <= ch <= "\\u06ff")
+        for word in value.replace("\n", " ").split():
+            clean = "".join(ch for ch in word.lower() if ch.isalnum() or "\u0600" <= ch <= "\u06ff")
             if len(clean) >= 4:
                 words[clean] = words.get(clean, 0) + 1
     topics = sorted(words.items(), key=lambda item: item[1], reverse=True)[:5]
@@ -1159,7 +1159,7 @@ async def channel_report(message: Message):
              "🏆 بهترین پست‌ها بر اساس امتیاز تعامل:"]
     if ranked:
         for index, post in enumerate(ranked, 1):
-            preview = (post.get("text") or "متن پست هنگام ثبت در دسترس نبوده است").replace("\\n", " ")[:90]
+            preview = (post.get("text") or "متن پست هنگام ثبت در دسترس نبوده است").replace("\n", " ")[:90]
             lines.append(f"{index}. {preview} | واکنش: {post.get('reactions', 0)} | بازدید: {post.get('views', 'نامشخص')} | امتیاز: {channel_post_score(post):.1f}")
     else:
         lines.append("هنوز داده کافی ندارم؛ از زمان اضافه‌شدن ربات، پست‌های جدید را ثبت می‌کنم.")
