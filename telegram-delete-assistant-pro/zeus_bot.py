@@ -1083,7 +1083,7 @@ async def community_help(message: Message):
         "/fxi_disable — غیرفعال‌سازی پاسخ هوشمند (مدیر)\n"
         "در گروه: «ربات، ...» بنویس یا منشن کن؛ برای ویس به پیام ربات ریپلای بزن یا کپشن «ربات» بگذار.\n"
         "نمونه: «ربات، آمار گروه رو بگو»، «ربات، قوانین رو بگو»، «ربات، پاسخ هوشمند رو روشن کن».\n"
-        "تشخیص پیام صوتی به تنظیم GROQ_API_KEY یا OPENAI_API_KEY در متغیرهای محیطی (Environment) نیاز دارد.\n"
+        "تبدیل گفتار در نسخه فعلی که فقط OpenRouter دارد غیرفعال است.\n"
         "/draft موضوع — پیش‌نویس پست کانال (مدیر)\n"
         "/channelreport — گزارش تحلیل کانال\n/topposts — ۱۰ پست برتر\n"
         "/contentplan — برنامه ۵ محتوای بعدی\n"
@@ -1825,16 +1825,12 @@ async def lifespan(app: FastAPI):
     if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
-        log.info("FXI multi-provider AI Telegram polling started; configured providers=%s",
+        log.info("FXI Telegram polling started; configured AI provider=%s",
                  [name for name in PROVIDERS if provider_ready(name)])
     else:
         log.error("Telegram bot is inactive: ZEUS_BOT_TOKEN is missing")
     if not any(provider_ready(name) for name in PROVIDERS):
         log.warning("No AI providers are configured; AI replies are disabled")
-    if provider_ready("local"):
-        log.info("FXI local AI enabled; Ollama endpoint=%s model=%s",
-                 os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-                 os.getenv("FXI_LOCAL_MODEL", "auto"))
     yield
     if polling_task:
         polling_task.cancel()
