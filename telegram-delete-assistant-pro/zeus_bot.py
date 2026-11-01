@@ -66,7 +66,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DATABASE_READY = False
-admin_security = HTTPBasic()
+admin_security = HTTPBasic(auto_error=False)
 # Per-process throttling for repeated failed admin logins.
 admin_auth_failures: dict[str, list[float]] = defaultdict(list)
 ADMIN_AUTH_WINDOW_SECONDS = 900
@@ -96,7 +96,8 @@ def _ensure_db_table(conn) -> None:
 
 def load_admin_data() -> dict:
     defaults = {"admins": [], "users": [], "bot_enabled": True,
-                "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": []}
+                "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": [],
+                "admin_permissions": {}, "admin_invites": {}}
     if DATABASE_URL:
         try:
             with _db_connect() as conn:
@@ -327,30 +328,89 @@ def remember_user(user_id: int, *, username: str | None = None,
         log.exception("Could not persist Telegram user registry/profile")
 
 
-def require_admin(request: Request, credentials: HTTPBasicCredentials = Depends(admin_security)):
-    # Throttle failed Basic Auth attempts by client IP to slow password guessing.
+ADMIN_PERMISSIONS = {
+    "dashboard": "نمای کلی", "providers": "سرویس‌های هوش مصنوعی", "users": "کاربران",
+    "admins": "مدیریت ادمین‌ها", "community": "گروه‌ها و کانال‌ها",
+    "conversations": "تاریخچه مکالمات", "audit": "گزارش فعالیت‌ها",
+    "payments": "بررسی پرداخت‌ها", "broadcast": "پیام همگانی",
+    "prompt": "دستورالعمل دستیار", "system": "سلامت و تنظیمات",
+}
+
+
+def _permission_for_path(path: str) -> str:
+    if path in {"/admin", "/admin/"}: return "dashboard"
+    if path.endswith("/status") or path.endswith("/metrics"): return "dashboard"
+    if "/admins" in path: return "admins"
+    if "/users/export" in path or path.endswith("/users"): return "users"
+    if "/community" in path: return "community"
+    if "/conversations" in path: return "conversations"
+    if "/audit" in path: return "audit"
+    if "/payments" in path: return "payments"
+    if "/broadcast" in path: return "broadcast"
+    if "/prompt" in path: return "prompt"
+    if "/bot-state" in path: return "system"
+    return "dashboard"
+
+
+def _is_primary_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
+
+def _admin_permissions_for(user_id: int) -> set[str]:
+    if _is_primary_admin(user_id):
+        return set(ADMIN_PERMISSIONS)
+    stored = admin_data.get("admin_permissions", {}).get(str(user_id), ["dashboard"])
+    return set(stored).intersection(ADMIN_PERMISSIONS)
+
+
+def _make_admin_invite(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    invites = admin_data.setdefault("admin_invites", {})
+    now = int(time.time())
+    # Prune expired invites and keep the map bounded.
+    for digest, record in list(invites.items()):
+        if int(record.get("expires_at", 0)) < now:
+            invites.pop(digest, None)
+    if len(invites) > 1000:
+        for digest in list(invites)[:500]: invites.pop(digest, None)
+    invites[hashlib.sha256(token.encode()).hexdigest()] = {"user_id": user_id, "expires_at": now + 1800}
+    save_admin_data()
+    return token
+
+
+def require_admin(request: Request, credentials: HTTPBasicCredentials | None = Depends(admin_security)):
+    # Telegram-issued admin sessions are scoped to the current persisted permission set.
+    session_token = request.cookies.get("fxi_admin_session", "")
+    if session_token and SESSION_SERIALIZER:
+        try:
+            session = SESSION_SERIALIZER.loads(session_token, max_age=12 * 60 * 60)
+            user_id = int(session.get("user_id", 0)) if isinstance(session, dict) else 0
+            if user_id and is_admin(user_id):
+                needed = _permission_for_path(request.url.path)
+                if needed not in _admin_permissions_for(user_id):
+                    raise HTTPException(status_code=403, detail="این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
+                return {"user_id": user_id, "auth_type": "telegram", "permissions": sorted(_admin_permissions_for(user_id))}
+        except (BadSignature, SignatureExpired, TypeError, ValueError):
+            pass
+    # Root/operator access remains available through the separately configured Basic Auth.
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
-    attempts = [stamp for stamp in admin_auth_failures.get(client_ip, [])
-                if now - stamp < ADMIN_AUTH_WINDOW_SECONDS]
+    attempts = [stamp for stamp in admin_auth_failures.get(client_ip, []) if now - stamp < ADMIN_AUTH_WINDOW_SECONDS]
     admin_auth_failures[client_ip] = attempts
     if len(attempts) >= ADMIN_AUTH_MAX_FAILURES:
         raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="برای ورود از لینک اختصاصی ادمین استفاده کن.", headers={"WWW-Authenticate": "Basic"})
     valid_user = secrets.compare_digest(credentials.username, ADMIN_PANEL_USERNAME)
-    valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(
-        credentials.password, ADMIN_PANEL_PASSWORD
-    )
+    valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PANEL_PASSWORD)
     if not (valid_user and valid_password):
         attempts.append(now)
         admin_auth_failures[client_ip] = attempts
-        # Bound the tracking map so arbitrary source IPs cannot grow it forever.
         if len(admin_auth_failures) > 5000:
-            for ip in list(admin_auth_failures)[:1000]:
-                admin_auth_failures.pop(ip, None)
-        raise HTTPException(status_code=401, detail="ورود نامعتبر است",
-                            headers={"WWW-Authenticate": "Basic"})
+            for ip in list(admin_auth_failures)[:1000]: admin_auth_failures.pop(ip, None)
+        raise HTTPException(status_code=401, detail="ورود نامعتبر است", headers={"WWW-Authenticate": "Basic"})
     admin_auth_failures.pop(client_ip, None)
-    return credentials.username
+    return {"auth_type": "root_basic", "permissions": sorted(ADMIN_PERMISSIONS)}
 
 
 class AdminIdPayload(BaseModel):
@@ -1969,9 +2029,41 @@ async def admin_root_redirect():
     return RedirectResponse(url="/admin", status_code=307)
 
 
+@app.get("/admin/invite/{token}")
+async def accept_admin_invite(token: str):
+    if not SESSION_SERIALIZER:
+        raise HTTPException(status_code=503, detail="نشست امن تنظیم نشده است.")
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    record = admin_data.setdefault("admin_invites", {}).pop(digest, None)
+    if not record or int(record.get("expires_at", 0)) < int(time.time()):
+        save_admin_data()
+        raise HTTPException(status_code=410, detail="لینک ورود نامعتبر یا منقضی شده است؛ از مدیر اصلی لینک تازه بخواه.")
+    user_id = int(record.get("user_id", 0))
+    if not user_id or not is_admin(user_id):
+        save_admin_data()
+        raise HTTPException(status_code=403, detail="این حساب دیگر دسترسی ادمینی ندارد.")
+    save_admin_data()
+    from fastapi.responses import RedirectResponse
+    response = RedirectResponse(url="/admin", status_code=303)
+    response.set_cookie("fxi_admin_session", SESSION_SERIALIZER.dumps({"user_id": user_id}),
+                        max_age=12 * 60 * 60, httponly=True, secure=True,
+                        samesite="strict", path="/")
+    return response
+
+
+@app.post("/admin/logout")
+async def admin_logout():
+    from fastapi.responses import RedirectResponse
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie("fxi_admin_session", path="/")
+    return response
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_panel(_: str = Depends(require_admin)):
-    return HTMLResponse(ADMIN_PANEL_HTML)
+async def admin_panel(auth=Depends(require_admin)):
+    # The frontend receives only the current admin's effective permissions.
+    html = ADMIN_PANEL_HTML.replace("</head>", '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '"></head>')
+    return HTMLResponse(html)
 
 
 @app.get("/admin/api/audit")
@@ -2068,15 +2160,30 @@ async def admin_conversation(user_id: int, _: str = Depends(require_admin)):
 
 
 @app.post("/admin/api/admins")
-async def add_admin(payload: AdminIdPayload, _: str = Depends(require_admin)):
+async def add_admin(payload: AdminIdPayload, auth=Depends(require_admin)):
+    if "admins" not in auth["permissions"]:
+        raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
     if payload.user_id <= 0:
         raise HTTPException(status_code=400, detail="شناسه کاربر نامعتبر است")
     if payload.user_id in ADMIN_IDS or payload.user_id in admin_data["admins"]:
         return {"message": "این کاربر از قبل مدیر است"}
     admin_data["admins"].append(payload.user_id)
-    log_admin_action("admin_added", f"user_id={payload.user_id}")
+    admin_data.setdefault("admin_permissions", {})[str(payload.user_id)] = ["dashboard"]
+    token = _make_admin_invite(payload.user_id)
+    log_admin_action("admin_added", f"user_id={payload.user_id}; permissions=dashboard")
     save_admin_data()
-    return {"message": f"مدیر {payload.user_id} اضافه شد"}
+    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/") + "/admin/invite/" + token
+    notified = False
+    if bot:
+        try:
+            await bot.send_message(payload.user_id,
+                "🎉 شما به‌عنوان ادمین FXI اضافه شدید.\n\n"
+                "برای ورود به پنل اختصاصی روی لینک زیر بزنید. لینک یک‌بارمصرف است و ۳۰ دقیقه اعتبار دارد؛ پس از ورود، نشست شما تا ۱۲ ساعت فعال می‌ماند.\n\n"
+                f"{link}\n\nدسترسی اولیه: نمای کلی. مدیر اصلی می‌تواند امکانات بیشتری فعال کند.")
+            notified = True
+        except Exception as exc:
+            log.warning("Admin invite notification failed for user=%s: %s", payload.user_id, type(exc).__name__)
+    return {"message": f"مدیر {payload.user_id} اضافه شد؛ اعلان تلگرام " + ("ارسال شد." if notified else "ارسال نشد؛ کاربر باید ابتدا ربات را Start کند یا لینک تازه ارسال شود."), "notification_sent": notified}
 
 
 @app.delete("/admin/api/admins/{user_id}")
@@ -2086,9 +2193,57 @@ async def remove_admin(user_id: int, _: str = Depends(require_admin)):
     if user_id not in admin_data["admins"]:
         raise HTTPException(status_code=404, detail="این مدیر پیدا نشد")
     admin_data["admins"].remove(user_id)
+    admin_data.get("admin_permissions", {}).pop(str(user_id), None)
+    for digest, record in list(admin_data.get("admin_invites", {}).items()):
+        if int(record.get("user_id", 0)) == user_id:
+            admin_data["admin_invites"].pop(digest, None)
     log_admin_action("admin_removed", f"user_id={user_id}")
     save_admin_data()
     return {"message": f"مدیر {user_id} حذف شد"}
+
+
+class AdminPermissionsPayload(BaseModel):
+    permissions: list[str] = Field(min_length=1, max_length=len(ADMIN_PERMISSIONS))
+
+
+@app.get("/admin/api/admins/{user_id}/permissions")
+async def get_admin_permissions(user_id: int, auth=Depends(require_admin)):
+    if "admins" not in auth["permissions"]:
+        raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
+    if not is_admin(user_id):
+        raise HTTPException(status_code=404, detail="ادمین پیدا نشد.")
+    return {"user_id": user_id, "permissions": sorted(_admin_permissions_for(user_id)), "available": ADMIN_PERMISSIONS}
+
+
+@app.post("/admin/api/admins/{user_id}/permissions")
+async def set_admin_permissions(user_id: int, payload: AdminPermissionsPayload, auth=Depends(require_admin)):
+    if "admins" not in auth["permissions"]:
+        raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
+    if not is_admin(user_id):
+        raise HTTPException(status_code=404, detail="ادمین پیدا نشد.")
+    if _is_primary_admin(user_id):
+        raise HTTPException(status_code=400, detail="دسترسی مدیر اصلی قابل محدودسازی از این بخش نیست.")
+    permissions = sorted(set(payload.permissions))
+    unknown = set(permissions) - set(ADMIN_PERMISSIONS)
+    if unknown:
+        raise HTTPException(status_code=422, detail="یک یا چند سطح دسترسی ناشناخته است.")
+    # A delegated admin may not grant permissions they do not possess.
+    if auth["auth_type"] != "root_basic" and not _is_primary_admin(int(auth["user_id"])):
+        if not set(permissions).issubset(set(auth["permissions"])):
+            raise HTTPException(status_code=403, detail="نمی‌توانی دسترسی‌ای را که خودت نداری به دیگری بدهی.")
+    admin_data.setdefault("admin_permissions", {})[str(user_id)] = permissions or ["dashboard"]
+    log_admin_action("admin_permissions_updated", f"user_id={user_id}; permissions={','.join(permissions)}")
+    save_admin_data()
+    token = _make_admin_invite(user_id)
+    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/") + "/admin/invite/" + token
+    notified = False
+    if bot:
+        try:
+            await bot.send_message(user_id, "🔐 دسترسی‌های پنل FXI شما تغییر کرد. برای دریافت نشست تازه از لینک اختصاصی زیر استفاده کنید؛ این لینک یک‌بارمصرف و ۳۰ دقیقه معتبر است.\n\n" + link + "\n\nامکانات فعال: " + "، ".join(ADMIN_PERMISSIONS[p] for p in permissions))
+            notified = True
+        except Exception as exc:
+            log.warning("Permission update notification failed for user=%s: %s", user_id, type(exc).__name__)
+    return {"message": "سطح دسترسی ذخیره شد." + (" اعلان ارسال شد." if notified else " اعلان تلگرام ارسال نشد؛ کاربر باید ربات را Start کند."), "permissions": permissions, "notification_sent": notified}
 
 
 @app.post("/admin/api/bot-state")
