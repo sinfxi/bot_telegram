@@ -470,10 +470,11 @@ async def start(message: Message):
     user_id = message.from_user.id if message.from_user else 0
     remember_user(user_id, username=message.from_user.username if message.from_user else None, first_name=message.from_user.first_name if message.from_user else None, last_name=message.from_user.last_name if message.from_user else None)
     await message.answer(
-        "سلام! 👋 به دستیار هوش مصنوعی FXI خوش اومدی.\n"
-        "از منو سرویس موردنظرت رو انتخاب کن، بعد پیام بفرست.\n\n"
-        "برای شروع گفت‌وگوی تازه /new رو بزن.",
-        reply_markup=provider_keyboard(),
+        "سلام! 👋 به FXI Community خوش اومدی.\n\n"
+        "من دیگه ربات چت خصوصی نیستم؛ برای مدیریت و تحلیل گروه یا کانالت من رو به آن اضافه کن.\n"
+        "• در گروه: دسترسی ادمین و مجوز حذف پیام بده.\n"
+        "• در کانال: من رو ادمین کن تا پست‌های جدید و واکنش‌ها را دریافت کنم.\n\n"
+        "دستورهای اصلی داخل گروه: /community ، /challenge ، /suggest ، /rules ، /communitystats"
     )
 
 
@@ -1172,28 +1173,11 @@ async def community_member_update(event: ChatMemberUpdated):
 
 @dp.message()
 async def chat(message: Message):
-    if not message.from_user or not message.text:
-        await message.answer("فعلاً فقط پیام متنی رو پشتیبانی می‌کنم. 🙂")
-        return
-    remember_user(message.from_user.id, username=message.from_user.username, first_name=message.from_user.first_name, last_name=message.from_user.last_name)
-    if not bot_enabled:
-        await message.answer('⛔ ربات موقتاً توسط مدیریت غیرفعال شده است.')
-        return
-    user_text = message.text.strip()
-    if not user_text:
-        return
-    if len(user_text) > MAX_MESSAGE_CHARS:
-        await message.answer("پیامت خیلی طولانیه؛ لطفاً کوتاه‌ترش کن.")
-        return
-    provider_id = selected_provider[message.from_user.id]
-    if not provider_ready(provider_id):
-        await message.answer(
-            f"🔒 سرویس فعلی ({PROVIDERS[provider_id]['label']}) هنوز فعال نشده. "
-            "با /ai سرویس دیگری انتخاب کن."
-        )
-        return
-    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    await send_long_message(message, await ask_ai(message.from_user.id, provider_id, user_text))
+    if message.from_user:
+        remember_user(message.from_user.id, username=message.from_user.username,
+                      first_name=message.from_user.first_name, last_name=message.from_user.last_name)
+    if message.chat.type == "private":
+        await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. من را به گروه یا کانالت اضافه کن و دسترسی‌های لازم را بده. برای راهنما /community را بزن.")
 
 
 @asynccontextmanager
