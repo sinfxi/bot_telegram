@@ -13,6 +13,7 @@ import hmac
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 from collections import defaultdict
 
 import aiohttp
@@ -66,6 +67,10 @@ ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DATABASE_READY = False
 admin_security = HTTPBasic()
+# Per-process throttling for repeated failed admin logins.
+admin_auth_failures: dict[str, list[float]] = defaultdict(list)
+ADMIN_AUTH_WINDOW_SECONDS = 900
+ADMIN_AUTH_MAX_FAILURES = 8
 admin_data_lock = asyncio.Lock()
 bot_enabled = True
 
@@ -322,14 +327,29 @@ def remember_user(user_id: int, *, username: str | None = None,
         log.exception("Could not persist Telegram user registry/profile")
 
 
-def require_admin(credentials: HTTPBasicCredentials = Depends(admin_security)):
+def require_admin(request: Request, credentials: HTTPBasicCredentials = Depends(admin_security)):
+    # Throttle failed Basic Auth attempts by client IP to slow password guessing.
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempts = [stamp for stamp in admin_auth_failures.get(client_ip, [])
+                if now - stamp < ADMIN_AUTH_WINDOW_SECONDS]
+    admin_auth_failures[client_ip] = attempts
+    if len(attempts) >= ADMIN_AUTH_MAX_FAILURES:
+        raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
     valid_user = secrets.compare_digest(credentials.username, ADMIN_PANEL_USERNAME)
     valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(
         credentials.password, ADMIN_PANEL_PASSWORD
     )
     if not (valid_user and valid_password):
+        attempts.append(now)
+        admin_auth_failures[client_ip] = attempts
+        # Bound the tracking map so arbitrary source IPs cannot grow it forever.
+        if len(admin_auth_failures) > 5000:
+            for ip in list(admin_auth_failures)[:1000]:
+                admin_auth_failures.pop(ip, None)
         raise HTTPException(status_code=401, detail="ورود نامعتبر است",
                             headers={"WWW-Authenticate": "Basic"})
+    admin_auth_failures.pop(client_ip, None)
     return credentials.username
 
 
@@ -1906,6 +1926,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def security_headers_and_admin_origin_guard(request: Request, call_next):
+    # JSON admin APIs are same-origin only when browsers provide an Origin header.
+    if request.url.path.startswith("/admin/api/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin:
+            try:
+                origin_host = urlsplit(origin).netloc.lower()
+            except ValueError:
+                origin_host = ""
+            request_host = request.headers.get("host", "").lower()
+            if not origin_host or not request_host or origin_host != request_host:
+                return JSONResponse(status_code=403, content={"detail": "درخواست بین‌مبدأیی مجاز نیست."})
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path == "/admin" or request.url.path.startswith("/admin/api/"):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    if request.url.scheme == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 
 @app.get("/")
