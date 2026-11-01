@@ -659,27 +659,9 @@ async def choose_provider(callback: CallbackQuery):
         await callback.answer("فقط OpenRouter در این نسخه پشتیبانی می‌شود.", show_alert=True)
         return
     if not provider_ready(provider_id):
-        env_name = {
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GEMINI_API_KEY",
-            "claude": "ANTHROPIC_API_KEY",
-            "deepseek": "DEEPSEEK_API_KEY",
-            "grok": "XAI_API_KEY",
-            "groq": "GROQ_API_KEY",
-            "mistral": "MISTRAL_API_KEY",
-            "sambanova": "SAMBANOVA_API_KEY",
-            "nvidia": "NVIDIA_API_KEY",
-            "cohere": "COHERE_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-            "cloudflare": "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID",
-            "local": "FXI_LOCAL_AI_ENABLED=true و اجرای Ollama",
-        }[provider_id]
-        await callback.answer("این سرویس هنوز فعال نشده یا موتور محلی خاموش است.", show_alert=True)
+        await callback.answer("OpenRouter هنوز پیکربندی نشده است.", show_alert=True)
         if callback.message:
-            await callback.message.answer(
-                f"🔒 {PROVIDERS[provider_id]['label']} هنوز پیکربندی نشده.\n"
-                f"تنظیم موردنیاز: {env_name}"
-            )
+            await callback.message.answer("🔒 برای فعال‌سازی پاسخ هوشمند، مقدار OPENROUTER_API_KEY را در تنظیمات محیطی سرور قرار بده.")
         return
     selected_provider[callback.from_user.id] = provider_id
     await callback.answer("انتخاب شد ✅")
@@ -949,112 +931,6 @@ def api_error(provider_id: str, status: int, data: dict) -> str:
                 "جزئیات فنی ثبت شد؛ مدیر باید مدل، اعتبار حساب و پارامترهای درخواست را بررسی کند.")
     return f"⚠️ درخواست به {PROVIDERS[provider_id]['label']} ناموفق بود (HTTP {status}). جزئیات فنی در لاگ سرور ثبت شد."
 
-async def ask_local(history: list, user_text: str) -> tuple[int, dict]:
-    """Run inference through a local Ollama daemon; no third-party API key is used."""
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    configured_model = os.getenv("FXI_LOCAL_MODEL", "auto").strip()
-    async with aiohttp.ClientSession(timeout=REQUEST_TIMEOUT) as session:
-        try:
-            async with session.get(f"{base_url}/api/tags") as response:
-                tags_data = await response.json(content_type=None)
-                if response.status >= 400:
-                    return response.status, {"error": {"message": "Ollama is not ready"}}
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
-            log.warning("Local Ollama is unreachable at %s: %s", base_url, exc)
-            return 503, {"error": {"message": "Local Ollama is not running or reachable"}}
-
-        installed = [item.get("name", "") for item in tags_data.get("models", [])]
-        if configured_model.lower() == "auto":
-            priorities = ("qwen3:8b", "qwen3:4b", "qwen2.5:7b", "qwen2.5:3b",
-                          "llama3.2:3b", "qwen2.5:1.5b", "gemma3:4b")
-            model = next((candidate for candidate in priorities
-                          if candidate in installed), installed[0] if installed else "")
-        else:
-            model = configured_model
-
-        if not model or model not in installed:
-            return 503, {"error": {"message":
-                "No local model installed. Install a model with ollama pull qwen3:4b "
-                "or set FXI_LOCAL_MODEL to an installed model."}}
-
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend({"role": item["role"], "content": item["content"]}
-                        for item in history[-MAX_HISTORY_MESSAGES:])
-        messages.append({"role": "user", "content": user_text})
-        try:
-            async with session.post(f"{base_url}/api/chat", json={
-                "model": model, "messages": messages, "stream": False,
-                "options": {"temperature": 0.7, "num_predict": 1800},
-            }) as response:
-                data = await response.json(content_type=None)
-                if not isinstance(data, dict):
-                    data = {"error": {"message": "Invalid response from Ollama"}}
-                if response.status >= 400:
-                    return response.status, data
-                content = ((data.get("message") or {}).get("content") or "").strip()
-                return 200, {"choices": [{"message": {"content": content}}],
-                             "model": model}
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
-            log.exception("Local Ollama inference failed")
-            return 503, {"error": {"message": str(exc)}}
-
-
-async def ask_openai(history: list, user_text: str) -> tuple[int, dict]:
-    input_messages = []
-    for item in history[-MAX_HISTORY_MESSAGES:]:
-        input_messages.append({"role": item["role"], "content": item["content"]})
-    input_messages.append({"role": "user", "content": user_text})
-    return await post_json(
-        "https://api.openai.com/v1/responses",
-        {"Authorization": f"Bearer {PROVIDERS['openai']['key']}", "Content-Type": "application/json"},
-        {"model": PROVIDERS["openai"]["model"], "instructions": SYSTEM_PROMPT,
-         "input": input_messages, "max_output_tokens": 1800, "store": False},
-    )
-
-
-async def ask_gemini(history: list, user_text: str) -> tuple[int, dict]:
-    contents = []
-    for item in history[-MAX_HISTORY_MESSAGES:]:
-        contents.append({
-            "role": "user" if item["role"] == "user" else "model",
-            "parts": [{"text": item["content"]}],
-        })
-    contents.append({"role": "user", "parts": [{"text": user_text}]})
-    return await post_json(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{PROVIDERS['gemini']['model']}:generateContent",
-        {"x-goog-api-key": PROVIDERS["gemini"]["key"], "Content-Type": "application/json"},
-        {"system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]}, "contents": contents,
-         "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1800}},
-    )
-
-
-async def ask_claude(history: list, user_text: str) -> tuple[int, dict]:
-    messages = []
-    for item in history[-MAX_HISTORY_MESSAGES:]:
-        messages.append({"role": item["role"], "content": item["content"]})
-    messages.append({"role": "user", "content": user_text})
-    return await post_json(
-        "https://api.anthropic.com/v1/messages",
-        {"x-api-key": PROVIDERS["claude"]["key"], "anthropic-version": "2023-06-01",
-         "Content-Type": "application/json"},
-        {"model": PROVIDERS["claude"]["model"], "system": SYSTEM_PROMPT,
-         "messages": messages, "max_tokens": 1800},
-    )
-
-
-async def ask_grok(history: list, user_text: str) -> tuple[int, dict]:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend({"role": item["role"], "content": item["content"]}
-                    for item in history[-MAX_HISTORY_MESSAGES:])
-    messages.append({"role": "user", "content": user_text})
-    return await post_json(
-        "https://api.x.ai/v1/chat/completions",
-        {"Authorization": f"Bearer {PROVIDERS['grok']['key']}", "Content-Type": "application/json"},
-        {"model": PROVIDERS["grok"]["model"], "messages": messages,
-         "temperature": 0.7, "max_tokens": 1800},
-    )
-
-
 async def ask_compatible(provider_id: str, history: list, user_text: str) -> tuple[int, dict]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": item["role"], "content": item["content"]}
@@ -1085,19 +961,6 @@ async def ask_compatible(provider_id: str, history: list, user_text: str) -> tup
         "model": config["model"], "messages": messages,
         "temperature": 0.7, "max_tokens": 1800,
     })
-
-
-async def ask_deepseek(history: list, user_text: str) -> tuple[int, dict]:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend({"role": item["role"], "content": item["content"]}
-                    for item in history[-MAX_HISTORY_MESSAGES:])
-    messages.append({"role": "user", "content": user_text})
-    return await post_json(
-        "https://api.deepseek.com/chat/completions",
-        {"Authorization": f"Bearer {PROVIDERS['deepseek']['key']}", "Content-Type": "application/json"},
-        {"model": PROVIDERS["deepseek"]["model"], "messages": messages,
-         "temperature": 0.7, "max_tokens": 1800},
-    )
 
 
 def extract_answer(provider_id: str, data: dict) -> str:
@@ -1848,42 +1711,8 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
 
 
 async def transcribe_telegram_voice(message: Message) -> str:
-    """Transcribe Telegram voice with Groq or OpenAI; API key is required."""
-    if not bot or not HTTP_SESSION:
-        raise RuntimeError("سرویس دریافت صدا آماده نیست.")
-    if not os.getenv("GROQ_API_KEY", "").strip() and not os.getenv("OPENAI_API_KEY", "").strip():
-        raise RuntimeError("برای تشخیص ویس باید GROQ_API_KEY یا OPENAI_API_KEY در متغیرهای محیطی تنظیم شود.")
-    voice = message.voice or message.audio
-    if not voice:
-        raise RuntimeError("فایل صوتی پیدا نشد.")
-    if voice.file_size and voice.file_size > 20 * 1024 * 1024:
-        raise RuntimeError("حجم حجم فایل صوتی از ۲۰ مگابایت بیشتر است.")
-    file_info = await bot.get_file(voice.file_id)
-    buffer = io.BytesIO()
-    await bot.download_file(file_info.file_path, destination=buffer)
-    audio_bytes = buffer.getvalue()
-    if not audio_bytes:
-        raise RuntimeError("فایل صوتی خالی است یا داده‌ای ندارد.")
-    form = aiohttp.FormData()
-    form.add_field("file", audio_bytes, filename="voice.ogg", content_type="audio/ogg")
-    if os.getenv("GROQ_API_KEY", "").strip():
-        endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
-        form.add_field("model", os.getenv("FXI_STT_MODEL", "whisper-large-v3-turbo"))
-        headers = {"Authorization": f"Bearer {os.getenv('GROQ_API_KEY').strip()}"}
-    else:
-        endpoint = "https://api.openai.com/v1/audio/transcriptions"
-        form.add_field("model", os.getenv("FXI_STT_MODEL", "gpt-4o-mini-transcribe"))
-        headers = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY').strip()}"}
-    form.add_field("language", "fa")
-    async with HTTP_SESSION.post(endpoint, data=form, headers=headers) as response:
-        payload = await response.json(content_type=None)
-        if response.status >= 400:
-            log.warning("Speech transcription failed status=%s", response.status)
-            raise RuntimeError("تشخیص صدا ناموفق بود؛ کلید API، سهمیه یا تنظیمات سرویس را بررسی کن.")
-        result = str(payload.get("text", "")).strip()
-        if not result:
-            raise RuntimeError("از ویس متن قابل تشخیصی به دست نیامد.")
-        return result[:MAX_MESSAGE_CHARS]
+    """Voice transcription is intentionally disabled in the OpenRouter-only build."""
+    raise RuntimeError("تبدیل گفتار در نسخهٔ فعلی فعال نیست؛ هیچ سرویس هوش مصنوعی دیگری غیر از OpenRouter استفاده نمی‌شود.")
 
 
 @dp.message(F.voice | F.audio)
