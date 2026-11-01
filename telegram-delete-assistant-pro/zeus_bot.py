@@ -392,7 +392,7 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
                 return {"user_id": user_id, "auth_type": "telegram", "permissions": sorted(_admin_permissions_for(user_id))}
         except (BadSignature, SignatureExpired, TypeError, ValueError):
             pass
-    # Root/operator access remains available through the separately configured Basic Auth.
+    # Basic Auth login uses the Telegram numeric ID as username; shared password alone never grants admin access.
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     attempts = [stamp for stamp in admin_auth_failures.get(client_ip, []) if now - stamp < ADMIN_AUTH_WINDOW_SECONDS]
@@ -400,17 +400,24 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
     if len(attempts) >= ADMIN_AUTH_MAX_FAILURES:
         raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
     if credentials is None:
-        raise HTTPException(status_code=401, detail="برای ورود، از لینک اختصاصی ادمین استفاده کن.", headers={"WWW-Authenticate": "Basic"})
-    valid_user = secrets.compare_digest(credentials.username, ADMIN_PANEL_USERNAME)
+        raise HTTPException(status_code=401, detail="آیدی عددی تلگرام و رمز عبور را وارد کنید.", headers={"WWW-Authenticate": "Basic"})
+    try:
+        login_user_id = int(credentials.username.strip())
+    except (TypeError, ValueError):
+        login_user_id = 0
     valid_password = bool(ADMIN_PANEL_PASSWORD) and secrets.compare_digest(credentials.password, ADMIN_PANEL_PASSWORD)
-    if not (valid_user and valid_password):
+    if not valid_password:
         attempts.append(now)
         admin_auth_failures[client_ip] = attempts
         if len(admin_auth_failures) > 5000:
-            for ip in list(admin_auth_failures)[:1000]: admin_auth_failures.pop(ip, None)
-        raise HTTPException(status_code=401, detail="اطلاعات ورود معتبر نیست.", headers={"WWW-Authenticate": "Basic"})
+            for ip in list(admin_auth_failures)[:1000]:
+                admin_auth_failures.pop(ip, None)
+        raise HTTPException(status_code=401, detail="رمز عبور نادرست است.", headers={"WWW-Authenticate": "Basic"})
+    if not login_user_id or not is_admin(login_user_id):
+        admin_auth_failures.pop(client_ip, None)
+        raise HTTPException(status_code=403, detail="شما ادمین نیستید.")
     admin_auth_failures.pop(client_ip, None)
-    return {"auth_type": "root_basic", "permissions": sorted(ADMIN_PERMISSIONS)}
+    return {"user_id": login_user_id, "auth_type": "root_basic", "permissions": sorted(_admin_permissions_for(login_user_id))}
 
 
 class AdminIdPayload(BaseModel):
