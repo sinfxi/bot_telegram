@@ -1566,7 +1566,11 @@ async def community_member_update(event: ChatMemberUpdated):
 def _message_addresses_bot(message: Message, text_value: str | None = None) -> bool:
     text_value = text_value if text_value is not None else (message.text or message.caption or "")
     username = TELEGRAM_BOT_USERNAME.lower().lstrip("@")
-    if username and re.search(rf"(?<![\w])@{re.escape(username)}\b", text_value.lower()):
+    lowered = text_value.lower().strip()
+    if username and re.search(rf"(?<![\w])@{re.escape(username)}\b", lowered):
+        return True
+    # Natural Persian vocatives let members say "ربات، ..." without knowing the username.
+    if re.match(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)(?:\s|،|,|:|؛|-)", lowered):
         return True
     reply = message.reply_to_message
     return bool(reply and bot and reply.from_user and reply.from_user.id == bot.id)
