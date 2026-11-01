@@ -509,6 +509,8 @@ selected_provider = defaultdict(lambda: "openrouter")
 bot = None
 dp = Dispatcher()
 polling_task = None
+watchdog_task = None
+WATCHDOG_INTERVAL_SECONDS = max(60, int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "600")))
 
 
 def provider_ready(provider: str) -> bool:
@@ -1850,9 +1852,37 @@ async def chat(message: Message):
     await send_long_message(message, answer)
 
 
+async def _telegram_watchdog() -> None:
+    """Every 10 minutes, verify Telegram connectivity and recover a stopped polling task."""
+    global polling_task
+    while True:
+        await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
+        if not BOT_TOKEN or bot is None:
+            log.error("Watchdog: Telegram bot is not configured; cannot recover polling")
+            continue
+        try:
+            await asyncio.wait_for(bot.get_me(), timeout=20)
+            if polling_task is None or polling_task.done():
+                if polling_task is not None:
+                    try:
+                        error = polling_task.exception()
+                    except (asyncio.CancelledError, Exception):
+                        error = None
+                    if error:
+                        log.error("Watchdog: Telegram polling stopped: %s", error)
+                polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+                log.warning("Watchdog: restarted stopped Telegram polling task")
+            else:
+                log.info("Watchdog: Telegram API reachable; polling task running")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Watchdog: Telegram API check failed; polling will retry automatically")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot, polling_task, DATABASE_READY, HTTP_SESSION
+    global bot, polling_task, watchdog_task, DATABASE_READY, HTTP_SESSION
     if DATABASE_URL:
         try:
             await asyncio.to_thread(_initialize_chat_storage_sync)
@@ -1875,13 +1905,23 @@ async def lifespan(app: FastAPI):
     if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
-        log.info("FXI Telegram polling started; configured AI provider=%s",
+        watchdog_task = asyncio.create_task(_telegram_watchdog())
+        log.info("FXI Telegram polling started; watchdog interval=%ss; configured AI provider=%s",
+                 WATCHDOG_INTERVAL_SECONDS,
                  [name for name in PROVIDERS if provider_ready(name)])
     else:
         log.error("Telegram bot is inactive: ZEUS_BOT_TOKEN is missing")
     if not any(provider_ready(name) for name in PROVIDERS):
         log.warning("No AI providers are configured; AI replies are disabled")
     yield
+    if watchdog_task:
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("Error stopping Telegram watchdog")
     if polling_task:
         polling_task.cancel()
         try:
