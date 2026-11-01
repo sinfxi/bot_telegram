@@ -59,6 +59,30 @@ ADMIN_REQUEST_MIN_TOMAN = 100_000
 pending_receipts = set()
 ADMIN_IDS = {int(value) for value in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if value.isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
+ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
+ADMIN_ALLOWED_ORIGINS = {
+    f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    for value in [ADMIN_PANEL_URL, *os.getenv("ADMIN_ALLOWED_ORIGINS", "").split(",")]
+    if value.strip()
+    for parsed in [urlsplit(value.strip())]
+    if parsed.scheme.lower() in {"http", "https"} and parsed.netloc
+}
+
+
+def _admin_origin_allowed(request: Request) -> bool:
+    """Allow same-origin requests and explicitly configured trusted panel origins."""
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    try:
+        parsed = urlsplit(origin.strip())
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            return False
+        origin_value = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    except ValueError:
+        return False
+    request_host = request.headers.get("host", "").strip().lower()
+    return origin_value in ADMIN_ALLOWED_ORIGINS or parsed.netloc.lower() == request_host
 ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
 SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") if BOT_TOKEN else None
@@ -1871,17 +1895,10 @@ app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def security_headers_and_admin_origin_guard(request: Request, call_next):
-    # JSON admin APIs are same-origin only when browsers provide an Origin header.
+    # Protect state-changing admin API calls while supporting explicitly trusted panel origins.
     if request.url.path.startswith("/admin/api/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        origin = request.headers.get("origin")
-        if origin:
-            try:
-                origin_host = urlsplit(origin).netloc.lower()
-            except ValueError:
-                origin_host = ""
-            request_host = request.headers.get("host", "").lower()
-            if not origin_host or not request_host or origin_host != request_host:
-                return JSONResponse(status_code=403, content={"detail": "درخواست بین‌مبدأیی مجاز نیست."})
+        if not _admin_origin_allowed(request):
+            return JSONResponse(status_code=403, content={"detail": "درخواست بین‌مبدأیی مجاز نیست."})
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -1934,8 +1951,7 @@ async def preview_admin_invite(token: str):
 async def accept_admin_invite(token: str, request: Request):
     if not SESSION_SERIALIZER:
         raise HTTPException(status_code=503, detail="نشست امن تنظیم نشده است.")
-    origin = request.headers.get("origin")
-    if origin and urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower():
+    if not _admin_origin_allowed(request):
         raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
     digest = hashlib.sha256(token.encode()).hexdigest()
     record = admin_data.setdefault("admin_invites", {}).pop(digest, None)
