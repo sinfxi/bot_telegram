@@ -1058,9 +1058,8 @@ app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
 
 
 @app.get("/")
-@app.get("/app")
-async def user_web_app():
-    # User-facing web chat has been removed; the web root is the admin console.
+async def admin_root_redirect():
+    # The only web interface is the administrator console.
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/admin", status_code=307)
 
