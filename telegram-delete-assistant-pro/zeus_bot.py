@@ -2432,15 +2432,26 @@ async def admin_metrics(auth=Depends(require_admin)):
 
 @app.get("/health")
 async def health():
-    configured = [name for name in PROVIDERS if provider_ready(name)]
-    healthy_config = bool(BOT_TOKEN and configured)
-    healthy = healthy_config and (not DATABASE_URL or DATABASE_READY)
-    return JSONResponse(status_code=200 if healthy else 503, content={
-        "status": "ok" if healthy else "needs_configuration",
-        "telegram_configured": bool(BOT_TOKEN),
-        "ai_configured": bool(configured),
-        "database_configured": bool(DATABASE_URL),
-        "database_ready": bool(DATABASE_READY),
-        "history_persistent": bool(DATABASE_URL and DATABASE_READY),
-        "configured_providers": configured,
+    # Liveness endpoint for Render: a successful response means the web process
+    # is serving requests. Optional AI providers must not make the whole service
+    # look unhealthy, and internal provider names/configuration are not exposed.
+    return JSONResponse(status_code=200, content={
+        "status": "ok",
+        "service": "fxi-telegram-assistant",
+    })
+
+
+@app.get("/ready")
+async def readiness():
+    # Readiness reports whether the required integrations are configured.
+    # Keep detailed secrets/provider identifiers out of this public response.
+    database_ok = not DATABASE_URL or DATABASE_READY
+    telegram_ok = bool(BOT_TOKEN)
+    ai_ok = any(provider_ready(name) for name in PROVIDERS)
+    ready = telegram_ok and ai_ok and database_ok
+    return JSONResponse(status_code=200 if ready else 503, content={
+        "status": "ready" if ready else "not_ready",
+        "telegram": "configured" if telegram_ok else "not_configured",
+        "ai": "configured" if ai_ok else "not_configured",
+        "database": "ready" if database_ok else "unavailable",
     })
