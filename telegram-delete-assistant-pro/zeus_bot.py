@@ -1698,6 +1698,9 @@ async def community_voice(message: Message):
     data = community_chat(message.chat.id)
     if not message.from_user:
         return
+    # Don't transcribe every member's voice note: require an explicit caption call or reply to the bot.
+    if not _message_addresses_bot(message, message.caption or ""):
+        return
     try:
         await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
         transcript = await transcribe_telegram_voice(message)
