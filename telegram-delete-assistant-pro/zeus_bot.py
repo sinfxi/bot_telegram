@@ -1403,6 +1403,10 @@ async def admin_metrics(_: str = Depends(require_admin)):
         "providers_configured": sum(1 for name in PROVIDERS if provider_ready(name)),
         "providers_total": len(PROVIDERS),
         "uptime_state": "running" if bot_enabled else "paused",
+        "community_chats": len(admin_data.get("community", {}).get("chats", {})),
+        "community_messages": sum(int(item.get("message_count", 0)) for item in admin_data.get("community", {}).get("chats", {}).values()),
+        "community_members_seen": sum(len(item.get("members_seen", {})) for item in admin_data.get("community", {}).get("chats", {}).values()),
+        "community_top_posts": sum(len(item.get("top_posts", [])) for item in admin_data.get("community", {}).get("chats", {}).values()),
     }
 
 @app.get("/health")
