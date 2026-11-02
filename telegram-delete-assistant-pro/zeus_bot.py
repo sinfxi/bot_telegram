@@ -703,8 +703,8 @@ async def start_menu_actions(callback: CallbackQuery):
         await callback.message.answer(
             "📘 راهنمای FXI\n\n"
             "در گروه روی پیام عضو ریپلای کن و بنویس «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».\n"
-            "برای آمار، قوانین و تنظیمات هم عبارت‌هایی مثل «آمار گروه»، «قوانین» و «تنظیمات» را بنویس.\n"
-            "در گفت‌وگوی خصوصی بنویس «انتخاب مدل»، «پاک کردن تاریخچه» یا «حمایت».\n"
+            "برای آمار، قوانین و تنظیمات عبارت‌هایی مثل «آمار گروه»، «قوانین» و «تنظیمات» را بنویس.\n"
+            "در گفت‌وگوی خصوصی بنویس «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت»، «پنل مدیر» یا «راهنما».\n"
             "برای پاسخ هوشمند گروه، مدیر باید آن را فعال کند؛ پاسخ به گفت‌وگوی عادی فقط با منشن یا ریپلای به ربات انجام می‌شود."
         )
     elif action == "ai":
@@ -2065,9 +2065,12 @@ async def chat(message: Message):
             if private_intent == "support":
                 await support_command(message)
                 return
-            if private_intent == "admin" and message.from_user and _is_primary_admin(message.from_user.id):
+            if private_intent == "admin":
                 base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-                await message.answer("👑 پنل مالک ربات:\n" + base_url + "/owner")
+                if message.from_user and _is_primary_admin(message.from_user.id):
+                    await message.answer("👑 پنل مالک ربات:\n" + base_url + "/owner")
+                else:
+                    await message.answer("🛡 ورود مدیر ربات (فقط با نام کاربری و رمز ثبت‌شده توسط مالک):\n" + base_url + "/admin/login")
                 return
         await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. برای راهنما بنویس «راهنما» و برای انتخاب سرویس هوشمند بنویس «انتخاب مدل».")
         return
