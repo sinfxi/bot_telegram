@@ -2404,14 +2404,17 @@ async def get_manager_permissions(username: str, auth=Depends(require_admin)):
 
 
 @app.post("/admin/api/managers/{username}/permissions")
-async def set_manager_permissions(username: str, payload: AdminPermissionsPayload, auth=Depends(require_admin)):
+async def set_manager_permissions(username: str, payload: dict, auth=Depends(require_admin)):
     if auth.get("auth_type") != "owner":
         raise HTTPException(status_code=403, detail="تغییر دسترسی مدیران فقط در اختیار مالک است.")
     key = username.strip().lower()
     record = admin_data.get("panel_managers", {}).get(key)
     if not isinstance(record, dict):
         raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
-    permissions = sorted(set(payload.permissions) | {"dashboard"})
+    raw_permissions = payload.get("permissions", []) if isinstance(payload, dict) else []
+    if not isinstance(raw_permissions, list) or not all(isinstance(item, str) for item in raw_permissions):
+        raise HTTPException(status_code=422, detail="فهرست دسترسی‌ها معتبر نیست.")
+    permissions = sorted(set(raw_permissions) | {"dashboard"})
     if set(permissions) - set(ADMIN_PERMISSIONS) or "admins" in permissions:
         raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
     record["permissions"] = permissions
