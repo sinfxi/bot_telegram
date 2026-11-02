@@ -15,14 +15,49 @@ on:
       - ".github/workflows/telegram-delete-assistant-ci.yml"
 
 jobs:
-  compile:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install dependencies
         run: python -m pip install -r telegram-delete-assistant-pro/requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q telegram-delete-assistant-pro
+      - name: Check login page JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("telegram-delete-assistant-pro/panel_auth.py").read_text(encoding="utf-8")
+          match = re.search(r'page = """(.*?)"""', source, flags=re.S)
+          if not match:
+              raise SystemExit("Login page template was not found")
+          scripts = re.findall(r"<script>(.*?)</script>", match.group(1), flags=re.S)
+          if not scripts:
+              raise SystemExit("Login page script was not found")
+          Path("/tmp/fxi-login.js").write_text("\n".join(scripts), encoding="utf-8")
+          PY
+          node --check /tmp/fxi-login.js
+      - name: Import app and verify authentication routes
+        working-directory: telegram-delete-assistant-pro
+        env:
+          ZEUS_BOT_TOKEN: "ci-placeholder-token"
+          ADMIN_PANEL_USERNAME: "ci-admin"
+          ADMIN_PANEL_PASSWORD: "ci-placeholder-password"
+          SESSION_SECRET: "ci-placeholder-session-secret"
+        run: |
+          python - <<'PY'
+          import app
+          paths = {route.path for route in app.app.routes}
+          required = {"/login", "/auth/admin-login", "/auth/register", "/auth/user-login", "/account", "/auth/logout"}
+          missing = required - paths
+          if missing:
+              raise SystemExit(f"Missing auth routes: {sorted(missing)}")
+          print("Application import and panel auth routes OK")
+          PY
