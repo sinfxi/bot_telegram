@@ -1610,6 +1610,29 @@ async def collect_community_message(message: Message):
     data["type"] = message.chat.type
     data["message_count"] = int(data.get("message_count", 0)) + 1
     text_value = (message.text or message.caption or "").strip()
+    if message.chat.type in {"group", "supergroup"} and message.from_user and text_value:
+        sender_is_admin = await community_is_admin(message.chat.id, message.from_user.id)
+        settings = data.setdefault("settings", {})
+        if not sender_is_admin and settings.get("keyword_filter_enabled", False):
+            blocked = [str(word).casefold() for word in data.get("blocked_words", []) if str(word).strip()]
+            lowered_text = text_value.casefold()
+            matched = next((word for word in blocked if word in lowered_text), None)
+            if matched:
+                try:
+                    await bot.delete_message(message.chat.id, message.message_id)
+                    await message.answer("🚫 پیام به‌دلیل تطبیق با فیلتر واژه‌های گروه حذف شد.")
+                except Exception:
+                    log.warning("Keyword filter could not delete message chat=%s", message.chat.id)
+                return
+        if not sender_is_admin and settings.get("link_guard_enabled", False):
+            has_link = bool(re.search(r"(?:https?://|www\\.|t\\.me/|telegram\\.me/)", text_value, re.I))
+            if has_link:
+                try:
+                    await bot.delete_message(message.chat.id, message.message_id)
+                    await message.answer("🔗 ارسال لینک در این گروه محدود شده است.")
+                except Exception:
+                    log.warning("Link guard could not delete message chat=%s", message.chat.id)
+                return
     if message.from_user:
         uid = str(message.from_user.id)
         data.setdefault("members_seen", {})[uid] = {
@@ -2502,7 +2525,7 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
     record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
     if not record:
         raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
-    allowed = {"bot_enabled", "ai_enabled", "welcome_enabled", "anti_flood_enabled"}
+    allowed = {"bot_enabled", "ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled"}
     if not payload.settings or any(key not in allowed or not isinstance(value, bool) for key, value in payload.settings.items()):
         raise HTTPException(status_code=422, detail="فقط کلیدهای مجاز با مقدار روشن/خاموش قابل تغییر هستند.")
     settings = record.setdefault("settings", {})
