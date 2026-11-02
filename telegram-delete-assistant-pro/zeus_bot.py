@@ -1833,6 +1833,26 @@ def _natural_intent(text_value: str) -> str | None:
         return "help"
     if value.startswith("پیش نویس ") or value.startswith("پیشنویس ") or value.startswith("یه پست درباره "):
         return "draft"
+    if value in {"پین", "سنجاق", "سنجاق کن", "این پیام رو پین کن", "این پیام را سنجاق کن"}:
+        return "pin"
+    if value in {"حذف", "پاک کن", "حذف پیام", "این پیام رو حذف کن", "این پیام را پاک کن"}:
+        return "delete"
+    if value.startswith(("سکوت", "میوت", "محدود کن", "ساکت کن")):
+        return "mute"
+    if value in {"آزاد", "رفع سکوت", "محدودیت رو بردار", "محدودیت را بردار", "آنمیوت"}:
+        return "unmute"
+    if value in {"بن", "مسدود کن", "اخراج کن", "از گروه بنداز بیرون"}:
+        return "ban"
+    if value in {"تنظیمات", "تنظیمات گروه", "تنظیمات ربات"}:
+        return "settings"
+    if value in {"گزارش کانال", "گزارش گروه", "گزارش فعالیت"}:
+        return "report"
+    if value in {"پست های برتر", "پست‌های برتر", "برترین پست ها"}:
+        return "top_posts"
+    if value in {"چالش", "چالش امروز"}:
+        return "challenge"
+    if value in {"پیشنهادها", "تحلیل پیشنهادها"}:
+        return "suggestions"
     return None
 
 
@@ -1843,11 +1863,78 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     intent = _natural_intent(request_text)
     if not intent:
         return False
-    if intent in {"enable_ai", "disable_ai", "draft"}:
+    if intent in {"enable_ai", "disable_ai", "draft", "pin", "delete", "mute", "unmute", "ban", "settings", "challenge", "suggestions", "top_posts", "report"}:
         if not await community_is_admin(message.chat.id, message.from_user.id):
-            await message.answer("⛔ این دستور فقط برای مدیر گروه است.")
+            await message.answer("⛔ این عملیات فقط برای مدیران گروه/کانال است.")
             return True
     data = community_chat(message.chat.id)
+    if intent in {"pin", "delete", "mute", "unmute", "ban"}:
+        target_message = message.reply_to_message
+        if not target_message:
+            await message.answer("برای این کار، روی پیام فرد موردنظر ریپلای کن و بعد بنویس: «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».")
+            return True
+        target_user = target_message.from_user
+        if intent in {"mute", "unmute", "ban"} and (not target_user or target_user.is_bot):
+            await message.answer("برای این عملیات باید روی پیام یک عضو واقعی ریپلای کنی.")
+            return True
+        if intent in {"mute", "unmute", "ban"} and await community_is_admin(message.chat.id, target_user.id):
+            await message.answer("این عملیات روی مدیران گروه اجرا نمی‌شود.")
+            return True
+        try:
+            if intent == "pin":
+                await bot.pin_chat_message(message.chat.id, target_message.message_id)
+                await message.answer("📌 پیام سنجاق شد.")
+            elif intent == "delete":
+                await bot.delete_message(message.chat.id, target_message.message_id)
+                await message.answer("🗑 پیام حذف شد.")
+            elif intent == "mute":
+                raw = re.sub(r"\d+", lambda m: m.group(0), request_text)
+                raw = raw.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+                match = re.search(r"(\d{1,5})\s*(?:دقیقه|دقيقه|min|minute)?", raw)
+                minutes = max(1, min(10080, int(match.group(1)))) if match else 60
+                until = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+                await bot.restrict_chat_member(message.chat.id, target_user.id,
+                    permissions=ChatPermissions(can_send_messages=False), until_date=until)
+                await message.answer(f"🔇 {target_user.full_name} به مدت {minutes} دقیقه محدود شد.")
+            elif intent == "unmute":
+                await bot.restrict_chat_member(message.chat.id, target_user.id,
+                    permissions=ChatPermissions(can_send_messages=True, can_send_audios=True,
+                        can_send_documents=True, can_send_photos=True, can_send_videos=True,
+                        can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True,
+                        can_send_other_messages=True, can_add_web_page_previews=True))
+                await message.answer(f"🔊 محدودیت {target_user.full_name} برداشته شد.")
+            elif intent == "ban":
+                await bot.ban_chat_member(message.chat.id, target_user.id)
+                await message.answer(f"⛔ {target_user.full_name} از گروه مسدود شد.")
+        except Exception:
+            log.exception("Natural moderation action failed: intent=%s chat=%s", intent, message.chat.id)
+            await message.answer("عملیات انجام نشد؛ دسترسی‌های مدیریتی ربات را بررسی کن.")
+        return True
+    if intent == "settings":
+        await message.answer("⚙️ تنظیمات گروه را از دکمه‌های زیر مدیریت کن.", reply_markup=community_settings_keyboard(message.chat.id))
+        return True
+    if intent == "report":
+        insight = channel_insights(data)
+        ranked = insight.get("ranked", [])[:5]
+        await message.answer("📈 گزارش فعالیت ثبت‌شده\n" + f"پیام‌های ثبت‌شده: {data.get('message_count', 0)}\nاعضای مشاهده‌شده: {len(data.get('members_seen', {}))}\nپست‌های قابل تحلیل: {len(ranked)}")
+        return True
+    if intent == "top_posts":
+        ranked = channel_insights(data).get("ranked", [])[:5]
+        await message.answer("🏅 پست‌های برتر ثبت‌شده:\n" + ("\n".join(f"{i+1}. {item.get('text','')[:120]}" for i,item in enumerate(ranked)) if ranked else "هنوز داده کافی ثبت نشده است."))
+        return True
+    if intent == "challenge":
+        topics = data.get("activity", [])[-30:]
+        topic = max((x.get("text", "") for x in topics), key=len, default="موضوع آزاد")
+        challenge = f"🎯 چالش امروز\n\nموضوع: {topic[:100] or 'موضوع آزاد'}\nهر عضو یک پاسخ یا ایده مفید ارسال کند."
+        community_store()["challenges"][str(message.chat.id)] = {"text": challenge, "created_at": datetime.now(timezone.utc).isoformat()}
+        save_admin_data()
+        await message.answer(challenge)
+        return True
+    if intent == "suggestions":
+        insight = channel_insights(data)
+        topics = insight.get("topics", [])[:5]
+        await message.answer("💡 موضوعات پرتکرار ثبت‌شده:\n" + ("، ".join(word for word, _ in topics) if topics else "هنوز داده کافی وجود ندارد."))
+        return True
     if intent == "enable_ai":
         data.setdefault("settings", {})["ai_enabled"] = True
         save_admin_data()
@@ -1963,7 +2050,8 @@ async def chat(message: Message):
         data["activity"] = data["activity"][-200:]
         save_admin_data()
     addressed = _message_addresses_bot(message)
-    if addressed and feature_enabled("natural_commands") and await _handle_natural_request(message, message.text):
+    # Natural commands are intentionally accepted without slash prefixes or bot mentions.
+    if feature_enabled("natural_commands") and await _handle_natural_request(message, message.text):
         return
     if not feature_enabled("ai_chat") or not addressed or not data.get("settings", {}).get("ai_enabled", False):
         return
