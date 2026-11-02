@@ -39,6 +39,8 @@ class NaturalLanguageIntentTests(unittest.TestCase):
     def test_common_natural_moderation_phrases(self):
         cases = {
             "پین": "pin",
+            "آنپین": "unpin",
+            "آنبن": "unban",
             "حذف": "delete",
             "سکوت ۱۰ دقیقه": "mute",
             "آزاد": "unmute",
