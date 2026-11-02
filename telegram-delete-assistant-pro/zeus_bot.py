@@ -824,24 +824,51 @@ async def analyze_receipt_image(image_bytes: bytes, mime_type: str) -> dict:
     return result
 
 def payment_review_keyboard(pid: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ تأیید و ادمین کردن",callback_data=f"pay:approve:{pid}"),InlineKeyboardButton(text="❌ رد درخواست",callback_data=f"pay:reject:{pid}")]])
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❤️ تأیید دریافت حمایت", callback_data=f"pay:confirm:{pid}")
+    ]])
+
+
+@dp.message(Command("admin"))
+async def owner_link_command(message: Message):
+    base = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
+    await message.answer("🔐 لینک ورود مالک ربات:\n" + base + "/login")
+
+
+@dp.message(Command("modir"))
+async def manager_link_command(message: Message):
+    base = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
+    await message.answer("🛡 لینک ورود مدیر ربات:\n" + base + "/admin/login")
+
 
 @dp.message(Command("support"))
 async def support_command(message: Message):
     if not feature_enabled("payments"):
-        await message.answer("درخواست‌های حمایت و پرداخت فعلاً غیرفعال هستند.")
+        await message.answer("قابلیت حمایت مالی فعلاً غیرفعال است.")
         return
-    if message.from_user: pending_receipts.add(message.from_user.id)
-    await message.answer(f"❤️ حمایت از FXI و درخواست ادمینی\n\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\n\nحداقل مبلغ برای درخواست ادمینی: ۱۰۰٬۰۰۰ تومان. پس از واریز تصویر رسید را همین‌جا بفرست. تحلیل تصویر تأیید نهایی پرداخت نیست.")
+    if message.from_user:
+        pending_receipts.add(message.from_user.id)
+    await message.answer(
+        f"❤️ حمایت مالی از FXI\n\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\n\n"
+        "پس از واریز، تصویر رسید را همین‌جا ارسال کن. مبلغ و مشخصات رسید برای بررسی مدیر ثبت می‌شود. "
+        "پس از تأیید واریز، پیام تشکر برایت ارسال خواهد شد."
+    )
+
 
 @dp.callback_query(F.data == "support:start")
 async def support_callback(callback: CallbackQuery):
     if not feature_enabled("payments"):
-        await callback.answer("قابلیت پرداخت غیرفعال است.", show_alert=True)
+        await callback.answer("قابلیت حمایت مالی غیرفعال است.", show_alert=True)
         return
-    if callback.from_user: pending_receipts.add(callback.from_user.id)
+    if callback.from_user:
+        pending_receipts.add(callback.from_user.id)
     await callback.answer()
-    if callback.message: await callback.message.answer(f"❤️ حمایت از FXI / درخواست ادمینی\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\nحداقل مبلغ: ۱۰۰٬۰۰۰ تومان\nپس از واریز، تصویر رسید را ارسال کن. تأیید نهایی با ادمین اصلی است.")
+    if callback.message:
+        await callback.message.answer(
+            f"❤️ حمایت مالی از FXI\nشماره کارت: {SUPPORT_CARD}\nبه نام: {SUPPORT_CARDHOLDER}\n\n"
+            "پس از واریز، تصویر رسید را ارسال کن. پس از بررسی و تأیید، پیام تشکر دریافت می‌کنی."
+        )
+
 
 @dp.message(F.photo)
 async def receive_payment_receipt(message: Message):
@@ -864,13 +891,11 @@ async def receive_payment_receipt(message: Message):
         amount=info.get("amount_toman")
         if not amount:
             await message.answer("مبلغ از تصویر واضح نیست. لطفاً تصویر کامل‌تر و واضح‌تری بفرست و دوباره /support را بزن."); return
-        if amount < ADMIN_REQUEST_MIN_TOMAN:
-            await message.answer(f"مبلغ خوانده‌شده {amount:,} تومان است و به حداقل ۱۰۰٬۰۰۰ تومان نمی‌رسد. اگر اشتباه خوانده شده، تصویر واضح‌تری ارسال کن."); return
         pid=secrets.token_hex(5)
-        record={"user_id":uid,"username":message.from_user.username,"full_name":message.from_user.full_name,"amount_toman":amount,"analysis":info,"receipt_hash":digest,"status":"pending_review","created_at":datetime.now(timezone.utc).isoformat()}
+        record={"type":"donation","user_id":uid,"username":message.from_user.username,"full_name":message.from_user.full_name,"amount_toman":amount,"analysis":info,"receipt_hash":digest,"status":"pending_review","created_at":datetime.now(timezone.utc).isoformat()}
         admin_data.setdefault("payments",{})[pid]=record; admin_data.setdefault("receipt_hashes",[]).append(digest); save_admin_data()
-        await message.answer("✅ مبلغ حداقل ۱۰۰ هزار تومان از تصویر خوانده شد. درخواستت برای بررسی ادمین اصلی ارسال شد؛ هنوز دسترسی ادمینی فعال نشده است.")
-        caption=(f"🧾 درخواست حمایت / ادمینی\nکد: {pid}\nکاربر: {record['full_name']} (@{record['username'] or 'ندارد'})\nشناسه: {uid}\nمبلغ OCR: {amount:,} تومان\nاطمینان OCR: {info.get('confidence',0):.0%}\nشناسه تراکنش: {info.get('transaction_reference') or 'نامشخص'}\n\nلطفاً واریز را در حساب بررسی کنید. آیا اجازه ادمینی می‌دهید؟")
+        await message.answer("✅ رسید حمایت دریافت شد و برای بررسی ثبت شد. پس از تأیید واریز، پیام تشکر برایت می‌فرستیم. ❤️")
+        caption=(f"❤️ رسید حمایت مالی FXI\nکد: {pid}\nحامی: {record['full_name']} (@{record['username'] or 'ندارد'})\nشناسه: {uid}\nمبلغ تشخیص‌داده‌شده: {amount:,} تومان\nاطمینان OCR: {info.get('confidence',0):.0%}\nشناسه تراکنش: {info.get('transaction_reference') or 'نامشخص'}\n\nواریز را در حساب بررسی کنید و فقط در صورت دریافت واقعی، حمایت را تأیید کنید.")
         for aid in sorted(set(ADMIN_IDS)|set(admin_data.get("admins",[]))):
             try: await bot.send_photo(aid,message.photo[-1].file_id,caption=caption,reply_markup=payment_review_keyboard(pid))
             except Exception: log.exception("Could not send receipt to admin %s",aid)
@@ -881,25 +906,36 @@ async def receive_payment_receipt(message: Message):
 @dp.callback_query(F.data.startswith("pay:"))
 async def review_payment(callback: CallbackQuery):
     if not callback.from_user or not is_admin(callback.from_user.id):
-        await callback.answer("فقط ادمین می‌تواند بررسی کند.",show_alert=True); return
-    try: _,action,pid=callback.data.split(":",2)
-    except ValueError: await callback.answer("درخواست نامعتبر است.",show_alert=True); return
-    payment=admin_data.get("payments",{}).get(pid)
-    if not payment or payment.get("status")!="pending_review":
-        await callback.answer("این درخواست وجود ندارد یا قبلاً بررسی شده.",show_alert=True); return
-    uid=int(payment["user_id"]); payment["reviewed_by"]=callback.from_user.id; payment["reviewed_at"]=datetime.now(timezone.utc).isoformat()
-    if action=="approve":
-        if uid not in admin_data.setdefault("admins",[]): admin_data["admins"].append(uid)
-        payment["status"]="approved_admin"; save_admin_data(); await callback.answer("تأیید شد؛ کاربر ادمین شد.")
-        if bot: await bot.send_message(uid,"🌹 حمایتت پس از بررسی ادمین اصلی تأیید شد و دسترسی ادمینی برایت فعال شد. خوش اومدی به تیم FXI! ❤️")
-        if callback.message: await callback.message.edit_reply_markup(reply_markup=None); await callback.message.answer(f"✅ درخواست {pid} تأیید شد؛ کاربر ادمین شد.")
-    elif action=="reject":
-        payment["status"]="rejected"; save_admin_data(); await callback.answer("درخواست رد شد.")
-        if bot:
-            try: await bot.send_message(uid,"سلام دوست عزیز 🌹\n\nاز حمایت ارزشمندت واقعاً ممنونیم. ❤️\nدرخواست ادمینی شما بررسی شد، اما متأسفانه در حال حاضر امکان پذیرش آن وجود ندارد. این موضوع از ارزش حمایت و همراهی شما کم نمی‌کند. از اعتمادت سپاسگزاریم. 🙏")
-            except Exception: log.exception("Could not notify rejected user %s",uid)
-        if callback.message: await callback.message.edit_reply_markup(reply_markup=None); await callback.message.answer(f"❌ درخواست {pid} رد شد.")
-    else: await callback.answer("عملیات نامعتبر است.",show_alert=True)
+        await callback.answer("فقط ادمین می‌تواند بررسی کند.", show_alert=True)
+        return
+    try:
+        _, action, pid = callback.data.split(":", 2)
+    except ValueError:
+        await callback.answer("درخواست نامعتبر است.", show_alert=True)
+        return
+    payment = admin_data.get("payments", {}).get(pid)
+    if not payment or payment.get("status") != "pending_review" or payment.get("type") != "donation" or action != "confirm":
+        await callback.answer("این حمایت وجود ندارد یا قبلاً بررسی شده است.", show_alert=True)
+        return
+    payment["status"] = "confirmed"
+    payment["reviewed_by"] = callback.from_user.id
+    payment["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+    save_admin_data()
+    log_admin_action("donation_confirmed", f"payment_id={pid}; user_id={payment.get('user_id')}; amount={payment.get('amount_toman')}")
+    await callback.answer("حمایت تأیید شد.")
+    uid = int(payment.get("user_id", 0))
+    if bot and uid:
+        try:
+            await bot.send_message(uid,
+                f"❤️ سلام {payment.get('full_name') or 'دوست عزیز'}!\n\n"
+                f"حمایت ارزشمندت به مبلغ {int(payment.get('amount_toman', 0)):,} تومان دریافت و تأیید شد. "
+                "از اعتماد و همراهی‌ات با FXI صمیمانه ممنونیم. 🙏🌹")
+        except Exception:
+            log.exception("Could not send donation thank-you to user=%s", uid)
+    if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(f"❤️ حمایت {pid} تأیید شد؛ پیام تشکر برای حامی ارسال شد.")
+
 
 @dp.message(Command("help"))
 async def help_command(message: Message):
