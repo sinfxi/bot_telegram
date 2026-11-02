@@ -685,10 +685,11 @@ async def start(message: Message):
          InlineKeyboardButton(text="🧠 انتخاب هوش مصنوعی", callback_data="menu:ai")],
         [InlineKeyboardButton(text="📊 آمار جامعه", callback_data="menu:community")],
     ]
-    if user and is_admin(user_id):
-        menu_rows.append([InlineKeyboardButton(text="🛡 پنل مدیران ربات", url=ADMIN_PANEL_URL + "/admin/login")])
+    # The manager login URL is public, but the panel itself only accepts owner-created accounts.
+    # Named manager accounts are not necessarily linked to Telegram numeric IDs.
+    menu_rows.append([InlineKeyboardButton(text="🛡 ورود مدیر ربات", url=ADMIN_PANEL_URL + "/admin/login")])
     if user and _is_primary_admin(user_id):
-        menu_rows.append([InlineKeyboardButton(text="👑 پنل مالک ربات", url=ADMIN_PANEL_URL + "/owner")])
+        menu_rows.append([InlineKeyboardButton(text="👑 ورود مالک ربات", url=ADMIN_PANEL_URL + "/owner")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=menu_rows)
     await message.answer(
         f"سلام {name}! 👋 به FXI خوش اومدی.\n\n"
