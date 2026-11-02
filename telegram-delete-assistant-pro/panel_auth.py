@@ -14,6 +14,9 @@ def install_panel_auth(app, bot):
     signer = URLSafeTimedSerializer(secret, salt="fxi-panel-session") if secret else None
     admin_name = os.getenv("ADMIN_PANEL_USERNAME", "").strip()
     admin_pass = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
+    # Password rotation invalidates existing owner sessions without affecting
+    # manager accounts or requiring a separate session database.
+    owner_session_version = hashlib.sha256(admin_pass.encode("utf-8")).hexdigest()[:20] if admin_pass else ""
     login_attempts = defaultdict(list)
 
     def enforce_login_limit(request):
@@ -36,6 +39,8 @@ def install_panel_auth(app, bot):
             data.get("role") == "admin"
             and bool(admin_name)
             and hmac.compare_digest(str(data.get("username", "")), admin_name)
+            and bool(owner_session_version)
+            and hmac.compare_digest(str(data.get("session_version", "")), owner_session_version)
         )
 
     def require_admin(request: Request):
@@ -214,7 +219,7 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'Ù
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
         response.set_cookie(
             "fxi_admin_session",
-            signer.dumps({"role": "admin", "username": admin_name}),
+            signer.dumps({"role": "admin", "username": admin_name, "session_version": owner_session_version}),
             max_age=43200,
             httponly=True,
             secure=secure,
