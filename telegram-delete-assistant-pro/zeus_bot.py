@@ -55,7 +55,6 @@ MAX_HISTORY_MESSAGES = 16
 MAX_MESSAGE_CHARS = 12000
 SUPPORT_CARD = '5859831211613988'
 SUPPORT_CARDHOLDER = 'سینا نوبخت'
-ADMIN_REQUEST_MIN_TOMAN = 100_000
 pending_receipts = set()
 ADMIN_IDS = {int(part.strip()) for part in os.getenv("ADMIN_IDS", "").replace(";", ",").split(",") if part.strip().isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
@@ -2934,9 +2933,15 @@ async def admin_payments(_: str = Depends(require_admin)):
     payments = admin_data.get("payments", {})
     items = []
     for pid, record in payments.items():
-        items.append({"id": pid, **record})
+        if record.get("type") == "donation":
+            items.append({"id": pid, **record})
     items.sort(key=lambda item: item.get("created_at", ""), reverse=True)
-    return {"items": items, "pending": sum(1 for item in items if item.get("status") == "pending_review")}
+    return {
+        "items": items,
+        "pending": sum(1 for item in items if item.get("status") == "pending_review"),
+        "confirmed": sum(1 for item in items if item.get("status") == "confirmed"),
+        "total_amount_confirmed": sum(int(item.get("amount_toman", 0) or 0) for item in items if item.get("status") == "confirmed"),
+    }
 
 
 @app.post("/admin/api/payments/{payment_id}/{action}")
