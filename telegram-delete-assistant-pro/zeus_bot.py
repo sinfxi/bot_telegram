@@ -59,6 +59,7 @@ ADMIN_REQUEST_MIN_TOMAN = 100_000
 pending_receipts = set()
 ADMIN_IDS = {int(part.strip()) for part in os.getenv("ADMIN_IDS", "").replace(";", ",").split(",") if part.strip().isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
+MANAGER_CREATION_CODE = os.getenv("MANAGER_CREATION_CODE", "").strip()
 # Internal identity for password-authenticated panel login when no Telegram ID is supplied.
 ADMIN_PANEL_AUTH_ID = -1
 ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
@@ -480,7 +481,8 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
 
 class ManagerAccountPayload(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=12, max_length=256)
+    password: str = Field(min_length=4, max_length=4)
+    setup_code: str = Field(min_length=8, max_length=128)
     permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
 
@@ -2611,6 +2613,10 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
     if auth.get("auth_type") != "owner":
         raise HTTPException(status_code=403, detail="فقط مالک ربات می‌تواند مدیر پنل ثبت کند.")
     username = payload.username.strip().lower()
+    if not MANAGER_CREATION_CODE:
+        raise HTTPException(status_code=503, detail="کد اختصاصی ساخت مدیر در تنظیمات امن سرور تعریف نشده است.")
+    if not hmac.compare_digest(payload.setup_code, MANAGER_CREATION_CODE):
+        raise HTTPException(status_code=403, detail="کد اختصاصی ساخت مدیر نادرست است.")
     if username in {"owner", "admin", "root"}:
         raise HTTPException(status_code=400, detail="این نام کاربری قابل استفاده نیست.")
     if username in admin_data.setdefault("panel_managers", {}):
@@ -2654,8 +2660,8 @@ async def reset_manager_password(username: str, payload: dict, auth=Depends(requ
     if not isinstance(record, dict):
         raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
     password = str(payload.get("password", ""))
-    if len(password) < 12 or len(password) > 256:
-        raise HTTPException(status_code=422, detail="رمز جدید باید حداقل ۱۲ کاراکتر داشته باشد.")
+    if len(password) != 4:
+        raise HTTPException(status_code=422, detail="رمز جدید باید دقیقاً ۴ کاراکتر باشد.")
     salt = secrets.token_bytes(16)
     iterations = 310000
     record.update({"salt": salt.hex(), "hash": hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations).hex(), "iterations": iterations, "session_version": int(record.get("session_version", 1)) + 1})
