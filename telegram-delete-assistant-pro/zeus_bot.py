@@ -715,7 +715,7 @@ async def start_menu_actions(callback: CallbackQuery):
     elif action == "community":
         await callback.message.answer(
             "📊 برای دیدن آمار جامعه، ربات باید داخل گروه یا کانال حضور داشته باشه.\n"
-            "دستور /communitystats رو در همون گروه اجرا کن. آمار فقط شامل داده‌هاییه که ربات واقعاً دریافت کرده."
+            "در همون گروه بنویس «آمار گروه». آمار فقط شامل داده‌هاییه که ربات واقعاً دریافت کرده."
         )
     elif action == "admin":
         base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
