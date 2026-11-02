@@ -2512,6 +2512,9 @@ async def admin_community(_: str = Depends(require_admin)):
             "ai_enabled": bool(record.get("settings", {}).get("ai_enabled", False)),
             "welcome_enabled": bool(record.get("settings", {}).get("welcome_enabled", True)),
             "anti_flood_enabled": bool(record.get("settings", {}).get("anti_flood_enabled", True)),
+            "conversational_ai": bool(record.get("settings", {}).get("conversational_ai", False)),
+            "link_guard_enabled": bool(record.get("settings", {}).get("link_guard_enabled", False)),
+            "keyword_filter_enabled": bool(record.get("settings", {}).get("keyword_filter_enabled", False)),
             "last_activity": record.get("last_activity") or record.get("last_message_at", ""),
         })
     items.sort(key=lambda item: item["message_count"], reverse=True)
