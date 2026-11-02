@@ -143,7 +143,7 @@ def _ensure_db_table(conn) -> None:
 def load_admin_data() -> dict:
     defaults = {"admins": [], "users": [], "bot_enabled": True,
                 "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": [],
-                "admin_permissions": {}, "admin_invites": {}, "blocked_users": {},
+                "admin_permissions": {}, "admin_invites": {}, "admin_passwords": {}, "admin_setup_codes": {}, "blocked_users": {},
                 "features": {"ai_chat": True, "voice_tools": False, "image_tools": True,
                              "community_management": True, "natural_commands": True,
                              "payments": True, "user_tracking": True}}
@@ -2341,39 +2341,60 @@ async def admin_conversation(user_id: int, _: str = Depends(require_admin)):
 
 @app.post("/admin/api/admins")
 async def add_admin(payload: AdminIdPayload, auth=Depends(require_admin)):
-    if "admins" not in auth["permissions"]:
-        raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
+    if not _is_primary_admin(int(auth.get("user_id", 0))):
+        raise HTTPException(status_code=403, detail="ثبت و مدیریت مدیران ربات فقط در اختیار مالک ربات است.")
     if payload.user_id <= 0:
-        raise HTTPException(status_code=400, detail="شناسه کاربر نامعتبر است")
-    if payload.user_id in ADMIN_IDS or payload.user_id in admin_data["admins"]:
-        return {"message": "این کاربر از قبل مدیر است"}
+        raise HTTPException(status_code=400, detail="شناسه عددی تلگرام معتبر نیست.")
+    if _is_primary_admin(payload.user_id):
+        raise HTTPException(status_code=400, detail="این شناسه از قبل مالک/مدیر اصلی است.")
+    if payload.user_id in admin_data["admins"]:
+        raise HTTPException(status_code=409, detail="این شناسه از قبل به‌عنوان مدیر ربات ثبت شده است.")
     admin_data["admins"].append(payload.user_id)
     admin_data.setdefault("admin_permissions", {})[str(payload.user_id)] = ["dashboard"]
-    token = _make_admin_invite(payload.user_id)
+    admin_data.setdefault("admin_passwords", {}).pop(str(payload.user_id), None)
+    activation_code = secrets.token_urlsafe(12)
+    admin_data.setdefault("admin_setup_codes", {})[str(payload.user_id)] = {
+        "sha256": hashlib.sha256(activation_code.encode("utf-8")).hexdigest(),
+        "expires_at": int(time.time()) + 86400,
+    }
     log_admin_action("admin_added", f"user_id={payload.user_id}; permissions=dashboard")
     save_admin_data()
-    link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/invite/" + token
+    login_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/login"
     notified = False
     if bot:
         try:
-            await bot.send_message(payload.user_id,
-                "🎉 شما به‌عنوان ادمین FXI اضافه شدید.\n\n"
-                "برای ورود به پنل اختصاصی روی لینک زیر بزنید. لینک یک‌بارمصرف است و ۳۰ دقیقه اعتبار دارد؛ پس از ورود، نشست شما تا ۱۲ ساعت فعال می‌ماند.\n\n"
-                f"{link}\n\nدسترسی اولیه: نمای کلی. مدیر اصلی می‌تواند امکانات بیشتری فعال کند.")
+            await bot.send_message(
+                payload.user_id,
+                "🎉 شما به‌عنوان مدیر ربات FXI ثبت شدید.\n\n"
+                "برای اولین ورود، شناسه عددی، رمز دلخواه حداقل ۱۰ کاراکتری و کد فعال‌سازی زیر را در صفحه ورود وارد کنید. "
+                "پس از تعیین رمز، دفعات بعد فقط شناسه و رمز لازم است.\n\n"
+                f"شناسه ورود: {payload.user_id}\nکد فعال‌سازی یک‌بارمصرف: {activation_code}\n"
+                f"ورود: {login_url}\n\n"
+                "سطح دسترسی اولیه: فقط نمای کلی؛ مالک می‌تواند دسترسی‌های بیشتری تعیین کند."
+            )
             notified = True
         except Exception as exc:
-            log.warning("Admin invite notification failed for user=%s: %s", payload.user_id, type(exc).__name__)
-    return {"message": f"مدیر {payload.user_id} اضافه شد؛ اعلان تلگرام " + ("ارسال شد." if notified else "ارسال نشد؛ کاربر باید ابتدا ربات را Start کند یا لینک تازه ارسال شود."), "notification_sent": notified}
+            log.warning("Manager activation message failed for user=%s: %s", payload.user_id, type(exc).__name__)
+    return {
+        "message": f"مدیر ربات {payload.user_id} ثبت شد. " + ("کد فعال‌سازی به تلگرام او ارسال شد." if notified else "ارسال پیام تلگرام ممکن نشد؛ کد فعال‌سازی را امن و خصوصی به او بده."),
+        "notification_sent": notified,
+        "activation_code": activation_code,
+        "login_url": login_url,
+    }
 
 
 @app.delete("/admin/api/admins/{user_id}")
-async def remove_admin(user_id: int, _: str = Depends(require_admin)):
+async def remove_admin(user_id: int, auth=Depends(require_admin)):
+    if not _is_primary_admin(int(auth.get("user_id", 0))):
+        raise HTTPException(status_code=403, detail="حذف مدیران ربات فقط در اختیار مالک ربات است.")
     if user_id in ADMIN_IDS:
         raise HTTPException(status_code=400, detail="مدیر اصلی از ADMIN_IDS حذف می‌شود")
     if user_id not in admin_data["admins"]:
         raise HTTPException(status_code=404, detail="این مدیر پیدا نشد")
     admin_data["admins"].remove(user_id)
     admin_data.get("admin_permissions", {}).pop(str(user_id), None)
+    admin_data.get("admin_passwords", {}).pop(str(user_id), None)
+    admin_data.get("admin_setup_codes", {}).pop(str(user_id), None)
     for digest, record in list(admin_data.get("admin_invites", {}).items()):
         if int(record.get("user_id", 0)) == user_id:
             admin_data["admin_invites"].pop(digest, None)
@@ -2393,6 +2414,8 @@ class AdminPermissionsPayload(BaseModel):
 
 @app.get("/admin/api/admins/{user_id}/permissions")
 async def get_admin_permissions(user_id: int, auth=Depends(require_admin)):
+    if not _is_primary_admin(int(auth.get("user_id", 0))):
+        raise HTTPException(status_code=403, detail="مشاهده و مدیریت سطح دسترسی مدیران فقط در اختیار مالک است.")
     if "admins" not in auth["permissions"]:
         raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
     if not is_admin(user_id):
@@ -2402,6 +2425,8 @@ async def get_admin_permissions(user_id: int, auth=Depends(require_admin)):
 
 @app.post("/admin/api/admins/{user_id}/permissions")
 async def set_admin_permissions(user_id: int, payload: AdminPermissionsPayload, auth=Depends(require_admin)):
+    if not _is_primary_admin(int(auth.get("user_id", 0))):
+        raise HTTPException(status_code=403, detail="تغییر سطح دسترسی مدیران فقط در اختیار مالک ربات است.")
     if "admins" not in auth["permissions"]:
         raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
     if not is_admin(user_id):
