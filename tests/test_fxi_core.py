@@ -1,0 +1,82 @@
+"""Focused regression tests for the FXI Telegram Community Manager.
+
+These tests intentionally avoid network access and never start Telegram polling.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+_PROJECT_DIR = Path(__file__).resolve().parents[1] / "telegram-delete-assistant-pro"
+_TEST_STATE = tempfile.TemporaryDirectory(prefix="fxi-test-")
+os.environ["DATABASE_URL"] = ""
+os.environ["ZEUS_BOT_TOKEN"] = ""
+os.environ["OPENROUTER_API_KEY"] = ""
+os.environ["ADMIN_DATA_FILE"] = str(Path(_TEST_STATE.name) / "admin-state.json")
+os.environ["ADMIN_PANEL_USERNAME"] = "ci-owner"
+os.environ["ADMIN_PANEL_PASSWORD"] = "ci-owner-password-only"
+os.environ["SESSION_SECRET"] = "ci-session-secret-not-for-production"
+sys.path.insert(0, str(_PROJECT_DIR))
+
+import zeus_bot  # noqa: E402
+
+
+class NaturalLanguageIntentTests(unittest.TestCase):
+    def test_rule_update_is_not_swallowed_by_rule_lookup(self):
+        self.assertEqual(zeus_bot._natural_intent("ثبت قوانین لطفاً محترمانه باشید"), "set_rules")
+        self.assertEqual(zeus_bot._natural_intent("قوانین جدید: تبلیغ ممنوع"), "set_rules")
+
+    def test_read_only_rules_lookup_remains_available(self):
+        self.assertEqual(zeus_bot._natural_intent("قوانین"), "rules")
+        self.assertEqual(zeus_bot._natural_intent("قوانین گروه"), "rules")
+
+    def test_common_natural_moderation_phrases(self):
+        cases = {
+            "پین": "pin",
+            "حذف": "delete",
+            "سکوت ۱۰ دقیقه": "mute",
+            "آزاد": "unmute",
+            "بن": "ban",
+            "گفتگوی رفاقتی روشن": "enable_conversation",
+            "گفتگوی رفاقتی خاموش": "disable_conversation",
+            "فیلتر کلمه تبلیغ": "filter_word",
+            "حذف فیلتر تبلیغ": "unfilter_word",
+        }
+        for phrase, expected in cases.items():
+            with self.subTest(phrase=phrase):
+                self.assertEqual(zeus_bot._natural_intent(phrase), expected)
+
+
+class ConfigurationTests(unittest.TestCase):
+    def test_only_openrouter_is_configured(self):
+        self.assertEqual(set(zeus_bot.PROVIDERS), {"openrouter"})
+        self.assertFalse(zeus_bot.provider_ready("openrouter"))
+        self.assertFalse(zeus_bot.provider_ready("unknown"))
+
+    def test_voice_tools_are_explicitly_disabled(self):
+        self.assertFalse(zeus_bot.feature_enabled("voice_tools"))
+
+    def test_community_settings_limits_are_validated(self):
+        valid = zeus_bot.CommunitySettingsPayload(
+            settings={"anti_flood_enabled": True},
+            warn_limit=4,
+            blocked_words=["spam", "advert"],
+        )
+        self.assertEqual(valid.warn_limit, 4)
+        with self.assertRaises(Exception):
+            zeus_bot.CommunitySettingsPayload(warn_limit=1)
+        with self.assertRaises(Exception):
+            zeus_bot.CommunitySettingsPayload(warn_limit=6)
+
+    def test_manager_api_permissions_are_classified(self):
+        self.assertEqual(zeus_bot._permission_for_path("/admin/api/community"), "community")
+        self.assertEqual(zeus_bot._permission_for_path("/admin/api/users/123/block"), "users")
+        self.assertEqual(zeus_bot._permission_for_path("/admin/api/managers"), "admins")
+        self.assertEqual(zeus_bot._permission_for_path("/admin/api/audit"), "audit")
+
+
+if __name__ == "__main__":
+    unittest.main()
