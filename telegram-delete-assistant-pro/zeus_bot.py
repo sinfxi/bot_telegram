@@ -724,8 +724,12 @@ async def start_menu_actions(callback: CallbackQuery):
             return
         base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
         is_owner = _is_primary_admin(callback.from_user.id)
-        panel_url = base_url + ("/owner" if is_owner else "/admin")
-        button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود به پنل مدیر ربات"
+        if is_owner:
+            panel_url = base_url + "/owner"
+        else:
+            invite_token = _make_admin_invite(callback.from_user.id)
+            panel_url = base_url + "/admin/invite/" + invite_token
+        button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود امن به پنل مدیر ربات"
         title = "مالک ربات" if is_owner else "مدیر ربات"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=button_text, url=panel_url)]
@@ -915,11 +919,15 @@ async def admin_command(message: Message):
         return
     base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
     is_owner = _is_primary_admin(message.from_user.id)
-    panel_url = base_url + ("/owner" if is_owner else "/admin")
+    if is_owner:
+        panel_url = base_url + "/owner"
+    else:
+        invite_token = _make_admin_invite(message.from_user.id)
+        panel_url = base_url + "/admin/invite/" + invite_token
     permissions = _admin_permissions_for(message.from_user.id)
     active = "، ".join(ADMIN_PERMISSIONS[p] for p in sorted(permissions))
     title = "پنل مالک ربات" if is_owner else "پنل مدیر ربات"
-    button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود به پنل مدیر ربات"
+    button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود امن به پنل مدیر ربات"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=button_text, url=panel_url)]
     ])
