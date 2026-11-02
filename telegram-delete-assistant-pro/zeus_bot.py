@@ -143,7 +143,7 @@ def _ensure_db_table(conn) -> None:
 def load_admin_data() -> dict:
     defaults = {"admins": [], "users": [], "bot_enabled": True,
                 "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": [],
-                "admin_permissions": {}, "admin_invites": {}, "admin_passwords": {}, "admin_setup_codes": {}, "blocked_users": {},
+                "admin_permissions": {}, "admin_invites": {}, "admin_passwords": {}, "admin_setup_codes": {}, "panel_managers": {}, "blocked_users": {},
                 "features": {"ai_chat": True, "voice_tools": False, "image_tools": True,
                              "community_management": True, "natural_commands": True,
                              "payments": True, "user_tracking": True}}
@@ -476,8 +476,10 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
     return {"user_id": login_user_id, "auth_type": "root_basic", "permissions": sorted(_admin_permissions_for(login_user_id))}
 
 
-class AdminIdPayload(BaseModel):
-    user_id: int
+class ManagerAccountPayload(BaseModel):
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
+    password: str = Field(min_length=12, max_length=256)
+    permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
 
 class BroadcastPayload(BaseModel):
@@ -2282,14 +2284,14 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
 @app.get("/admin/api/status")
 async def admin_status(auth=Depends(require_admin)):
     permissions = set(auth.get("permissions", []))
-    admins = sorted(set(ADMIN_IDS) | set(admin_data.get("admins", []))) if "admins" in permissions else []
+    managers = sorted(admin_data.get("panel_managers", {}).keys()) if "admins" in permissions else []
     recent_ids = admin_data.get("users", [])[-100:] if "users" in permissions else []
     return {
         "bot_enabled": bot_enabled,
         "users_count": len(admin_data.get("users", [])),
-        "admins_count": len(set(ADMIN_IDS) | set(admin_data.get("admins", []))),
-        "admins": admins,
-        "primary_admins": sorted(ADMIN_IDS) if "admins" in permissions else [],
+        "admins_count": len(managers),
+        "admins": managers,
+        "primary_admins": [] if "admins" in permissions else [],
         "recent_users": admin_data.get("users", [])[-50:] if "users" in permissions else [],
         "recent_user_profiles": [
             {**admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}),
@@ -2301,7 +2303,7 @@ async def admin_status(auth=Depends(require_admin)):
         "feature_definitions": FEATURE_DEFINITIONS if "system" in permissions else {},
         "system_prompt": admin_data.get("system_prompt", SYSTEM_PROMPT) if "prompt" in permissions else "",
         "permissions": sorted(permissions),
-        "admin_permissions": {str(uid): sorted(_admin_permissions_for(uid)) for uid in admins},
+        "admin_permissions": {name: sorted(set(record.get("permissions", ["dashboard"])).intersection(ADMIN_PERMISSIONS) - {"admins"}) for name, record in admin_data.get("panel_managers", {}).items()} if "admins" in permissions else {},
     }
 
 
@@ -2332,108 +2334,92 @@ async def admin_conversation(user_id: int, _: str = Depends(require_admin)):
         raise HTTPException(status_code=503, detail="خواندن مکالمه ممکن نشد.")
 
 
-@app.post("/admin/api/admins")
-async def add_admin(payload: AdminIdPayload, auth=Depends(require_admin)):
-    if not _is_primary_admin(int(auth.get("user_id", 0))):
-        raise HTTPException(status_code=403, detail="ثبت و مدیریت مدیران ربات فقط در اختیار مالک ربات است.")
-    if payload.user_id <= 0:
-        raise HTTPException(status_code=400, detail="شناسه عددی تلگرام معتبر نیست.")
-    if _is_primary_admin(payload.user_id):
-        raise HTTPException(status_code=400, detail="این شناسه از قبل مالک/مدیر اصلی است.")
-    if payload.user_id in admin_data["admins"]:
-        raise HTTPException(status_code=409, detail="این شناسه از قبل به‌عنوان مدیر ربات ثبت شده است.")
-    admin_data["admins"].append(payload.user_id)
-    admin_data.setdefault("admin_permissions", {})[str(payload.user_id)] = ["dashboard"]
-    admin_data.setdefault("admin_passwords", {}).pop(str(payload.user_id), None)
-    activation_code = secrets.token_urlsafe(12)
-    admin_data.setdefault("admin_setup_codes", {})[str(payload.user_id)] = {
-        "sha256": hashlib.sha256(activation_code.encode("utf-8")).hexdigest(),
-        "expires_at": int(time.time()) + 86400,
+@app.post("/admin/api/managers")
+async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="فقط مالک ربات می‌تواند مدیر پنل ثبت کند.")
+    username = payload.username.strip().lower()
+    if username in {"owner", "admin", "root"}:
+        raise HTTPException(status_code=400, detail="این نام کاربری قابل استفاده نیست.")
+    if username in admin_data.setdefault("panel_managers", {}):
+        raise HTTPException(status_code=409, detail="این نام کاربری قبلاً ثبت شده است.")
+    permissions = sorted(set(payload.permissions) | {"dashboard"})
+    unknown = set(permissions) - set(ADMIN_PERMISSIONS)
+    if unknown or "admins" in permissions:
+        raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
+    salt = secrets.token_bytes(16)
+    iterations = 310000
+    digest = hashlib.pbkdf2_hmac("sha256", payload.password.encode("utf-8"), salt, iterations).hex()
+    admin_data["panel_managers"][username] = {
+        "salt": salt.hex(), "hash": digest, "iterations": iterations,
+        "permissions": permissions, "enabled": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    log_admin_action("admin_added", f"user_id={payload.user_id}; permissions=dashboard")
+    log_admin_action("panel_manager_created", f"username={username}; permissions={','.join(permissions)}")
     save_admin_data()
-    login_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/login"
-    notified = False
-    if bot:
-        try:
-            await bot.send_message(
-                payload.user_id,
-                "🎉 شما به‌عنوان مدیر ربات FXI ثبت شدید.\n\n"
-                "برای اولین ورود، شناسه عددی، رمز دلخواه حداقل ۱۰ کاراکتری و کد فعال‌سازی زیر را در صفحه ورود وارد کنید. "
-                "پس از تعیین رمز، دفعات بعد فقط شناسه و رمز لازم است.\n\n"
-                f"شناسه ورود: {payload.user_id}\nکد فعال‌سازی یک‌بارمصرف: {activation_code}\n"
-                f"ورود: {login_url}\n\n"
-                "سطح دسترسی اولیه: فقط نمای کلی؛ مالک می‌تواند دسترسی‌های بیشتری تعیین کند."
-            )
-            notified = True
-        except Exception as exc:
-            log.warning("Manager activation message failed for user=%s: %s", payload.user_id, type(exc).__name__)
-    return {
-        "message": f"مدیر ربات {payload.user_id} ثبت شد. " + ("کد فعال‌سازی به تلگرام او ارسال شد." if notified else "ارسال پیام تلگرام ممکن نشد؛ کد فعال‌سازی را امن و خصوصی به او بده."),
-        "notification_sent": notified,
-        "activation_code": activation_code,
-        "login_url": login_url,
-    }
+    return {"message": f"مدیر پنل «{username}» ثبت شد.", "username": username, "permissions": permissions}
 
 
-@app.post("/admin/api/admins/{user_id}/reset-password")
-async def reset_admin_password(user_id: int, auth=Depends(require_admin)):
-    if not _is_primary_admin(int(auth.get("user_id", 0))):
-        raise HTTPException(status_code=403, detail="بازنشانی رمز مدیران فقط در اختیار مالک ربات است.")
-    if user_id not in admin_data.get("admins", []):
-        raise HTTPException(status_code=404, detail="مدیر ربات پیدا نشد.")
-    activation_code = secrets.token_urlsafe(12)
-    admin_data.setdefault("admin_passwords", {}).pop(str(user_id), None)
-    admin_data.setdefault("admin_setup_codes", {})[str(user_id)] = {
-        "sha256": hashlib.sha256(activation_code.encode("utf-8")).hexdigest(),
-        "expires_at": int(time.time()) + 86400,
-    }
-    log_admin_action("manager_password_reset", f"user_id={user_id}")
+@app.delete("/admin/api/managers/{username}")
+async def remove_manager(username: str, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="حذف مدیران پنل فقط در اختیار مالک است.")
+    key = username.strip().lower()
+    if key not in admin_data.get("panel_managers", {}):
+        raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
+    admin_data["panel_managers"].pop(key, None)
+    log_admin_action("panel_manager_removed", f"username={key}")
     save_admin_data()
-    login_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/login"
-    notified = False
-    if bot:
-        try:
-            await bot.send_message(
-                user_id,
-                "🔐 مالک ربات درخواست بازنشانی رمز پنل شما را ثبت کرد.\n\n"
-                f"کد فعال‌سازی جدید: {activation_code}\n"
-                f"ورود: {login_url}\n\n"
-                "با شناسه عددی و این کد، رمز جدید حداقل ۱۰ کاراکتری تعیین کن. کد قبلی دیگر معتبر نیست."
-            )
-            notified = True
-        except Exception as exc:
-            log.warning("Manager password reset notification failed for user=%s: %s", user_id, type(exc).__name__)
-    return {
-        "message": "رمز قبلی باطل شد؛ مدیر باید با کد تازه رمز جدید بسازد." + (" کد برای او ارسال شد." if notified else " پیام تلگرام ارسال نشد؛ کد را امن و خصوصی تحویل بده."),
-        "activation_code": activation_code,
-        "notification_sent": notified,
-    }
+    return {"message": f"دسترسی مدیر «{key}» لغو شد."}
 
 
-@app.delete("/admin/api/admins/{user_id}")
-async def remove_admin(user_id: int, auth=Depends(require_admin)):
-    if not _is_primary_admin(int(auth.get("user_id", 0))):
-        raise HTTPException(status_code=403, detail="حذف مدیران ربات فقط در اختیار مالک ربات است.")
-    if user_id in ADMIN_IDS:
-        raise HTTPException(status_code=400, detail="مدیر اصلی از ADMIN_IDS حذف می‌شود")
-    if user_id not in admin_data["admins"]:
-        raise HTTPException(status_code=404, detail="این مدیر پیدا نشد")
-    admin_data["admins"].remove(user_id)
-    admin_data.get("admin_permissions", {}).pop(str(user_id), None)
-    admin_data.get("admin_passwords", {}).pop(str(user_id), None)
-    admin_data.get("admin_setup_codes", {}).pop(str(user_id), None)
-    for digest, record in list(admin_data.get("admin_invites", {}).items()):
-        if int(record.get("user_id", 0)) == user_id:
-            admin_data["admin_invites"].pop(digest, None)
-    log_admin_action("admin_removed", f"user_id={user_id}")
+@app.post("/admin/api/managers/{username}/password")
+async def reset_manager_password(username: str, payload: dict, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="تغییر رمز مدیران فقط در اختیار مالک است.")
+    key = username.strip().lower()
+    record = admin_data.get("panel_managers", {}).get(key)
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
+    password = str(payload.get("password", ""))
+    if len(password) < 12 or len(password) > 256:
+        raise HTTPException(status_code=422, detail="رمز جدید باید حداقل ۱۲ کاراکتر داشته باشد.")
+    salt = secrets.token_bytes(16)
+    iterations = 310000
+    record.update({"salt": salt.hex(), "hash": hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations).hex(), "iterations": iterations})
+    log_admin_action("panel_manager_password_reset", f"username={key}")
     save_admin_data()
-    if bot:
-        try:
-            await bot.send_message(user_id, "🔒 دسترسی مدیریتی شما در FXI لغو شد. نشست‌های قبلی دیگر مجوز دسترسی به پنل ندارند.")
-        except Exception as exc:
-            log.warning("Admin removal notification failed for user=%s: %s", user_id, type(exc).__name__)
-    return {"message": f"مدیر {user_id} حذف شد"}
+    return {"message": f"رمز مدیر «{key}» تغییر کرد."}
+
+
+@app.get("/admin/api/managers/{username}/permissions")
+async def get_manager_permissions(username: str, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="مشاهده دسترسی مدیران فقط در اختیار مالک است.")
+    key = username.strip().lower()
+    record = admin_data.get("panel_managers", {}).get(key)
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
+    return {"username": key, "permissions": sorted(set(record.get("permissions", ["dashboard"])) - {"admins"}), "available": {k:v for k,v in ADMIN_PERMISSIONS.items() if k != "admins"}}
+
+
+@app.post("/admin/api/managers/{username}/permissions")
+async def set_manager_permissions(username: str, payload: AdminPermissionsPayload, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="تغییر دسترسی مدیران فقط در اختیار مالک است.")
+    key = username.strip().lower()
+    record = admin_data.get("panel_managers", {}).get(key)
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
+    permissions = sorted(set(payload.permissions) | {"dashboard"})
+    if set(permissions) - set(ADMIN_PERMISSIONS) or "admins" in permissions:
+        raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
+    record["permissions"] = permissions
+    log_admin_action("panel_manager_permissions_updated", f"username={key}; permissions={','.join(permissions)}")
+    save_admin_data()
+    return {"message": "دسترسی‌های مدیر ذخیره شد.", "permissions": permissions}
+
+
 
 
 class AdminPermissionsPayload(BaseModel):
