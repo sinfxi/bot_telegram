@@ -2482,7 +2482,7 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
     digest = hashlib.pbkdf2_hmac("sha256", payload.password.encode("utf-8"), salt, iterations).hex()
     admin_data["panel_managers"][username] = {
         "salt": salt.hex(), "hash": digest, "iterations": iterations,
-        "permissions": permissions, "enabled": True,
+        "permissions": permissions, "enabled": True, "session_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     log_admin_action("panel_manager_created", f"username={username}; permissions={','.join(permissions)}")
@@ -2516,7 +2516,7 @@ async def reset_manager_password(username: str, payload: dict, auth=Depends(requ
         raise HTTPException(status_code=422, detail="رمز جدید باید حداقل ۱۲ کاراکتر داشته باشد.")
     salt = secrets.token_bytes(16)
     iterations = 310000
-    record.update({"salt": salt.hex(), "hash": hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations).hex(), "iterations": iterations})
+    record.update({"salt": salt.hex(), "hash": hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations).hex(), "iterations": iterations, "session_version": int(record.get("session_version", 1)) + 1})
     log_admin_action("panel_manager_password_reset", f"username={key}")
     save_admin_data()
     return {"message": f"رمز مدیر «{key}» تغییر کرد."}
