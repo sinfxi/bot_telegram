@@ -718,20 +718,17 @@ async def start_menu_actions(callback: CallbackQuery):
             "دستور /communitystats رو در همون گروه اجرا کن. آمار فقط شامل داده‌هاییه که ربات واقعاً دریافت کرده."
         )
     elif action == "admin":
-        if not is_admin(callback.from_user.id):
-            await callback.answer("این بخش فقط برای مدیرانه.", show_alert=True)
-            return
         base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
         is_owner = _is_primary_admin(callback.from_user.id)
         panel_url = base_url + ("/owner" if is_owner else "/admin/login")
-        button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود امن به پنل مدیر ربات"
+        button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود به پنل مدیر ربات"
         title = "مالک ربات" if is_owner else "مدیر ربات"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=button_text, url=panel_url)]
         ])
         await callback.message.answer(
             f"🛠 پنل {title} FXI\n\n"
-            "این پنل بر اساس نقش مدیریتی ربات شما انتخاب شده است؛ مدیران گروه به‌تنهایی دسترسی پنل ربات ندارند.",
+            "ورود به پنل مدیر ربات فقط با نام کاربری و رمز اختصاصی انجام می‌شود؛ مدیر گروه به‌تنهایی دسترسی پنل ندارد.",
             reply_markup=keyboard,
         )
     await callback.answer()
@@ -1844,7 +1841,7 @@ def _natural_intent(text_value: str) -> str | None:
         return "content_plan"
     if value in {"انتخاب هوش مصنوعی", "انتخاب مدل", "مدل هوش مصنوعی"}:
         return "choose_ai"
-    if value in {"پنل", "پنل مدیریت", "پنل مالک"}:
+    if value in {"پنل", "پنل مدیریت", "پنل مالک", "پنل مدیر"}:
         return "admin"
     if value in {"پاک کردن تاریخچه", "حذف تاریخچه", "شروع دوباره گفتگو"}:
         return "reset_history"
