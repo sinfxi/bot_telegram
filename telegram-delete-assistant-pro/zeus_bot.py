@@ -1246,6 +1246,8 @@ async def community_settings_action(callback: CallbackQuery):
         key = action[2]
         current_default = key in {"welcome_enabled", "anti_flood_enabled"}
         settings[key] = not bool(settings.get(key, current_default))
+        if key == "conversational_ai" and settings[key]:
+            settings["ai_enabled"] = True
         save_admin_data()
         await callback.answer("تنظیم ذخیره شد.")
     try:
@@ -1947,8 +1949,8 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
         await message.answer("این قابلیت در تنظیمات ربات غیرفعال است.")
         return True
     if intent in {"filter_word", "unfilter_word"}:
-        clean_request = re.sub(r"^(?:ربات|اف\\s*ایکس\\s*آی|fxi)[،,:؛\\s-]*", "", request_text.strip(), flags=re.I)
-        word = re.sub(r"^(?:فیلتر کلمه|افزودن کلمه ممنوع|حذف فیلتر|برداشتن فیلتر)\\s*", "", clean_request, flags=re.I).strip().lower()
+        clean_request = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)[،,:؛\s-]*", "", request_text.strip(), flags=re.I)
+        word = re.sub(r"^(?:فیلتر کلمه|افزودن کلمه ممنوع|حذف فیلتر|برداشتن فیلتر)\s*", "", clean_request, flags=re.I).strip().lower()
         if not word or len(word) > 60 or any(ch.isspace() for ch in word):
             await message.answer("یک واژه کوتاه و بدون فاصله وارد کن؛ مثال: «فیلتر کلمه تبلیغ»")
             return True
