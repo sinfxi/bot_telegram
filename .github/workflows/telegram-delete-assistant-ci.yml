@@ -29,6 +29,18 @@ jobs:
         run: python -m pip install -r telegram-delete-assistant-pro/requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q telegram-delete-assistant-pro
+      - name: Check admin dashboard JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("telegram-delete-assistant-pro/static/admin.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script>(.*?)</script>", source, flags=re.S)
+          if not scripts:
+              raise SystemExit("Admin dashboard script was not found")
+          Path("/tmp/fxi-admin.js").write_text("\\n".join(scripts), encoding="utf-8")
+          PY
+          node --check /tmp/fxi-admin.js
       - name: Check login page JavaScript
         run: |
           python - <<'PY'
