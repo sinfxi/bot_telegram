@@ -133,9 +133,9 @@ button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;backg
 <p class="sub">مالک ربات برای تو یک نام کاربری و رمز تعیین کرده است. با همان اطلاعات وارد پنل اختصاصی مدیر ربات شو.</p>
 <form id="loginForm">
 <label for="username">نام کاربری مدیر</label><input id="username" autocomplete="username" required maxlength="64">
-<label for="password">رمز عبور شخصی</label><input id="password" type="password" autocomplete="current-password" required minlength="10" maxlength="256">
-<label for="activation_code">کد فعال‌سازی (فقط بار اول)</label><input id="activation_code" autocomplete="one-time-code" maxlength="80">
-<div class="hint">رمز باید حداقل ۱۰ کاراکتر داشته باشد. کد فعال‌سازی پس از ثبت رمز دیگر لازم نیست.</div>
+<label for="password">رمز عبور</label><input id="password" type="password" autocomplete="current-password" required minlength="12" maxlength="256">
+
+<div class="hint">نام کاربری و رمز را فقط از مالک ربات دریافت کن.</div>
 <button id="submit" type="submit">ورود به پنل مدیر ربات</button></form><div id="msg" role="alert"></div></main>
 <script>
 const form=document.getElementById('loginForm'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
