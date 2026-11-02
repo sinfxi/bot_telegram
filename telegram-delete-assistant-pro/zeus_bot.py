@@ -398,8 +398,10 @@ def _permission_for_path(path: str) -> str:
     if "/payments" in path: return "payments"
     if "/broadcast" in path: return "broadcast"
     if "/prompt" in path: return "prompt"
-    if "/bot-state" in path: return "system"
-    return "dashboard"
+    if "/bot-state" in path or "/features" in path: return "system"
+    # Fail closed: a newly added API route must receive an explicit permission
+    # mapping before delegated managers can access it.
+    return "__unmapped__"
 
 
 def _is_primary_admin(user_id: int) -> bool:
