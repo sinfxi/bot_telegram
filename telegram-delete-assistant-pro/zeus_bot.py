@@ -1627,7 +1627,7 @@ async def collect_community_message(message: Message):
                     log.warning("Keyword filter could not delete message chat=%s", message.chat.id)
                 return
         if not sender_is_admin and settings.get("link_guard_enabled", False):
-            has_link = bool(re.search(r"(?:https?://|www\\.|t\\.me/|telegram\\.me/)", text_value, re.I))
+            has_link = bool(re.search(r"(?:https?://|www\.|t\.me/|telegram\.me/)", text_value, re.I))
             if has_link:
                 try:
                     await bot.delete_message(message.chat.id, message.message_id)
@@ -1840,7 +1840,7 @@ async def community_member_update(event: ChatMemberUpdated):
             and data.setdefault("settings", {}).get("welcome_enabled", True)):
         if bot:
             try:
-                await bot.send_message(event.chat.id, f"👋 خوش اومدی {event.new_chat_member.user.full_name}! قوانین گروه رو با /rules بخون.")
+                await bot.send_message(event.chat.id, f"👋 خوش اومدی {event.new_chat_member.user.full_name}! قوانین گروه رو با نوشتن «قوانین» بخون.")
             except Exception:
                 log.info("Welcome message unavailable for chat=%s", event.chat.id)
     save_admin_data()
