@@ -687,7 +687,7 @@ async def start(message: Message):
         "• من رو به گروه یا کانالت اضافه کن.\n"
         "• در گروه، فقط مجوزهایی رو بده که برای قابلیت‌های موردنیازت لازم‌اند.\n"
         "• برای فعال‌کردن پاسخ هوشمند گروه، مدیر می‌تونه بگه «ربات، پاسخ هوشمند رو روشن کن».\n"
-        "• برای انتخاب مدل /ai و دیدن دستورهای /help رو ببین.\n\n"
+        "• برای انتخاب مدل بنویس «انتخاب مدل» و برای راهنما بنویس «راهنما».\n\n"
         "🔐 دسترسی مدیریتی و عملیات حساس فقط با بررسی مجوز انجام می‌شن.",
         reply_markup=keyboard,
     )
@@ -1853,6 +1853,18 @@ def _natural_intent(text_value: str) -> str | None:
         return "challenge"
     if value in {"پیشنهادها", "تحلیل پیشنهادها"}:
         return "suggestions"
+    if value.startswith(("ثبت قوانین", "قوانین جدید", "تغییر قوانین")):
+        return "set_rules"
+    if value in {"برنامه محتوا", "برنامه پست", "تقویم محتوا"}:
+        return "content_plan"
+    if value in {"انتخاب هوش مصنوعی", "انتخاب مدل", "مدل هوش مصنوعی"}:
+        return "choose_ai"
+    if value in {"پنل", "پنل مدیریت", "پنل مالک"}:
+        return "admin"
+    if value in {"پاک کردن تاریخچه", "حذف تاریخچه", "شروع دوباره گفتگو"}:
+        return "reset_history"
+    if value in {"حمایت", "حمایت مالی", "اطلاعات پرداخت"}:
+        return "support"
     return None
 
 
@@ -1863,11 +1875,19 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     intent = _natural_intent(request_text)
     if not intent:
         return False
-    if intent in {"enable_ai", "disable_ai", "draft", "pin", "delete", "mute", "unmute", "ban", "settings", "challenge", "suggestions", "top_posts", "report"}:
+    if intent in {"enable_ai", "disable_ai", "draft", "pin", "delete", "mute", "unmute", "ban", "settings", "challenge", "suggestions", "top_posts", "report", "set_rules", "content_plan"}:
         if not await community_is_admin(message.chat.id, message.from_user.id):
             await message.answer("⛔ این عملیات فقط برای مدیران گروه/کانال است.")
             return True
     data = community_chat(message.chat.id)
+    required_feature = {
+        "pin": "moderation", "delete": "moderation", "mute": "moderation",
+        "unmute": "moderation", "ban": "moderation", "set_rules": "rules_management",
+        "content_plan": "draft_generation", "draft": "draft_generation",
+    }.get(intent)
+    if required_feature and (not feature_enabled("community_management") or not feature_enabled(required_feature)):
+        await message.answer("این قابلیت در تنظیمات ربات غیرفعال است.")
+        return True
     if intent in {"pin", "delete", "mute", "unmute", "ban"}:
         target_message = message.reply_to_message
         if not target_message:
@@ -1909,6 +1929,21 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
         except Exception:
             log.exception("Natural moderation action failed: intent=%s chat=%s", intent, message.chat.id)
             await message.answer("عملیات انجام نشد؛ دسترسی‌های مدیریتی ربات را بررسی کن.")
+        return True
+    if intent == "set_rules":
+        rules_text = re.sub(r"^(?:ثبت قوانین|قوانین جدید|تغییر قوانین)\s*[:：-]?\s*", "", request_text.strip(), flags=re.I)
+        if not rules_text or len(rules_text) > 3000:
+            await message.answer("متن قوانین را بعد از عبارت «ثبت قوانین» بنویس.")
+            return True
+        data["rules"] = rules_text
+        save_admin_data()
+        await message.answer("✅ قوانین گروه ذخیره شد.")
+        return True
+    if intent == "content_plan":
+        insight = channel_insights(data)
+        topics = [word for word, _ in insight.get("topics", [])[:3]]
+        topic = "، ".join(topics) if topics else "موضوعات اصلی گروه"
+        await message.answer("🗓 برنامه محتوای پیشنهادی\n۱. یک پست آموزشی کوتاه درباره " + topic + "\n۲. یک پرسش تعاملی از اعضا\n۳. یک نکته کاربردی یا چک‌لیست\n۴. پاسخ به پرسش پرتکرار\n۵. جمع‌بندی هفتگی و نظرسنجی")
         return True
     if intent == "settings":
         await message.answer("⚙️ تنظیمات گروه را از دکمه‌های زیر مدیریت کن.", reply_markup=community_settings_keyboard(message.chat.id))
@@ -2027,7 +2062,28 @@ async def chat(message: Message):
         remember_user(message.from_user.id, username=message.from_user.username,
                       first_name=message.from_user.first_name, last_name=message.from_user.last_name)
     if message.chat.type == "private":
-        await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. من را به گروه یا کانالت اضافه کن و دسترسی‌های لازم را بده. برای راهنما /community را بزن.")
+        if message.text:
+            private_intent = _natural_intent(message.text)
+            if private_intent == "help":
+                await message.answer("📘 راهنمای FXI\n\nدر گروه روی پیام فرد ریپلای کن و بنویس «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».\nبرای مدیریت گروه بگو «تنظیمات»، «قوانین»، «ثبت قوانین ...»، «آمار گروه»، «گزارش کانال»، «پست‌های برتر»، «چالش» یا «برنامه محتوا».\nدر گفت‌وگوی خصوصی بگو «انتخاب مدل»، «پاک کردن تاریخچه» یا «حمایت».\nتنها /start به‌عنوان فرمان نوشتاری باقی مانده است.")
+                return
+            if private_intent == "choose_ai":
+                if not feature_enabled("ai_chat"):
+                    await message.answer("⛔ پاسخ‌گویی هوشمند غیرفعال است.")
+                else:
+                    await message.answer(provider_menu_text(message.from_user.id), reply_markup=provider_keyboard())
+                return
+            if private_intent == "reset_history":
+                await reset_chat(message)
+                return
+            if private_intent == "support":
+                await support_command(message)
+                return
+            if private_intent == "admin" and message.from_user and _is_primary_admin(message.from_user.id):
+                base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
+                await message.answer("👑 پنل مالک ربات:\n" + base_url + "/owner")
+                return
+        await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. برای راهنما بنویس «راهنما» و برای انتخاب سرویس هوشمند بنویس «انتخاب مدل».")
         return
     if message.chat.type not in {"group", "supergroup"} or not message.from_user or not message.text:
         return
