@@ -16,7 +16,6 @@ on:
       - "requirements.txt"
       - "tests/test_core.py"
       - "scripts/**"
-      - ".github/workflows/python-check.yml"
 
 jobs:
   compile:
