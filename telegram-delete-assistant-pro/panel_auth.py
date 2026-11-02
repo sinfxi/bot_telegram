@@ -1,4 +1,5 @@
 """Admin-only username/password authentication for the FXI control panel."""
+import hashlib
 import hmac
 import os
 import time
