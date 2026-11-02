@@ -2170,7 +2170,24 @@ async def chat(message: Message):
             if private_intent == "support":
                 await support_command(message)
                 return
-        await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. برای راهنما بنویس «راهنما» و برای انتخاب سرویس هوشمند بنویس «انتخاب مدل».")
+        if not message.text or not message.text.strip():
+            await message.answer("پیامت رو به‌صورت متن بفرست تا بتونم جواب بدم 🙂")
+            return
+        if not feature_enabled("ai_chat"):
+            await message.answer("⛔ قابلیت گفت‌وگوی هوشمند فعلاً غیرفعاله.")
+            return
+        provider_id = selected_provider[message.from_user.id]
+        if not provider_ready(provider_id):
+            await message.answer("🔒 سرویس گفت‌وگو هنوز آماده نیست. لطفاً کمی بعد دوباره امتحان کن.")
+            return
+        try:
+            if bot:
+                await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+            answer = await ask_ai(message.from_user.id, provider_id, message.text.strip())
+            await send_long_message(message, answer)
+        except Exception:
+            log.exception("Private AI conversation failed for user=%s", message.from_user.id)
+            await message.answer("الان در پاسخ‌دادن به مشکل خوردم؛ لطفاً چند لحظه دیگه دوباره پیام بده.")
         return
     if message.chat.type not in {"group", "supergroup"} or not message.from_user or not message.text:
         return
