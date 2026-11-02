@@ -1,0 +1,28 @@
+name: Telegram assistant Python checks
+
+on:
+  push:
+    branches:
+      - feature/telegram-delete-assistant
+    paths:
+      - "telegram-delete-assistant-pro/**"
+      - ".github/workflows/telegram-delete-assistant-ci.yml"
+  pull_request:
+    branches:
+      - feature/telegram-delete-assistant
+    paths:
+      - "telegram-delete-assistant-pro/**"
+      - ".github/workflows/telegram-delete-assistant-ci.yml"
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r telegram-delete-assistant-pro/requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q telegram-delete-assistant-pro
