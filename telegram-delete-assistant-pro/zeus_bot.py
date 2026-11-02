@@ -623,6 +623,11 @@ async def feature_callback_gate(handler, event: CallbackQuery, data):
     if event.from_user and str(event.from_user.id) in admin_data.get("blocked_users", {}) and not is_admin(event.from_user.id):
         await event.answer("⛔ دسترسی شما به ربات توسط مدیر محدود شده است.", show_alert=True)
         return None
+    if event.message and event.message.chat.type in {"group", "supergroup", "channel"}:
+        chat_settings = community_chat(event.message.chat.id).setdefault("settings", {})
+        if not chat_settings.get("bot_enabled", True):
+            await event.answer("ربات در این گروه یا کانال توسط مدیر متوقف شده است.", show_alert=True)
+            return None
     callback_data = event.data or ""
     if callback_data.startswith("pay:") and not feature_enabled("payments"):
         await event.answer("قابلیت پرداخت غیرفعال است.", show_alert=True)
