@@ -27,7 +27,8 @@ python -m venv .venv
 # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app:app --app-dir . --host 0.0.0.0 --port 8000
+# مقدارهای واقعی را در فایل محلی .env قرار بده؛ این فایل را commit نکن.
+uvicorn app:app --env-file .env --host 0.0.0.0 --port 8000
 ```
 
 مقادیر `.env` را با تنظیمات خودت پر کن. در Windows می‌توانی متغیرها را از طریق تنظیمات Run/PowerShell یا یک ابزار بارگذاری dotenv تنظیم کنی. هیچ‌وقت توکن‌ها یا کلیدهای API را در GitHub ثبت نکن.
