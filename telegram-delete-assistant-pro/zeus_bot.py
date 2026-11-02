@@ -1799,7 +1799,8 @@ def _message_addresses_bot(message: Message, text_value: str | None = None) -> b
 
 
 def _natural_intent(text_value: str) -> str | None:
-    value = re.sub(r"[،؛.!؟?]+", " ", (text_value or "").lower())
+    value = (text_value or "").lower().replace("‌", " ")
+    value = re.sub(r"[،؛.!؟?]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
     value = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)\s+", "", value).strip()
     # Only deterministic, low-risk actions are mapped directly. Other requests go to AI.
