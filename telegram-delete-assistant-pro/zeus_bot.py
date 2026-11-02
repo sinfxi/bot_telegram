@@ -2170,13 +2170,6 @@ async def chat(message: Message):
             if private_intent == "support":
                 await support_command(message)
                 return
-            if private_intent == "admin":
-                base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-                if message.from_user and _is_primary_admin(message.from_user.id):
-                    await message.answer("👑 پنل مالک ربات:\n" + base_url + "/owner")
-                else:
-                    await message.answer("🛡 ورود مدیر ربات (فقط با نام کاربری و رمز ثبت‌شده توسط مالک):\n" + base_url + "/admin/login")
-                return
         await message.answer("🛡 FXI برای مدیریت گروه و کانال طراحی شده است. برای راهنما بنویس «راهنما» و برای انتخاب سرویس هوشمند بنویس «انتخاب مدل».")
         return
     if message.chat.type not in {"group", "supergroup"} or not message.from_user or not message.text:
@@ -2728,7 +2721,7 @@ async def set_admin_permissions(user_id: int, payload: AdminPermissionsPayload, 
     notified = False
     if bot:
         try:
-            await bot.send_message(user_id, "🔐 دسترسی‌های پنل FXI شما تغییر کرد. برای دریافت نشست تازه از لینک اختصاصی زیر استفاده کنید؛ این لینک یک‌بارمصرف و ۳۰ دقیقه معتبر است.\n\n" + link + "\n\nامکانات فعال: " + "، ".join(ADMIN_PERMISSIONS[p] for p in permissions))
+            await bot.send_message(user_id, "🔐 دسترسی مدیریتی FXI شما به‌روزرسانی شد. برای ورود امن از لینک اختصاصی زیر استفاده کنید؛ این لینک یک‌بارمصرف و ۳۰ دقیقه معتبر است.\n\n" + link + "\n\nامکانات فعال: " + "، ".join(ADMIN_PERMISSIONS[p] for p in permissions))
             notified = True
         except Exception as exc:
             log.warning("Permission update notification failed for user=%s: %s", user_id, type(exc).__name__)
@@ -2901,7 +2894,7 @@ async def admin_payment_action(payment_id: str, action: str, _: str = Depends(re
             try:
                 await bot.send_message(user_id,
                     "🎉 درخواست ادمینی شما تأیید شد و دسترسی مدیریتی FXI فعال شد.\n\n"
-                    "برای ورود به پنل اختصاصی روی لینک یک‌بارمصرف زیر بزنید؛ لینک تا ۳۰ دقیقه معتبر است.\n\n"
+                    "برای تکمیل ورود و فعال‌سازی دسترسی مدیریتی، لینک یک‌بارمصرف زیر را باز کنید؛ لینک تا ۳۰ دقیقه معتبر است.\n\n"
                     f"{link}\n\nدسترسی اولیه: نمای کلی. مدیر اصلی می‌تواند امکانات بیشتری فعال کند.")
             except Exception as exc:
                 log.warning("Could not notify approved payment user=%s: %s", user_id, type(exc).__name__)
