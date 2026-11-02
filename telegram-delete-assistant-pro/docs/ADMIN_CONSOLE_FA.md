@@ -1,38 +1,62 @@
-# FXI Admin Console
+# راهنمای پنل مالک و مدیران ربات FXI
 
-The web product is administrator-only. The end-user web chat has been retired.
+پنل وب FXI فقط برای مدیریت خود ربات است. **مدیر گروه تلگرام، خودبه‌خود مدیر ربات یا مالک پنل نیست.** کاربران عادی نیز حساب یا پنل وب ندارند.
 
-## Entry points
-- `/` redirects to `/admin`.
-- `/admin` is protected by HTTP Basic authentication.
-- The former `/app` user interface and Telegram-login web-chat API have been removed.
-- Users continue to interact with the bot through Telegram; this is not a user-facing web dashboard.
+## مسیرهای ورود
 
-## Admin modules
-1. **Overview** — registered Telegram users, administrators, configured AI providers, and bot on/off control.
-2. **AI providers** — readiness overview without exposing API credentials. Readiness means required environment variables exist; it does not prove that the upstream key/model is valid.
-3. **Users and administrators** — recent user IDs, add/remove delegated administrators, and protected primary administrators.
-4. **Conversation archive** — searchable-by-selection conversation index and message thread viewer backed by PostgreSQL.
-5. **Payment review** — list support/admin-access requests, inspect OCR amount/confidence and approve/reject with user notification. OCR is not proof of payment; the operator must verify the transfer independently.
-6. **Broadcast** — send an announcement to the registered Telegram audience with a confirmation prompt in the browser.
-7. **Assistant instructions** — edit the system prompt used by the AI assistant.
-8. **System health** — Telegram polling state, PostgreSQL readiness, AI provider configuration counts, and bot operating state.
+| نقش | آدرس | روش ورود |
+|---|---|---|
+| مالک اصلی ربات | `/login` و سپس `/owner` | `ADMIN_PANEL_USERNAME` و `ADMIN_PANEL_PASSWORD` |
+| مدیر ربات | `/admin/login` و سپس `/admin` | نام کاربری و رمز مستقلی که مالک ساخته است |
+| مدیر گروه تلگرام | داخل خود گروه | فقط ابزارهای مدیریتی همان گروه و مجوزهای تلگرام |
 
-## Required configuration
-- `ADMIN_PANEL_USERNAME`
-- `ADMIN_PANEL_PASSWORD` (use a long unique secret)
-- `ADMIN_IDS` (comma-separated primary Telegram administrator IDs)
-- `ZEUS_BOT_TOKEN`
-- `DATABASE_URL` for persistent state and conversation history
-- Provider-specific API keys as documented in `docs/API_SETUP_FA.md`
+## امکانات پنل مالک
 
-## Security notes
-- Never commit bot tokens, API keys, database credentials, or the admin password.
-- The panel does not display provider secrets.
-- Keep HTTPS enabled at the hosting provider.
-- Give delegated admin access only to trusted Telegram IDs.
-- Broadcast and payment approval are consequential actions; verify the target and content before confirming.
-- Conversation history may contain personal data. Restrict panel access and apply a retention policy appropriate to the deployment.
+- مشاهده وضعیت کلی ربات، تلگرام، دیتابیس و OpenRouter.
+- ساخت، غیرفعال‌کردن و حذف حساب مدیران ربات.
+- تعیین نام کاربری، رمز عبور و سطح دسترسی هر مدیر.
+- دسترسی کامل به بخش‌های پنل و تنظیمات سراسری.
+- مدیریت قابلیت‌ها، دستورالعمل دستیار، کاربران، پیام همگانی، گروه‌ها و کانال‌ها.
+- بررسی گزارش رویدادهای مدیریتی.
 
-## Current scope / not implemented claims
-This release does not claim to provide a full audit-log explorer, CSV exports, granular role/permission matrix, user bans, scheduled campaigns, automated payment verification, or live provider credential editing. These require separate implementation and tests before being presented as available controls.
+## امکانات مدیر ربات
+
+دسترسی مدیر فقط به مجوزهایی محدود است که مالک تعیین کرده است؛ مجوزها در سمت سرور برای هر درخواست API بررسی می‌شوند. مدیران ربات به مدیریت حساب مدیران دیگر دسترسی ندارند. مسیر API که هنوز به یک مجوز مشخص متصل نشده باشد، برای مدیر تفویض‌شده رد می‌شود.
+
+مجوزهای موجود شامل نمای کلی، سرویس هوش مصنوعی، کاربران، گروه‌ها و کانال‌ها، مکالمات، گزارش فعالیت، پرداخت‌ها، پیام همگانی، دستورالعمل و تنظیمات سیستم است.
+
+## مدیریت گروه‌ها و کانال‌ها
+
+از بخش «گروه‌ها و کانال‌ها» می‌توان برای هر فضای ثبت‌شده جداگانه قابلیت‌های زیر را کنترل کرد:
+
+- فعال یا متوقف‌کردن پردازش ربات در همان گروه/کانال.
+- پاسخ هوشمند و گفت‌وگوی رفاقتی.
+- خوشامدگویی و ضدسیل.
+- کنترل لینک و فیلتر واژه.
+- تعیین سقف اخطار از ۲ تا ۵ و ویرایش حداکثر ۱۰۰ واژه ممنوع.
+
+توقف ربات در یک فضا، آن را از گروه یا کانال حذف نمی‌کند. برای حذف پیام، سنجاق یا محدودکردن عضو، ربات باید مجوز لازم را در تلگرام داشته باشد.
+
+## پیام همگانی
+
+پیام همگانی می‌تواند متن، تصویر JPG/PNG/WebP تا ۵ مگابایت، یا هر دو را ارسال کند. گیرنده‌ها از میان کاربران ثبت‌شده، گروه‌ها و کانال‌هایی انتخاب می‌شوند که ربات قبلاً رویدادهایشان را دریافت و ثبت کرده است. پیام به کاربرانی که در ربات مسدود شده‌اند ارسال نمی‌شود.
+
+ارسال انبوه اقدام برگشت‌ناپذیر است؛ پیش از تأیید، متن، تصویر و گروه‌های گیرنده را بررسی کن. تلگرام ممکن است به‌دلیل محدودیت نرخ یا نداشتن دسترسی، ارسال به بعضی گیرنده‌ها را رد کند.
+
+## امنیت ورود
+
+- مالک با متغیرهای محیطی `ADMIN_PANEL_USERNAME` و `ADMIN_PANEL_PASSWORD` وارد می‌شود.
+- مدیر ربات با حساب نام‌کاربری/رمزی وارد می‌شود که مالک از پنل ساخته است؛ ورود مدیر به شناسه عددی تلگرام وابسته نیست.
+- رمز مدیران با PBKDF2-HMAC-SHA256 و salt تصادفی ذخیره می‌شود.
+- نشست‌ها ۱۲ ساعت اعتبار دارند و کوکی‌ها HttpOnly و SameSite Strict هستند؛ در HTTPS، پرچم Secure فعال می‌شود.
+- چرخاندن رمز مالک، نشست‌های قبلی مالک را نامعتبر می‌کند.
+- تلاش‌های ناموفق ورود محدود می‌شوند؛ شمارنده فعلی در حافظه همان فرایند است و با راه‌اندازی مجدد پاک می‌شود.
+- کلید OpenRouter، توکن تلگرام و رمزها در رابط پنل نمایش داده نمی‌شوند و باید در Environment میزبان نگهداری شوند.
+
+## مسیرهای پایش
+
+- `GET /health`: فقط زنده‌بودن فرایند وب را بررسی می‌کند.
+- `GET /ready`: وضعیت کلی تنظیم بودن تلگرام، OpenRouter و دیتابیس را گزارش می‌دهد.
+- همه مسیرهای `/admin/api/*` باید نشست معتبر و مجوز لازم داشته باشند.
+
+برای جزئیات محیط و کلید OpenRouter، [راهنمای API](API_SETUP_FA.md) را ببین.
