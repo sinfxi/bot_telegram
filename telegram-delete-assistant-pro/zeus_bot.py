@@ -410,7 +410,8 @@ def _admin_permissions_for(user_id: int) -> set[str]:
     if _is_primary_admin(user_id):
         return set(ADMIN_PERMISSIONS)
     stored = admin_data.get("admin_permissions", {}).get(str(user_id), ["dashboard"])
-    return set(stored).intersection(ADMIN_PERMISSIONS)
+    # Delegated bot managers never receive owner-only admin-account management.
+    return set(stored).intersection(ADMIN_PERMISSIONS) - {"admins"}
 
 
 def _make_admin_invite(user_id: int) -> str:
@@ -2412,7 +2413,7 @@ async def get_admin_permissions(user_id: int, auth=Depends(require_admin)):
         raise HTTPException(status_code=403, detail="اجازه مدیریت ادمین‌ها را نداری.")
     if not is_admin(user_id):
         raise HTTPException(status_code=404, detail="ادمین پیدا نشد.")
-    return {"user_id": user_id, "permissions": sorted(_admin_permissions_for(user_id)), "available": ADMIN_PERMISSIONS}
+    return {"user_id": user_id, "permissions": sorted(_admin_permissions_for(user_id)), "available": {key: value for key, value in ADMIN_PERMISSIONS.items() if key != "admins"}}
 
 
 @app.post("/admin/api/admins/{user_id}/permissions")
