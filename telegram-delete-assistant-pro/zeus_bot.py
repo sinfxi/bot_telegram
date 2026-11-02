@@ -587,6 +587,10 @@ async def feature_message_gate(handler, event: Message, data):
         if str(event.from_user.id) in blocked and not is_admin(event.from_user.id):
             await event.answer("⛔ دسترسی شما به ربات توسط مدیر محدود شده است.")
             return None
+    if isinstance(event, Message) and event.chat.type in {"group", "supergroup", "channel"}:
+        chat_settings = community_chat(event.chat.id).setdefault("settings", {})
+        if not chat_settings.get("bot_enabled", True):
+            return None
     text_value = (event.text or "").strip() if isinstance(event, Message) else ""
     command = text_value.split(maxsplit=1)[0].split("@", 1)[0].lstrip("/").lower() if text_value.startswith("/") else ""
     command_features = {
@@ -1152,6 +1156,7 @@ def community_chat(chat_id: int) -> dict:
     })
     settings = record.setdefault("settings", {})
     settings.setdefault("ai_enabled", False)
+    settings.setdefault("bot_enabled", True)
     settings.setdefault("welcome_enabled", True)
     settings.setdefault("anti_flood_enabled", True)
     return record
@@ -1769,6 +1774,7 @@ async def community_member_update(event: ChatMemberUpdated):
     old_status = event.old_chat_member.status
     new_status = event.new_chat_member.status
     if (old_status in {"left", "kicked"} and new_status in {"member", "restricted", "administrator"}
+            and data.setdefault("settings", {}).get("bot_enabled", True)
             and data.setdefault("settings", {}).get("welcome_enabled", True)):
         if bot:
             try:
@@ -2226,6 +2232,7 @@ async def admin_community(_: str = Depends(require_admin)):
             "type": record.get("type", "unknown"),
             "message_count": int(record.get("message_count", 0)),
             "members_seen": len(record.get("members_seen", {})),
+            "bot_enabled": bool(record.get("settings", {}).get("bot_enabled", True)),
             "ai_enabled": bool(record.get("settings", {}).get("ai_enabled", False)),
             "welcome_enabled": bool(record.get("settings", {}).get("welcome_enabled", True)),
             "anti_flood_enabled": bool(record.get("settings", {}).get("anti_flood_enabled", True)),
@@ -2236,18 +2243,20 @@ async def admin_community(_: str = Depends(require_admin)):
 
 
 @app.post("/admin/api/community/{chat_id}/settings")
-async def update_community_settings(chat_id: int, payload: CommunitySettingsPayload, _: str = Depends(require_admin)):
+async def update_community_settings(chat_id: int, payload: CommunitySettingsPayload, request: Request, auth=Depends(require_admin)):
+    if not _admin_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
     record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
     if not record:
         raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
-    allowed = {"ai_enabled", "welcome_enabled", "anti_flood_enabled"}
-    if not payload.settings or any(key not in allowed for key in payload.settings):
-        raise HTTPException(status_code=422, detail="فقط تنظیمات پاسخ هوشمند، خوشامدگویی و ضداسپم قابل تغییر هستند.")
+    allowed = {"bot_enabled", "ai_enabled", "welcome_enabled", "anti_flood_enabled"}
+    if not payload.settings or any(key not in allowed or not isinstance(value, bool) for key, value in payload.settings.items()):
+        raise HTTPException(status_code=422, detail="فقط کلیدهای مجاز با مقدار روشن/خاموش قابل تغییر هستند.")
     settings = record.setdefault("settings", {})
     settings.update(payload.settings)
     save_admin_data()
     changed = ", ".join(payload.settings.keys())
-    log_admin_action("community_settings_updated", f"chat={chat_id}; settings={changed}")
+    log_admin_action("community_settings_updated", f"chat={chat_id}; settings={changed}; by={auth.get('user_id', 0)}")
     return {
         "message": "تنظیمات فضا ذخیره شد.",
         "chat_id": chat_id,
