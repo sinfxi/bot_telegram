@@ -464,6 +464,11 @@ class AdminIdPayload(BaseModel):
 
 class BroadcastPayload(BaseModel):
     text: str = Field(min_length=1, max_length=3900)
+    targets: list[str] = Field(default_factory=lambda: ["users", "groups", "channels"])
+
+
+class CommunitySettingsPayload(BaseModel):
+    settings: dict[str, bool]
 
 
 class BotStatePayload(BaseModel):
@@ -1112,10 +1117,16 @@ def community_store() -> dict:
 
 def community_chat(chat_id: int) -> dict:
     store = community_store()
-    return store.setdefault("chats", {}).setdefault(str(chat_id), {
+    record = store.setdefault("chats", {}).setdefault(str(chat_id), {
         "title": "", "type": "", "message_count": 0, "members_seen": {},
-        "activity": [], "top_posts": [], "rules": "به اعضا احترام بگذارید؛ از اسپم و تبلیغات ناخواسته خودداری کنید."
+        "activity": [], "top_posts": [], "rules": "به اعضا احترام بگذارید؛ از اسپم و تبلیغات ناخواسته خودداری کنید.",
+        "settings": {}
     })
+    settings = record.setdefault("settings", {})
+    settings.setdefault("ai_enabled", False)
+    settings.setdefault("welcome_enabled", True)
+    settings.setdefault("anti_flood_enabled", True)
+    return record
 
 async def community_is_admin(chat_id: int, user_id: int) -> bool:
     if is_admin(user_id):
@@ -1127,6 +1138,71 @@ async def community_is_admin(chat_id: int, user_id: int) -> bool:
         return member.status in {"creator", "administrator"}
     except Exception:
         return False
+
+def community_settings_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    settings = community_chat(chat_id).setdefault("settings", {})
+    rows = [
+        [InlineKeyboardButton(
+            text=("🧠 پاسخ هوشمند: روشن" if settings.get("ai_enabled", False) else "🧠 پاسخ هوشمند: خاموش"),
+            callback_data="community_settings:toggle:ai_enabled"
+        )],
+        [InlineKeyboardButton(
+            text=("👋 خوشامدگویی: روشن" if settings.get("welcome_enabled", True) else "👋 خوشامدگویی: خاموش"),
+            callback_data="community_settings:toggle:welcome_enabled"
+        )],
+        [InlineKeyboardButton(
+            text=("🛡 ضداسپم: روشن" if settings.get("anti_flood_enabled", True) else "🛡 ضداسپم: خاموش"),
+            callback_data="community_settings:toggle:anti_flood_enabled"
+        )],
+        [InlineKeyboardButton(text="📜 راهنمای قوانین گروه", callback_data="community_settings:rules_help")],
+        [InlineKeyboardButton(text="🔄 تازه‌سازی فهرست", callback_data="community_settings:refresh")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.message(Command("fxi_settings"))
+async def community_settings_menu(message: Message):
+    if message.chat.type not in {"group", "supergroup"}:
+        await message.answer("این فهرست تنظیمات را داخل گروهی اجرا کن که ربات عضو آن است.")
+        return
+    if not message.from_user or not await community_is_admin(message.chat.id, message.from_user.id):
+        await message.answer("⛔ فقط مدیر گروه می‌تواند تنظیمات FXI را تغییر دهد.")
+        return
+    await message.answer(
+        "⚙️ تنظیمات گروه FXI\nهر گزینه را برای روشن/خاموش‌کردن لمس کن. تغییرات فوراً ذخیره می‌شوند.\n"
+        "برای تغییر متن قوانین از دستور /setrules متن قوانین استفاده کن.",
+        reply_markup=community_settings_keyboard(message.chat.id)
+    )
+
+
+@dp.callback_query(F.data.startswith("community_settings:"))
+async def community_settings_action(callback: CallbackQuery):
+    if not callback.message or callback.message.chat.type not in {"group", "supergroup"}:
+        await callback.answer("این تنظیمات فقط داخل گروه در دسترس است.", show_alert=True)
+        return
+    chat_id = callback.message.chat.id
+    if not callback.from_user or not await community_is_admin(chat_id, callback.from_user.id):
+        await callback.answer("فقط مدیر گروه می‌تواند تنظیمات را تغییر دهد.", show_alert=True)
+        return
+    action = (callback.data or "").split(":")
+    if len(action) >= 2 and action[1] == "rules_help":
+        await callback.answer("برای ثبت قوانین بنویس: /setrules متن قوانین", show_alert=True)
+        return
+    if len(action) >= 2 and action[1] == "toggle":
+        if len(action) != 3 or action[2] not in {"ai_enabled", "welcome_enabled", "anti_flood_enabled"}:
+            await callback.answer("گزینه تنظیمات معتبر نیست.", show_alert=True)
+            return
+        settings = community_chat(chat_id).setdefault("settings", {})
+        key = action[2]
+        current_default = key != "ai_enabled"
+        settings[key] = not bool(settings.get(key, current_default))
+        save_admin_data()
+        await callback.answer("تنظیم ذخیره شد.")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=community_settings_keyboard(chat_id))
+    except Exception:
+        pass
+
 
 @dp.message(Command("community"))
 async def community_help(message: Message):
@@ -1524,7 +1600,8 @@ async def collect_community_message(message: Message):
     save_admin_data()
 
     # Conservative anti-flood: only repeated rapid messages, no blanket link ban.
-    if message.from_user and message.chat.type in {"group", "supergroup"} and text_value:
+    if (message.from_user and message.chat.type in {"group", "supergroup"} and text_value
+            and data.setdefault("settings", {}).get("anti_flood_enabled", True)):
         if await community_is_admin(message.chat.id, message.from_user.id):
             return
         bucket_key = f"{message.chat.id}:{message.from_user.id}"
@@ -1663,7 +1740,8 @@ async def community_member_update(event: ChatMemberUpdated):
     data = community_chat(event.chat.id)
     old_status = event.old_chat_member.status
     new_status = event.new_chat_member.status
-    if old_status in {"left", "kicked"} and new_status in {"member", "restricted", "administrator"}:
+    if (old_status in {"left", "kicked"} and new_status in {"member", "restricted", "administrator"}
+            and data.setdefault("settings", {}).get("welcome_enabled", True)):
         if bot:
             try:
                 await bot.send_message(event.chat.id, f"👋 خوش اومدی {event.new_chat_member.user.full_name}! قوانین گروه رو با /rules بخون.")
@@ -2087,10 +2165,32 @@ async def admin_community(_: str = Depends(require_admin)):
             "message_count": int(record.get("message_count", 0)),
             "members_seen": len(record.get("members_seen", {})),
             "ai_enabled": bool(record.get("settings", {}).get("ai_enabled", False)),
+            "welcome_enabled": bool(record.get("settings", {}).get("welcome_enabled", True)),
+            "anti_flood_enabled": bool(record.get("settings", {}).get("anti_flood_enabled", True)),
             "last_activity": record.get("last_activity") or record.get("last_message_at", ""),
         })
     items.sort(key=lambda item: item["message_count"], reverse=True)
     return {"items": items[:200], "total": len(items)}
+
+
+@app.post("/admin/api/community/{chat_id}/settings")
+async def update_community_settings(chat_id: int, payload: CommunitySettingsPayload, _: str = Depends(require_admin)):
+    record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
+    if not record:
+        raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
+    allowed = {"ai_enabled", "welcome_enabled", "anti_flood_enabled"}
+    if not payload.settings or any(key not in allowed for key in payload.settings):
+        raise HTTPException(status_code=422, detail="فقط تنظیمات پاسخ هوشمند، خوشامدگویی و ضداسپم قابل تغییر هستند.")
+    settings = record.setdefault("settings", {})
+    settings.update(payload.settings)
+    save_admin_data()
+    changed = ", ".join(payload.settings.keys())
+    log_admin_action("community_settings_updated", f"chat={chat_id}; settings={changed}")
+    return {
+        "message": "تنظیمات فضا ذخیره شد.",
+        "chat_id": chat_id,
+        "settings": {key: bool(settings.get(key, key != "ai_enabled")) for key in allowed}
+    }
 
 
 @app.get("/admin/api/status")
@@ -2270,18 +2370,55 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
         raise HTTPException(status_code=422, detail="متن پیام نمی‌تواند فقط شامل فاصله باشد.")
     if not bot:
         raise HTTPException(status_code=503, detail="اتصال ربات تلگرام فعال نیست")
-    log_admin_action("broadcast_started", f"recipients={len(admin_data.get('users', []))}; chars={len(message_text)}")
-    sent = failed = 0
-    for user_id in list(admin_data.get("users", [])):
+    allowed_targets = {"users", "groups", "channels"}
+    targets = set(payload.targets)
+    if not targets or not targets.issubset(allowed_targets):
+        raise HTTPException(status_code=422, detail="مخاطبان انتخاب‌شده معتبر نیستند.")
+
+    recipients: list[tuple[str, int]] = []
+    if "users" in targets:
+        recipients.extend(("users", int(uid)) for uid in dict.fromkeys(admin_data.get("users", [])) if str(uid).lstrip("-").isdigit())
+    chat_records = admin_data.get("community", {}).get("chats", {})
+    for raw_chat_id, record in chat_records.items():
+        chat_type = str(record.get("type", "")).lower()
         try:
-            await bot.send_message(user_id, message_text)
-            sent += 1
+            chat_id = int(raw_chat_id)
+        except (TypeError, ValueError):
+            continue
+        if chat_type in {"group", "supergroup"} and "groups" in targets:
+            recipients.append(("groups", chat_id))
+        elif chat_type == "channel" and "channels" in targets:
+            recipients.append(("channels", chat_id))
+
+    if not recipients:
+        raise HTTPException(status_code=422, detail="برای مخاطبان انتخاب‌شده هنوز گیرنده‌ای ثبت نشده است. ربات باید در گروه/کانال عضو باشد و دست‌کم یک به‌روزرسانی دریافت کرده باشد.")
+
+    totals = {key: {"sent": 0, "failed": 0} for key in allowed_targets}
+    log_admin_action("broadcast_started", f"targets={','.join(sorted(targets))}; recipients={len(recipients)}; chars={len(message_text)}")
+    for kind, recipient_id in recipients:
+        try:
+            await bot.send_message(recipient_id, message_text)
+            totals[kind]["sent"] += 1
         except Exception as exc:
-            failed += 1
-            log.warning("Broadcast failed for user %s: %s", user_id, type(exc).__name__)
-        await asyncio.sleep(0.04)
-    log_admin_action("broadcast_finished", f"sent={sent}; failed={failed}")
-    return {"sent": sent, "failed": failed}
+            # Respect Telegram's flood-control hint when available, then retry once.
+            retry_after = getattr(exc, "retry_after", None)
+            if retry_after:
+                await asyncio.sleep(min(float(retry_after), 30.0))
+                try:
+                    await bot.send_message(recipient_id, message_text)
+                    totals[kind]["sent"] += 1
+                    await asyncio.sleep(0.05)
+                    continue
+                except Exception as retry_exc:
+                    exc = retry_exc
+            totals[kind]["failed"] += 1
+            log.warning("Broadcast failed for %s %s: %s", kind, recipient_id, type(exc).__name__)
+        await asyncio.sleep(0.05)
+
+    sent = sum(item["sent"] for item in totals.values())
+    failed = sum(item["failed"] for item in totals.values())
+    log_admin_action("broadcast_finished", f"sent={sent}; failed={failed}; breakdown={totals}")
+    return {"sent": sent, "failed": failed, "targets": sorted(targets), "breakdown": totals, "total": len(recipients)}
 
 
 @app.post("/admin/api/prompt")
