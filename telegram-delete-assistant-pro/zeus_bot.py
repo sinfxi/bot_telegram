@@ -687,11 +687,6 @@ async def start(message: Message):
          InlineKeyboardButton(text="🧠 انتخاب هوش مصنوعی", callback_data="menu:ai")],
         [InlineKeyboardButton(text="📊 آمار جامعه", callback_data="menu:community")],
     ]
-    # The manager login URL is public, but the panel itself only accepts owner-created accounts.
-    # Named manager accounts are not necessarily linked to Telegram numeric IDs.
-    menu_rows.append([InlineKeyboardButton(text="🛡 ورود مدیر ربات", url=ADMIN_PANEL_URL + "/admin/login")])
-    if user and _is_primary_admin(user_id):
-        menu_rows.append([InlineKeyboardButton(text="👑 ورود مالک ربات", url=ADMIN_PANEL_URL + "/owner")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=menu_rows)
     await message.answer(
         f"سلام {name}! 👋 به FXI خوش اومدی.\n\n"
@@ -718,7 +713,7 @@ async def start_menu_actions(callback: CallbackQuery):
             "📘 راهنمای FXI\n\n"
             "در گروه روی پیام عضو ریپلای کن و بنویس «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».\n"
             "برای آمار، قوانین و تنظیمات عبارت‌هایی مثل «آمار گروه»، «قوانین» و «تنظیمات» را بنویس.\n"
-            "در گفت‌وگوی خصوصی بنویس «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت»، «پنل مدیر» یا «راهنما».\n"
+            "در گفت‌وگوی خصوصی بنویس «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت» یا «راهنما».\n"
             "برای پاسخ هوشمند گروه، مدیر باید آن را فعال کند؛ پاسخ به گفت‌وگوی عادی فقط با منشن یا ریپلای به ربات انجام می‌شود."
         )
     elif action == "ai":
@@ -730,17 +725,6 @@ async def start_menu_actions(callback: CallbackQuery):
         await callback.message.answer(
             "📊 برای دیدن آمار جامعه، ربات باید داخل گروه یا کانال حضور داشته باشه.\n"
             "در همون گروه بنویس «آمار گروه». آمار فقط شامل داده‌هاییه که ربات واقعاً دریافت کرده."
-        )
-    elif action == "admin":
-        base_url = ADMIN_PANEL_URL
-        rows = [[InlineKeyboardButton(text="🛡 ورود به پنل مدیر ربات", url=base_url + "/admin/login")]]
-        if _is_primary_admin(callback.from_user.id):
-            rows.append([InlineKeyboardButton(text="👑 ورود به پنل مالک ربات", url=base_url + "/owner")])
-        keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
-        await callback.message.answer(
-            "🛠 پنل‌های مدیریتی FXI\n\n"
-            "پنل مدیر ربات با نام کاربری و رمز اختصاصی مدیر باز می‌شود. پنل مالک فقط برای مالک اصلی فعال است؛ مدیر گروه به‌تنهایی دسترسی پنل ربات ندارد.",
-            reply_markup=keyboard,
         )
     await callback.answer()
 
@@ -914,29 +898,6 @@ async def review_payment(callback: CallbackQuery):
             except Exception: log.exception("Could not notify rejected user %s",uid)
         if callback.message: await callback.message.edit_reply_markup(reply_markup=None); await callback.message.answer(f"❌ درخواست {pid} رد شد.")
     else: await callback.answer("عملیات نامعتبر است.",show_alert=True)
-
-@dp.message(Command("admin"))
-async def admin_command(message: Message):
-    if not message.from_user or not is_admin(message.from_user.id):
-        await message.answer("⛔ دسترسی مدیران لازم است.")
-        return
-    base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-    is_owner = _is_primary_admin(message.from_user.id)
-    panel_url = base_url + ("/owner" if is_owner else "/admin/login")
-    permissions = _admin_permissions_for(message.from_user.id)
-    active = "، ".join(ADMIN_PERMISSIONS[p] for p in sorted(permissions))
-    title = "پنل مالک ربات" if is_owner else "پنل مدیر ربات"
-    button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود امن به پنل مدیر ربات"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=button_text, url=panel_url)]
-    ])
-    await message.answer(
-        f"🛠 {title} FXI\n\n"
-        "این لینک مخصوص سطح دسترسی حساب تلگرامی شماست. اگر نشست معتبر نداشته باشی، صفحهٔ ورود مربوط نمایش داده می‌شود.\n\n"
-        f"دسترسی‌های فعلی: {active}",
-        reply_markup=keyboard,
-    )
-
 
 @dp.message(Command("help"))
 async def help_command(message: Message):
@@ -1933,8 +1894,6 @@ def _natural_intent(text_value: str) -> str | None:
         return "content_plan"
     if value in {"انتخاب هوش مصنوعی", "انتخاب مدل", "مدل هوش مصنوعی"}:
         return "choose_ai"
-    if value in {"پنل", "پنل مدیریت", "پنل مالک", "پنل مدیر"}:
-        return "admin"
     if value in {"پاک کردن تاریخچه", "حذف تاریخچه", "شروع دوباره گفتگو"}:
         return "reset_history"
     if value in {"حمایت", "حمایت مالی", "اطلاعات پرداخت"}:
