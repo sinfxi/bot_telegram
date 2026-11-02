@@ -319,7 +319,144 @@ body{
  *,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
 }
 
-.panel-shortcuts a[hidden]{display:none!important}.panel-shortcuts a{display:inline-flex;align-items:center;text-decoration:none;white-space:nowrap}.community-advanced{display:grid;grid-template-columns:minmax(110px,.45fr) minmax(180px,1.4fr) auto;gap:9px;align-items:end;width:100%;padding:12px;margin-top:10px;border:1px solid #30464e;border-radius:13px;background:#101d24}.community-config-field{display:grid;gap:5px;color:var(--muted);font-size:10px}.community-config-field .field{margin:0;min-width:0}.community-advanced textarea{resize:vertical;min-height:58px}.community-advanced button{white-space:nowrap}@media(max-width:700px){.community-advanced{grid-template-columns:1fr}.panel-shortcuts{flex-wrap:wrap}.panel-shortcuts a{font-size:10px;padding:8px}}.top-heading{display:flex;flex-direction:column;gap:5px}.panel-identity{display:inline-flex;align-items:center;gap:9px;width:max-content;max-width:100%;padding:8px 13px;margin-bottom:7px;border:1px solid #456c5e;border-radius:13px;background:linear-gradient(110deg,#183b35,#14252c);color:#d7f6e4}.panel-identity-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#294d40;font-size:17px}.panel-identity b{display:block;font-size:12px}.panel-identity small{display:block;margin-top:3px;color:#a5c7b6;font-size:9px}.owner-panel .panel-identity{border-color:#8b7042;background:linear-gradient(110deg,#42351e,#28251d);color:#ffedc4}.owner-panel .panel-identity-icon{background:#66502a}.manager-panel .panel-identity{border-color:#456c83}.manager-panel .panel-identity-icon{background:#254357}@media(max-width:700px){.top-heading{min-width:0}.panel-identity{margin-bottom:4px}}</style></head><body><div class="layout"><aside class="side"><div class="brand"><div class="logo">F</div><div><b>FXI CONTROL</b><small>ADMINISTRATION SUITE</small></div></div><div class="navlabel">مدیریت سیستم</div><nav class="nav"><button class="active" data-page="overview">◫ نمای کلی</button><button data-page="providers">✦ سرویس‌های هوش مصنوعی</button><button data-page="users">♙ کاربران و مدیران</button><button data-page="community">◉ گروه‌ها و کانال‌ها</button><button data-page="conversations">▤ تاریخچه مکالمات</button><button data-page="audit">▣ گزارش فعالیت‌ها</button><button data-page="payments">▣ بررسی پرداخت‌ها</button><button data-page="broadcast">◉ پیام همگانی</button><button data-page="prompt">⌘ دستورالعمل دستیار</button><button data-page="system">⚙ سلامت و تنظیمات</button><button data-page="features">🎛 قابلیت‌های ربات</button></nav><div class="sidefoot">کنترل دقیق، تجربه بهتر<p>پنل مدیریت FXI · نسخه بازطراحی‌شده</p></div></aside>
+.panel-shortcuts a[hidden]{display:none!important}.panel-shortcuts a{display:inline-flex;align-items:center;text-decoration:none;white-space:nowrap}.community-advanced{display:grid;grid-template-columns:minmax(110px,.45fr) minmax(180px,1.4fr) auto;gap:9px;align-items:end;width:100%;padding:12px;margin-top:10px;border:1px solid #30464e;border-radius:13px;background:#101d24}.community-config-field{display:grid;gap:5px;color:var(--muted);font-size:10px}.community-config-field .field{margin:0;min-width:0}.community-advanced textarea{resize:vertical;min-height:58px}.community-advanced button{white-space:nowrap}@media(max-width:700px){.community-advanced{grid-template-columns:1fr}.panel-shortcuts{flex-wrap:wrap}.panel-shortcuts a{font-size:10px;padding:8px}}.top-heading{display:flex;flex-direction:column;gap:5px}.panel-identity{display:inline-flex;align-items:center;gap:9px;width:max-content;max-width:100%;padding:8px 13px;margin-bottom:7px;border:1px solid #456c5e;border-radius:13px;background:linear-gradient(110deg,#183b35,#14252c);color:#d7f6e4}.panel-identity-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#294d40;font-size:17px}.panel-identity b{display:block;font-size:12px}.panel-identity small{display:block;margin-top:3px;color:#a5c7b6;font-size:9px}.owner-panel .panel-identity{border-color:#8b7042;background:linear-gradient(110deg,#42351e,#28251d);color:#ffedc4}.owner-panel .panel-identity-icon{background:#66502a}.manager-panel .panel-identity{border-color:#456c83}.manager-panel .panel-identity-icon{background:#254357}@media(max-width:700px){.top-heading{min-width:0}.panel-identity{margin-bottom:4px}}
+/* FXI Control vNext — mobile-first layout hardening */
+:root{
+ --fxi-mobile-border:rgba(159,208,190,.16);
+ --fxi-mobile-surface:rgba(16,30,37,.97);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{width:100%;max-width:100%;overflow-x:clip;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{width:100%;max-width:100%;min-width:0;overflow-x:clip}
+.layout{width:100%;min-width:0}
+.side,.main,.content,.page,.card,.section,.hero,.top,.row,.grid,.list,.listitem,.community-item,.community-info,.community-controls,.conv-layout,.conv-thread{min-width:0;max-width:100%}
+.main{overflow:hidden}
+.content{overflow-wrap:anywhere}
+.field{min-width:0;max-width:100%;min-height:46px;font-size:16px;line-height:1.6}
+textarea.field{min-height:130px}
+input[type=file].field{padding:10px;min-height:48px}
+.btn{min-height:44px;touch-action:manipulation;white-space:normal;line-height:1.55}
+.nav button{touch-action:pan-x;min-height:44px}
+.listitem,.community-item{overflow-wrap:anywhere}
+.listitem .actions,.actions,.community-controls{min-width:0;max-width:100%;flex-wrap:wrap}
+.listitem .actions .btn,.actions .btn{max-width:100%}
+.community-item{display:grid;grid-template-columns:minmax(0,1fr);align-items:start}
+.community-info{width:100%;min-width:0}
+.community-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));width:100%;justify-content:stretch}
+.community-toggle{white-space:normal;min-height:44px;min-width:0;align-items:center}
+.community-toggle span{overflow-wrap:anywhere}
+.community-advanced{min-width:0}
+.conv-layout{grid-template-columns:minmax(0,.85fr) minmax(0,1.5fr)}
+.conv-list,.conv-thread{min-width:0;overscroll-behavior:contain}
+.conv-msg{max-width:100%;min-width:0}
+.broadcast-targets{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.broadcast-targets label{min-width:0}
+.modal-backdrop{padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+.modal-card{width:min(640px,100%);max-height:min(88dvh,900px);overscroll-behavior:contain}
+.table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media(max-width:900px){
+ .layout{display:flex;flex-direction:column;gap:10px;padding:10px}
+ .side{position:sticky;top:0;z-index:15;height:auto;min-height:0;padding:11px 13px;border-radius:0 0 18px 18px;background:rgba(9,18,25,.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 10px 28px rgba(0,0,0,.28)}
+ .brand{padding:2px 2px 9px;border-bottom:1px solid var(--fxi-mobile-border)}
+ .brand .logo{width:40px;height:40px;flex:0 0 40px}
+ .navlabel{display:none}
+ .nav{display:flex;gap:7px;max-width:100%;overflow-x:auto;overflow-y:hidden;padding:9px 1px 3px;scrollbar-width:thin;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+ .nav button{flex:0 0 auto;width:auto;min-height:42px;padding:9px 13px;white-space:nowrap;scroll-snap-align:start}
+ .sidefoot{display:none}
+ .main{width:100%;border-radius:18px}
+ .top{position:relative;top:auto;display:flex;align-items:flex-start;flex-direction:column;gap:12px;padding:16px}
+ .top-heading{width:100%;min-width:0}
+ .top .row{width:100%;display:flex;align-items:stretch;flex-wrap:wrap;gap:8px}
+ .top .row>*{max-width:100%;min-width:0}
+ .panel-shortcuts .btn{flex:1 1 auto}
+ .status{align-self:flex-start}
+ .content{padding:14px}
+ .hero{padding:21px 19px}
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .providers{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .conv-layout{grid-template-columns:minmax(0,1fr)}
+ .conv-list{max-height:260px}
+ .conv-thread{max-height:52dvh;min-height:220px}
+ .section-head{flex-wrap:wrap}
+ .section-head>*{min-width:0}
+ .row>.field{flex:1 1 220px}
+ .row>.btn{flex:0 1 auto}
+}
+@media(max-width:560px){
+ .layout{padding:0;gap:8px}
+ .side{border-radius:0 0 16px 16px;padding:10px 11px}
+ .brand b{font-size:14px}
+ .brand small{font-size:8px}
+ .nav{margin:0}
+ .nav button{font-size:11px;padding:8px 11px;border-radius:11px}
+ .main{border-radius:16px}
+ .top{padding:14px}
+ .top h1{font-size:19px}
+ .top p{font-size:11px}
+ .panel-identity{max-width:100%;white-space:normal}
+ .panel-shortcuts{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+ .panel-shortcuts .btn{width:100%;justify-content:center;text-align:center;padding:9px 8px;font-size:11px}
+ .panel-shortcuts .status{grid-column:1/-1}
+ .content{padding:10px}
+ .hero{padding:17px 15px;margin-bottom:13px}
+ .hero h2{font-size:20px;line-height:1.6}
+ .hero p{font-size:11px;line-height:1.9}
+ .grid,.providers,.stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px}
+ .grid>.card,.card,.section.card{padding:13px;border-radius:15px}
+ .card label{font-size:11px}
+ .num{font-size:23px;overflow-wrap:anywhere}
+ .sub,.muted{font-size:10px}
+ .section{margin-top:12px}
+ .section-head{align-items:flex-start}
+ .section-head h3{font-size:13px}
+ .section-head .btn,.section-head a{max-width:100%;font-size:10px;padding:8px 9px}
+ .row{align-items:stretch}
+ .row>.field,.row>.btn{width:100%;flex:1 1 100%}
+ .field{padding:11px}
+ .btn{width:auto;padding:10px 12px;font-size:12px}
+ .list{gap:7px}
+ .listitem{padding:11px;gap:9px}
+ .listitem .actions{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .listitem .actions .btn{width:100%;font-size:11px;padding:8px 6px}
+ .community-controls{grid-template-columns:1fr}
+ .community-advanced{grid-template-columns:minmax(0,1fr);padding:10px}
+ .community-advanced .btn{width:100%}
+ .broadcast-targets{grid-template-columns:1fr}
+ .broadcast-targets label{padding:11px}
+ .quick-actions{display:grid;grid-template-columns:1fr}
+ .quick-actions .btn,.quick-actions a{width:100%;min-width:0}
+ .filterbar{display:flex;flex-direction:column;align-items:stretch}
+ .filterbar .field{width:100%}
+ .filter-count{white-space:normal}
+ .conv-layout{gap:10px}
+ .conv-list{max-height:220px}
+ .conv-thread{max-height:48dvh;padding:10px}
+ .conv-msg{font-size:11px;padding:9px 10px}
+ .permission-grid{grid-template-columns:1fr}
+ .modal-backdrop{align-items:end;padding:8px}
+ .modal-card{width:100%;max-height:88dvh;border-radius:20px 20px 12px 12px;padding:14px}
+ .modal-card .row{display:flex;flex-direction:column;align-items:stretch}
+ .modal-card .row .btn{width:100%}
+ .broadcast-image-preview{align-items:flex-start;flex-direction:column}
+ .broadcast-image-preview img{max-width:100%;width:100%;max-height:240px}
+}
+@media(max-width:380px){
+ .grid,.providers,.stat-strip{grid-template-columns:minmax(0,1fr)!important}
+ .panel-shortcuts{grid-template-columns:1fr}
+ .panel-shortcuts .status{grid-column:auto}
+ .nav button{font-size:10px;padding:8px 9px}
+ .hero h2{font-size:18px}
+ .num{font-size:25px}
+}
+@media(hover:none){
+ .btn:hover,.card:hover,.grid>.card:hover,.provider:hover,.broadcast-targets label:hover{transform:none;filter:none}
+}
+@media(prefers-reduced-motion:reduce){
+ html{scroll-behavior:auto}
+ *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
+}
+</style></head><body><div class="layout"><aside class="side"><div class="brand"><div class="logo">F</div><div><b>FXI CONTROL</b><small>ADMINISTRATION SUITE</small></div></div><div class="navlabel">مدیریت سیستم</div><nav class="nav"><button class="active" data-page="overview">◫ نمای کلی</button><button data-page="providers">✦ سرویس‌های هوش مصنوعی</button><button data-page="users">♙ کاربران و مدیران</button><button data-page="community">◉ گروه‌ها و کانال‌ها</button><button data-page="conversations">▤ تاریخچه مکالمات</button><button data-page="audit">▣ گزارش فعالیت‌ها</button><button data-page="payments">▣ بررسی پرداخت‌ها</button><button data-page="broadcast">◉ پیام همگانی</button><button data-page="prompt">⌘ دستورالعمل دستیار</button><button data-page="system">⚙ سلامت و تنظیمات</button><button data-page="features">🎛 قابلیت‌های ربات</button></nav><div class="sidefoot">کنترل دقیق، تجربه بهتر<p>پنل مدیریت FXI · نسخه بازطراحی‌شده</p></div></aside>
 <main class="main"><header class="top"><div class="top-heading"><div class="panel-identity" id="panelIdentity"><span class="panel-identity-icon" id="panelIdentityIcon">🛡</span><span><b id="panelIdentityTitle">پنل مدیر ربات</b><small id="panelIdentitySubtitle">دسترسی مدیریتی محدودشده</small></span></div><h1 id="title">نمای کلی</h1><p>مرکز مدیریت و پایش ربات هوشمند FXI</p></div><div class="row panel-shortcuts"><a class="btn secondary" href="/admin/login">🛡 پنل مدیر ربات</a><a class="btn secondary" id="ownerPanelShortcut" href="/owner" hidden>👑 پنل مالک</a><button class="btn secondary" id="autoRefreshBtn" type="button" onclick="toggleAutoRefresh()">⏱ به‌روزرسانی خودکار: روشن</button><div class="status" id="status">● در حال اتصال</div></div></header><div class="content"><div id="notice" class="notice">در حال دریافت اطلاعات از سرور…</div>
 <section id="page-overview" class="page active" data-page-permission="dashboard"><div class="hero"><small>FXI SYSTEM OVERVIEW</small><h2>همه‌چیز تحت کنترل توست.</h2><p>وضعیت ربات، کاربران و سرویس‌های متصل را از یک پنل یکپارچه مدیریت کن.</p></div><div class="grid"><div class="card"><label>کاربران ثبت‌شده</label><div class="num" id="users">—</div><div class="sub">کاربرانی که ربات را شروع کرده‌اند</div></div><div class="card"><label>مدیران</label><div class="num" id="adminsCount">—</div><div class="sub">سطح دسترسی مدیریتی</div></div><div class="card"><label>سرویس‌های فعال</label><div class="num" id="providerCount">—</div><div class="sub">دارای کلید API معتبر در تنظیمات</div></div><div class="card"><label>وضعیت ربات</label><div class="num" id="bot">—</div><button class="btn secondary" onclick="toggleBot()">تغییر وضعیت ربات</button></div></div><div class="section card" id="providerOverviewCard"><div class="section-head"><h3>وضعیت اتصال مدل‌ها</h3><button class="btn secondary" onclick="refresh()">به‌روزرسانی</button></div><div class="providers" id="providerOverview"></div></div><div class="section card" id="communityOverviewCard"><div class="section-head"><h3>نمای جامعه تلگرام</h3><span class="badge">تحلیل داده‌های ثبت‌شده</span></div><div class="stat-strip"><div class="mini-stat"><span>گروه‌ها و کانال‌ها</span><b id="communityChats">—</b></div><div class="mini-stat"><span>پیام‌های ثبت‌شده</span><b id="communityMessages">—</b></div><div class="mini-stat"><span>اعضای مشاهده‌شده</span><b id="communityMembers">—</b></div><div class="mini-stat"><span>پست‌های قابل تحلیل</span><b id="communityPosts">—</b></div></div><div class="quick-actions"><button class="btn secondary" onclick="loadMetrics()">↻ به‌روزرسانی آمار</button><button class="btn secondary" onclick="goPage('system')" data-required-permission="system">⚙ مشاهده سلامت سیستم</button><button class="btn secondary" onclick="goPage('broadcast')" data-required-permission="broadcast">✉ رفتن به پیام همگانی</button></div><p class="muted">این اعداد مربوط به داده‌هایی است که ربات از زمان دسترسی ثبت کرده؛ به معنی دسترسی به تاریخچه کامل تلگرام نیست.</p></div></section>
 <section id="page-providers" class="page" data-page-permission="providers"><div class="hero"><small>AI PROVIDERS</small><h2>سرویس‌های متصل</h2><p>وضعیت پیکربندی را بررسی کن. کلیدهای API فقط از طریق متغیرهای محیطی سرور مدیریت می‌شوند و در این پنل نمایش داده نمی‌شوند.</p></div><div class="providers" id="providerList"></div><div class="notice section">برای فعال‌کردن سرویس قفل‌شده، متغیر API مربوطه را در Render تنظیم و سرویس را دوباره Deploy کن.</div></section>
