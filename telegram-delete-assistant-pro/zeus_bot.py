@@ -1944,6 +1944,8 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
         "enable_ai": "ai_chat", "disable_ai": "ai_chat", "challenge": "engagement", "suggestions": "analytics", "top_posts": "analytics", "report": "analytics",
         "content_plan": "draft_generation", "draft": "draft_generation",
         "warn": "moderation", "clear_warnings": "moderation",
+        "filter_word": "moderation", "unfilter_word": "moderation",
+        "enable_conversation": "ai_chat", "disable_conversation": "ai_chat",
     }.get(intent)
     if required_feature and (not feature_enabled("community_management") or not feature_enabled(required_feature)):
         await message.answer("این قابلیت در تنظیمات ربات غیرفعال است.")
