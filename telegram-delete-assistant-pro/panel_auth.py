@@ -1,17 +1,19 @@
-"""Username/password authentication for the FXI panel."""
-import os, hmac, hashlib, secrets, re, time
+"""Admin-only username/password authentication for the FXI control panel."""
+import hmac
+import os
+import time
 from collections import defaultdict
-from datetime import datetime, timezone
-from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+
+from fastapi import HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from itsdangerous import URLSafeTimedSerializer
+
 
 def install_panel_auth(app, bot):
     secret = os.getenv("SESSION_SECRET", "").strip() or bot.BOT_TOKEN
     signer = URLSafeTimedSerializer(secret, salt="fxi-panel-session") if secret else None
-    admin_name = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
+    admin_name = os.getenv("ADMIN_PANEL_USERNAME", "").strip()
     admin_pass = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
-    allow_signup = os.getenv("PANEL_ALLOW_REGISTRATION", "true").lower() in {"1","true","yes","on"}
     login_attempts = defaultdict(list)
 
     def enforce_login_limit(request):
@@ -22,27 +24,28 @@ def install_panel_auth(app, bot):
             raise HTTPException(429, "تعداد تلاش‌ها زیاد است؛ ۱۵ دقیقه دیگر امتحان کن.")
         return address
 
-    def decode(token, age):
-        try: return signer.loads(token, max_age=age) if signer and token else {}
-        except Exception: return {}
-    def is_root(request):
-        data = decode(request.cookies.get("fxi_admin_session", ""), 43200)
-        return data.get("role") == "admin" and hmac.compare_digest(str(data.get("username","")), admin_name)
-    def hash_password(password):
-        salt = secrets.token_bytes(16)
-        digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
-        return salt.hex() + "$" + digest.hex()
-    def verify_password(password, stored):
+    def decode(token):
         try:
-            salt, expected = stored.split("$", 1)
-            digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 310000)
-            return hmac.compare_digest(digest.hex(), expected)
-        except Exception: return False
+            return signer.loads(token, max_age=43200) if signer and token else {}
+        except Exception:
+            return {}
+
+    def is_root(request):
+        data = decode(request.cookies.get("fxi_admin_session", ""))
+        return (
+            data.get("role") == "admin"
+            and bool(admin_name)
+            and hmac.compare_digest(str(data.get("username", "")), admin_name)
+        )
 
     def require_admin(request: Request):
         if is_root(request):
-            return {"user_id": bot.ADMIN_PANEL_AUTH_ID, "auth_type": "username_password", "permissions": sorted(bot.ADMIN_PERMISSIONS)}
-        # Keep existing Telegram invite sessions and their permission scopes.
+            return {
+                "user_id": bot.ADMIN_PANEL_AUTH_ID,
+                "auth_type": "username_password",
+                "permissions": sorted(bot.ADMIN_PERMISSIONS),
+            }
+        # Preserve existing one-time Telegram invite sessions for delegated bot admins.
         token = request.cookies.get("fxi_admin_session", "")
         if token and bot.SESSION_SERIALIZER:
             try:
@@ -51,11 +54,15 @@ def install_panel_auth(app, bot):
                 if uid and bot.is_admin(uid):
                     perms = bot._admin_permissions_for(uid)
                     needed = bot._permission_for_path(request.url.path)
-                    if needed not in perms: raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
+                    if needed not in perms:
+                        raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
                     return {"user_id": uid, "auth_type": "telegram", "permissions": sorted(perms)}
-            except HTTPException: raise
-            except Exception: pass
-        raise HTTPException(401, "ابتدا با حساب مدیر وارد شو.")
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+        raise HTTPException(401, "ابتدا مدیر ربات باید وارد شود.")
+
     app.dependency_overrides[bot.require_admin] = require_admin
 
     @app.middleware("http")
@@ -65,73 +72,76 @@ def install_panel_auth(app, bot):
             try:
                 old = bot.SESSION_SERIALIZER.loads(token, max_age=43200) if token and bot.SESSION_SERIALIZER else {}
                 uid = int(old.get("user_id", 0))
-            except Exception: uid = 0
-            if not uid or not bot.is_admin(uid): return RedirectResponse("/login", status_code=303)
+            except Exception:
+                uid = 0
+            if not uid or not bot.is_admin(uid):
+                return RedirectResponse("/login", status_code=303)
         return await call_next(request)
 
     @app.get("/login", response_class=HTMLResponse)
     async def panel_login():
-        page = """<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ورود FXI</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#09111e;color:#eef4ff;font:14px Tahoma}.card{width:min(430px,90%);padding:28px;border:1px solid #344761;border-radius:22px;background:#142238}input,button{box-sizing:border-box;width:100%;padding:13px;margin:8px 0;border-radius:10px}input{background:#0a1423;border:1px solid #344761;color:white}button{border:0;background:#aef8df;font-weight:bold;cursor:pointer}.tabs{display:flex;gap:8px}.tabs button{background:#293e59;color:white}#msg{min-height:25px;color:#ffcf9b}</style><main class="card"><h2>FXI · پنل</h2><div class="tabs"><button type="button" onclick="mode('user')">کاربر</button><button type="button" onclick="mode('admin')">مدیر</button></div><form id="form"><input id="username" placeholder="نام کاربری" required><input id="password" type="password" placeholder="رمز عبور" required><button id="submit">ورود</button></form><button id="register" type="button" onclick="mode('register')">ساخت حساب کاربری</button><div id="msg"></div></main><script>let modeNow='user';function mode(v){modeNow=v;submit.textContent=v==='register'?'ثبت‌نام':'ورود';register.hidden=v!=='user';msg.textContent=''}form.onsubmit=async e=>{e.preventDefault();let path=modeNow==='admin'?'/auth/admin-login':modeNow==='register'?'/auth/register':'/auth/user-login';try{let r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});let d=await r.json();if(!r.ok)throw Error(d.detail||'خطا');msg.textContent=d.message||'';if(d.redirect)location.href=d.redirect}catch(err){msg.textContent=err.message}}</script></html>"""
-        return HTMLResponse(page, headers={"Cache-Control":"no-store"})
+        page = """<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>ورود مدیر · FXI Control</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 15% 10%,#183b36,transparent 42%),#09131b;color:#edf7f2;font:14px Tahoma,Arial}
+.card{width:min(420px,100%);padding:30px;border:1px solid #34534b;border-radius:24px;background:linear-gradient(145deg,#142a2b,#12202b);box-shadow:0 25px 80px #0007}
+.logo{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:#b8efd1;color:#10231a;font-weight:900;font-size:21px}
+h1{font-size:21px;margin:18px 0 7px}.sub{color:#9cb5ac;line-height:2;font-size:12px;margin:0 0 22px}
+label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:100%;padding:14px;border-radius:12px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}input:focus{border-color:#9ce7c0;box-shadow:0 0 0 3px #9ce7c01c}
+button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer}
+#msg{min-height:24px;margin-top:14px;color:#ffb5a8;font-size:12px;line-height:1.8}.foot{margin-top:18px;color:#78958a;font-size:10px;text-align:center}
+</style></head><body><main class="card"><div class="logo">F</div><h1>ورود مدیر ربات</h1>
+<p class="sub">این بخش فقط برای مدیر ربات است. با نام کاربری و رمز عبور مدیریتی که در تنظیمات سرور قرار داده‌ای وارد شو.</p>
+<form id="loginForm"><label for="username">نام کاربری مدیر</label><input id="username" name="username" autocomplete="username" required maxlength="128">
+<label for="password">رمز عبور</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+<button id="submit" type="submit">ورود به پنل مدیریت</button></form><div id="msg" role="alert"></div><div class="foot">FXI Control · دسترسی محدود به مدیران</div></main>
+<script>
+const form=document.getElementById('loginForm'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
+form.addEventListener('submit',async e=>{e.preventDefault();btn.disabled=true;btn.textContent='در حال بررسی…';msg.textContent='';
+try{const response=await fetch('/auth/admin-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:form.username.value,password:form.password.value})});
+const data=await response.json();if(!response.ok)throw new Error(data.detail||'ورود ناموفق بود');location.assign(data.redirect||'/admin');
+}catch(error){msg.textContent=error.message;}finally{btn.disabled=false;btn.textContent='ورود به پنل مدیریت';}});
+</script></body></html>"""
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
     @app.post("/auth/admin-login")
     async def admin_login(request: Request):
-        if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        if not bot._admin_origin_allowed(request):
+            raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
         address = enforce_login_limit(request)
-        data = await request.json()
-        if not signer or not admin_pass or not hmac.compare_digest(str(data.get("username","")), admin_name) or not hmac.compare_digest(str(data.get("password","")), admin_pass):
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(400, "درخواست ورود معتبر نیست.")
+        username = str(data.get("username", ""))
+        password = str(data.get("password", ""))
+        valid = (
+            bool(signer and admin_name and admin_pass)
+            and hmac.compare_digest(username, admin_name)
+            and hmac.compare_digest(password, admin_pass)
+        )
+        if not valid:
             login_attempts[address].append(time.time())
             raise HTTPException(401, "نام کاربری یا رمز مدیر اشتباه است.")
         login_attempts.pop(address, None)
-        response = JSONResponse({"redirect":"/admin"})
-        secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto","").split(",")[0].strip() == "https"
-        response.set_cookie("fxi_admin_session", signer.dumps({"role":"admin","username":admin_name}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
+        response = JSONResponse({"redirect": "/admin"})
+        secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+        response.set_cookie(
+            "fxi_admin_session",
+            signer.dumps({"role": "admin", "username": admin_name}),
+            max_age=43200,
+            httponly=True,
+            secure=secure,
+            samesite="strict",
+            path="/",
+        )
         return response
-
-    @app.post("/auth/register")
-    async def register(request: Request):
-        if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
-        if not allow_signup: raise HTTPException(403, "ثبت‌نام کاربران بسته است.")
-        data = await request.json()
-        username = str(data.get("username","")).strip().lower()
-        password = str(data.get("password",""))
-        if not re.fullmatch(r"[a-z0-9_.-]{3,32}", username): raise HTTPException(422, "نام کاربری باید ۳ تا ۳۲ نویسه انگلیسی یا عدد باشد.")
-        if not 10 <= len(password) <= 128: raise HTTPException(422, "رمز عبور باید ۱۰ تا ۱۲۸ نویسه باشد.")
-        if username == admin_name.lower(): raise HTTPException(409, "این نام کاربری رزرو شده است.")
-        users = bot.admin_data.setdefault("panel_users", {})
-        if username in users: raise HTTPException(409, "این نام کاربری قبلاً ثبت شده است.")
-        users[username] = {"password_hash":hash_password(password), "created_at":datetime.now(timezone.utc).isoformat(), "disabled":False}
-        bot.save_admin_data()
-        return {"message":"حساب ساخته شد؛ حالا وارد شو.","redirect":"/login"}
-
-    @app.post("/auth/user-login")
-    async def user_login(request: Request):
-        if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
-        address = enforce_login_limit(request)
-        data = await request.json()
-        username = str(data.get("username","")).strip().lower()
-        user = bot.admin_data.get("panel_users",{}).get(username)
-        if not user or user.get("disabled") or not verify_password(str(data.get("password","")), user.get("password_hash","")):
-            login_attempts[address].append(time.time())
-            raise HTTPException(401, "نام کاربری یا رمز عبور اشتباه است.")
-        login_attempts.pop(address, None)
-        if not signer: raise HTTPException(503, "SESSION_SECRET تنظیم نشده است.")
-        response = JSONResponse({"redirect":"/account"})
-        secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto","").split(",")[0].strip() == "https"
-        response.set_cookie("fxi_user_session", signer.dumps({"role":"user","username":username}), max_age=604800, httponly=True, secure=secure, samesite="strict", path="/")
-        return response
-
-    @app.get("/account", response_class=HTMLResponse)
-    async def account(request: Request):
-        data = decode(request.cookies.get("fxi_user_session",""), 604800)
-        username = str(data.get("username","")) if data.get("role") == "user" else ""
-        if not username or username not in bot.admin_data.get("panel_users",{}) or bot.admin_data["panel_users"][username].get("disabled"): return RedirectResponse("/login", status_code=303)
-        import html
-        return HTMLResponse("<html lang='fa' dir='rtl'><meta charset='utf-8'><h1>حساب کاربری</h1><p>خوش اومدی "+html.escape(username)+"</p><p>این حساب دسترسی مدیریت ندارد.</p></html>", headers={"Cache-Control":"no-store"})
 
     @app.post("/auth/logout")
     async def panel_logout(request: Request):
-        if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        if not bot._admin_origin_allowed(request):
+            raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
         response = RedirectResponse("/login", status_code=303)
         response.delete_cookie("fxi_admin_session", path="/")
         response.delete_cookie("fxi_user_session", path="/")
