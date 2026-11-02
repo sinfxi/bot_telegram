@@ -148,8 +148,8 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'�
             raise HTTPException(400, "درخواست ورود معتبر نیست.")
         username = str(data.get("username", "")).strip().lower()
         password = str(data.get("password", ""))
-        if not username or len(username) > 64 or len(password) < 12 or len(password) > 256:
-            raise HTTPException(400, "نام کاربری و رمز معتبر وارد کن.")
+        if not username or len(username) > 64 or len(password) != 4:
+            raise HTTPException(400, "نام کاربری و رمز ۴ کاراکتری معتبر وارد کن.")
         record = bot.admin_data.get("panel_managers", {}).get(username, {})
         valid = False
         if isinstance(record, dict) and record.get("enabled", True):
