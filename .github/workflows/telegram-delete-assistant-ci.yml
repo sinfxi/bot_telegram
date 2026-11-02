@@ -55,9 +55,13 @@ jobs:
           python - <<'PY'
           import app
           paths = {route.path for route in app.app.routes}
-          required = {"/login", "/auth/admin-login", "/auth/register", "/auth/user-login", "/account", "/auth/logout"}
+          required = {"/login", "/auth/admin-login", "/auth/logout", "/admin/api/users/{user_id}/block", "/admin/api/users/{user_id}/unblock"}
           missing = required - paths
           if missing:
               raise SystemExit(f"Missing auth routes: {sorted(missing)}")
-          print("Application import and panel auth routes OK")
+          forbidden = {"/auth/register", "/auth/user-login", "/account"}
+          present_forbidden = forbidden & paths
+          if present_forbidden:
+              raise SystemExit(f"Public panel account routes must not exist: {sorted(present_forbidden)}")
+          print("Application import, admin-only authentication, and Telegram user access routes OK")
           PY
