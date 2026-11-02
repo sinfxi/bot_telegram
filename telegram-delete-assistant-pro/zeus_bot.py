@@ -143,7 +143,7 @@ def _ensure_db_table(conn) -> None:
 def load_admin_data() -> dict:
     defaults = {"admins": [], "users": [], "bot_enabled": True,
                 "system_prompt": SYSTEM_PROMPT, "payments": {}, "receipt_hashes": [], "audit_log": [],
-                "admin_permissions": {}, "admin_invites": {},
+                "admin_permissions": {}, "admin_invites": {}, "blocked_users": {},
                 "features": {"ai_chat": True, "voice_tools": False, "image_tools": True,
                              "community_management": True, "natural_commands": True,
                              "payments": True, "user_tracking": True}}
@@ -388,6 +388,7 @@ ADMIN_PERMISSIONS = {
 
 def _permission_for_path(path: str) -> str:
     if path in {"/admin", "/admin/"}: return "dashboard"
+    if "/users/" in path or path.endswith("/users"): return "users"
     if path.endswith("/status") or path.endswith("/metrics"): return "dashboard"
     if "/admins" in path: return "admins"
     if "/users/export" in path or path.endswith("/users"): return "users"
@@ -581,6 +582,11 @@ COMMUNITY_COMMANDS = {
 
 @dp.message.outer_middleware()
 async def feature_message_gate(handler, event: Message, data):
+    if isinstance(event, Message) and event.from_user:
+        blocked = admin_data.get("blocked_users", {})
+        if str(event.from_user.id) in blocked and not is_admin(event.from_user.id):
+            await event.answer("⛔ دسترسی شما به ربات توسط مدیر محدود شده است.")
+            return None
     text_value = (event.text or "").strip() if isinstance(event, Message) else ""
     command = text_value.split(maxsplit=1)[0].split("@", 1)[0].lstrip("/").lower() if text_value.startswith("/") else ""
     command_features = {
@@ -610,6 +616,9 @@ async def feature_message_gate(handler, event: Message, data):
 
 @dp.callback_query.outer_middleware()
 async def feature_callback_gate(handler, event: CallbackQuery, data):
+    if event.from_user and str(event.from_user.id) in admin_data.get("blocked_users", {}) and not is_admin(event.from_user.id):
+        await event.answer("⛔ دسترسی شما به ربات توسط مدیر محدود شده است.", show_alert=True)
+        return None
     callback_data = event.data or ""
     if callback_data.startswith("pay:") and not feature_enabled("payments"):
         await event.answer("قابلیت پرداخت غیرفعال است.", show_alert=True)
@@ -2172,6 +2181,40 @@ async def admin_export_users(_: str = Depends(require_admin)):
                                       "Cache-Control": "no-store"})
 
 
+@app.post("/admin/api/users/{user_id}/block")
+async def block_bot_user(user_id: int, request: Request, auth=Depends(require_admin)):
+    if not _admin_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
+    if user_id <= 0:
+        raise HTTPException(status_code=422, detail="شناسه کاربر معتبر نیست.")
+    if is_admin(user_id):
+        raise HTTPException(status_code=403, detail="امکان مسدودکردن مدیر ربات وجود ندارد.")
+    if user_id not in admin_data.get("users", []):
+        raise HTTPException(status_code=404, detail="این شناسه در فهرست کاربران ربات پیدا نشد.")
+    blocked = admin_data.setdefault("blocked_users", {})
+    if str(user_id) in blocked:
+        return {"message": "این کاربر از قبل مسدود است.", "user_id": user_id, "blocked": True}
+    blocked[str(user_id)] = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "by": int(auth.get("user_id", 0)),
+    }
+    save_admin_data()
+    log_admin_action("telegram_user_blocked", f"user_id={user_id}")
+    return {"message": "دسترسی کاربر به ربات مسدود شد.", "user_id": user_id, "blocked": True}
+
+
+@app.post("/admin/api/users/{user_id}/unblock")
+async def unblock_bot_user(user_id: int, request: Request, _: dict = Depends(require_admin)):
+    if not _admin_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
+    blocked = admin_data.setdefault("blocked_users", {})
+    if blocked.pop(str(user_id), None) is None:
+        return {"message": "این کاربر مسدود نیست.", "user_id": user_id, "blocked": False}
+    save_admin_data()
+    log_admin_action("telegram_user_unblocked", f"user_id={user_id}")
+    return {"message": "دسترسی کاربر دوباره فعال شد.", "user_id": user_id, "blocked": False}
+
+
 @app.get("/admin/api/community")
 async def admin_community(_: str = Depends(require_admin)):
     chats = admin_data.get("community", {}).get("chats", {})
@@ -2224,7 +2267,11 @@ async def admin_status(auth=Depends(require_admin)):
         "admins": admins,
         "primary_admins": sorted(ADMIN_IDS) if "admins" in permissions else [],
         "recent_users": admin_data.get("users", [])[-50:] if "users" in permissions else [],
-        "recent_user_profiles": [admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}) for uid in recent_ids],
+        "recent_user_profiles": [
+            {**admin_data.get("user_profiles", {}).get(str(uid), {"user_id": uid}),
+             "is_blocked": str(uid) in admin_data.get("blocked_users", {})}
+            for uid in recent_ids
+        ],
         "providers": [name for name in PROVIDERS if provider_ready(name)] if "providers" in permissions else [],
         "features": {key: feature_enabled(key) for key in FEATURE_DEFINITIONS} if "system" in permissions else {},
         "feature_definitions": FEATURE_DEFINITIONS if "system" in permissions else {},
