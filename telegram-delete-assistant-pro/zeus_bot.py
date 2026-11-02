@@ -940,7 +940,7 @@ async def review_payment(callback: CallbackQuery):
 async def help_command(message: Message):
     await message.answer(
         "راهنمای FXI 🤖\n\n"
-        "در گفت‌وگوی خصوصی فقط کافی است بنویسی: «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت» یا «راهنما».\n\n"
+        "در گفت‌وگوی خصوصی: «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت» یا «راهنما». برای لینک ورود مالک `/admin` و برای لینک مدیر `/modir` را بفرست.\n\n"
         "در گروه، روی پیام عضو ریپلای کن و بنویس: «پین»، «آنپین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد»، «بن» یا «آنبن».\n"
         "برای امکانات دیگر بنویس: «تنظیمات»، «قوانین»، «ثبت قوانین ...»، «آمار گروه»، «گزارش کانال»، «پست‌های برتر»، «چالش»، «پیشنهادها» یا «برنامه محتوا».\n\n"
         "عملیات مدیریتی فقط پس از بررسی مدیر بودن فرستنده و مجوز ربات انجام می‌شود. "
@@ -2991,8 +2991,9 @@ async def admin_metrics(auth=Depends(require_admin)):
         result.update({
             "payments_total": len(payments),
             "payments_pending": sum(1 for item in payments if item.get("status") == "pending_review"),
-            "payments_approved": sum(1 for item in payments if item.get("status") == "approved_admin"),
-            "payments_rejected": sum(1 for item in payments if item.get("status") == "rejected"),
+            "payments_approved": sum(1 for item in payments if item.get("type") == "donation" and item.get("status") == "confirmed"),
+            "payments_rejected": 0,
+            "donations_total_amount": sum(int(item.get("amount_toman", 0) or 0) for item in payments if item.get("type") == "donation" and item.get("status") == "confirmed"),
         })
     if "providers" in permissions:
         result["providers_configured"] = sum(1 for name in PROVIDERS if provider_ready(name))
