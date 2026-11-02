@@ -1655,6 +1655,12 @@ async def collect_community_message(message: Message):
             "media_type": ("photo" if message.photo else "video" if message.video else "document" if message.document else "text")
         })
         data["activity"] = data["activity"][-200:]
+    # This collector is registered before the generic chat handler, so route
+    # natural group-management requests here to ensure they are not swallowed.
+    if message.chat.type in {"group", "supergroup"} and message.from_user and text_value:
+        if feature_enabled("natural_commands") and await _handle_natural_request(message, text_value):
+            save_admin_data()
+            return
     if message.chat.type == "channel":
         posts = data.setdefault("top_posts", [])
         record = next((p for p in posts if p.get("message_id") == message.message_id), None)
