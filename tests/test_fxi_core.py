@@ -78,6 +78,8 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/users/123/block"), "users")
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/managers"), "admins")
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/audit"), "audit")
+        self.assertEqual(zeus_bot._permission_for_path("/admin/api/features"), "system")
+        self.assertEqual(zeus_bot._permission_for_path("/admin/api/new-unmapped-route"), "__unmapped__")
 
 
 if __name__ == "__main__":
