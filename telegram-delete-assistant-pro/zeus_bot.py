@@ -722,13 +722,15 @@ async def start_menu_actions(callback: CallbackQuery):
         if not is_admin(callback.from_user.id):
             await callback.answer("این بخش فقط برای مدیرانه.", show_alert=True)
             return
-        token = _make_admin_invite(callback.from_user.id)
         base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-        panel_url = base_url + "/admin/invite/" + token
+        panel_url = base_url + "/admin"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛠 ورود به پنل مدیریت", url=panel_url)]
+        ])
         await callback.message.answer(
-            "🛠 پنل اختصاصی مدیریت FXI\n\n"
-            "این لینک یک‌بارمصرف است و تا ۳۰ دقیقه اعتبار دارد.\n\n"
-            f"{panel_url}"
+            "🛠 پنل مدیریت FXI\n\n"
+            "برای باز کردن پنل، روی دکمهٔ زیر بزن. اگر وارد نشده باشی، صفحهٔ ورود مدیر نمایش داده می‌شود.",
+            reply_markup=keyboard,
         )
     await callback.answer()
 
@@ -908,17 +910,18 @@ async def admin_command(message: Message):
     if not message.from_user or not is_admin(message.from_user.id):
         await message.answer("⛔ دسترسی مدیران لازم است.")
         return
-    user_id = message.from_user.id
-    token = _make_admin_invite(user_id)
     base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-    panel_url = base_url + "/admin/invite/" + token
-    permissions = _admin_permissions_for(user_id)
+    panel_url = base_url + "/admin"
+    permissions = _admin_permissions_for(message.from_user.id)
     active = "، ".join(ADMIN_PERMISSIONS[p] for p in sorted(permissions))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛠 باز کردن پنل مدیریت", url=panel_url)]
+    ])
     await message.answer(
-        "🛠 پنل اختصاصی مدیریت FXI\n\n"
-        "این لینک یک‌بارمصرف است و تا ۳۰ دقیقه اعتبار دارد. پس از ورود، نشست شما تا ۱۲ ساعت فعال می‌ماند.\n\n"
-        f"{panel_url}\n\n"
-        f"دسترسی‌های فعلی: {active}"
+        "🛠 پنل مدیریت FXI\n\n"
+        "از دکمهٔ زیر وارد آدرس مستقیم پنل شو. اگر نشست مدیریتی نداشته باشی، صفحهٔ ورود مدیر باز می‌شود.\n\n"
+        f"دسترسی‌های فعلی: {active}",
+        reply_markup=keyboard,
     )
 
 
