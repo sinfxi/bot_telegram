@@ -590,6 +590,11 @@ async def feature_message_gate(handler, event: Message, data):
         if str(event.from_user.id) in blocked and not is_admin(event.from_user.id):
             await event.answer("⛔ دسترسی شما به ربات توسط مدیر محدود شده است.")
             return None
+    if isinstance(event, Message) and event.text and event.text.startswith("/"):
+        command_name = event.text.split(maxsplit=1)[0].split("@", 1)[0][1:].lower()
+        if command_name != "start":
+            await event.answer("برای کار با FXI دیگر نیازی به دستورهای اسلش‌دار نیست 🙂\nعبارت ساده‌ای مثل «راهنما»، «آمار گروه»، «انتخاب مدل» یا «تنظیمات» را بنویس.")
+            return None
     if isinstance(event, Message) and event.chat.type in {"group", "supergroup", "channel"}:
         chat_settings = community_chat(event.chat.id).setdefault("settings", {})
         if not chat_settings.get("bot_enabled", True):
