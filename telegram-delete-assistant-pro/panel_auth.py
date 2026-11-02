@@ -50,7 +50,7 @@ def install_panel_auth(app, bot):
         if session.get("role") == "manager":
             manager_name = str(session.get("manager", "")).strip().lower()
             record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-            if manager_name and isinstance(record, dict) and record.get("enabled", True):
+            if manager_name and isinstance(record, dict) and record.get("enabled", True) and int(session.get("version", 0)) == int(record.get("session_version", 1)):
                 perms = set(record.get("permissions", ["dashboard"])).intersection(bot.ADMIN_PERMISSIONS) - {"admins"}
                 needed = bot._permission_for_path(request.url.path)
                 if needed not in perms:
@@ -102,7 +102,7 @@ def install_panel_auth(app, bot):
             manager = decode(token)
             manager_name = str(manager.get("manager", "")).strip().lower() if manager.get("role") == "manager" else ""
             manager_record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-            if manager_name and isinstance(manager_record, dict) and manager_record.get("enabled", True):
+            if manager_name and isinstance(manager_record, dict) and manager_record.get("enabled", True) and int(manager.get("version", 0)) == int(manager_record.get("session_version", 1)):
                 return await call_next(request)
             return RedirectResponse("/admin/login", status_code=303)
         return await call_next(request)
@@ -175,7 +175,7 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'Ù
         login_attempts.pop(address, None)
         response = JSONResponse({"redirect": "/admin"})
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
-        response.set_cookie("fxi_admin_session", signer.dumps({"role": "manager", "manager": username}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
+        response.set_cookie("fxi_admin_session", signer.dumps({"role": "manager", "manager": username, "version": int(record.get("session_version", 1))}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
         return response
 
     @app.get("/login", response_class=HTMLResponse)
