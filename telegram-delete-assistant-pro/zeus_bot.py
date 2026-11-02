@@ -2376,6 +2376,41 @@ async def add_admin(payload: AdminIdPayload, auth=Depends(require_admin)):
     }
 
 
+@app.post("/admin/api/admins/{user_id}/reset-password")
+async def reset_admin_password(user_id: int, auth=Depends(require_admin)):
+    if not _is_primary_admin(int(auth.get("user_id", 0))):
+        raise HTTPException(status_code=403, detail="بازنشانی رمز مدیران فقط در اختیار مالک ربات است.")
+    if user_id not in admin_data.get("admins", []):
+        raise HTTPException(status_code=404, detail="مدیر ربات پیدا نشد.")
+    activation_code = secrets.token_urlsafe(12)
+    admin_data.setdefault("admin_passwords", {}).pop(str(user_id), None)
+    admin_data.setdefault("admin_setup_codes", {})[str(user_id)] = {
+        "sha256": hashlib.sha256(activation_code.encode("utf-8")).hexdigest(),
+        "expires_at": int(time.time()) + 86400,
+    }
+    log_admin_action("manager_password_reset", f"user_id={user_id}")
+    save_admin_data()
+    login_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/login"
+    notified = False
+    if bot:
+        try:
+            await bot.send_message(
+                user_id,
+                "🔐 مالک ربات درخواست بازنشانی رمز پنل شما را ثبت کرد.\n\n"
+                f"کد فعال‌سازی جدید: {activation_code}\n"
+                f"ورود: {login_url}\n\n"
+                "با شناسه عددی و این کد، رمز جدید حداقل ۱۰ کاراکتری تعیین کن. کد قبلی دیگر معتبر نیست."
+            )
+            notified = True
+        except Exception as exc:
+            log.warning("Manager password reset notification failed for user=%s: %s", user_id, type(exc).__name__)
+    return {
+        "message": "رمز قبلی باطل شد؛ مدیر باید با کد تازه رمز جدید بسازد." + (" کد برای او ارسال شد." if notified else " پیام تلگرام ارسال نشد؛ کد را امن و خصوصی تحویل بده."),
+        "activation_code": activation_code,
+        "notification_sent": notified,
+    }
+
+
 @app.delete("/admin/api/admins/{user_id}")
 async def remove_admin(user_id: int, auth=Depends(require_admin)):
     if not _is_primary_admin(int(auth.get("user_id", 0))):
