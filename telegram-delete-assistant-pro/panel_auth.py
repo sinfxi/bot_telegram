@@ -56,21 +56,6 @@ def install_panel_auth(app, bot):
                 if needed not in perms:
                     raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
                 return {"user_id": 0, "manager": manager_name, "auth_type": "manager_account", "permissions": sorted(perms)}
-        # Backward compatibility for valid one-time Telegram invite sessions.
-        if token and bot.SESSION_SERIALIZER:
-            try:
-                legacy = bot.SESSION_SERIALIZER.loads(token, max_age=43200)
-                uid = int(legacy.get("user_id", 0))
-                if uid and bot.is_admin(uid) and not bot._is_primary_admin(uid):
-                    perms = bot._admin_permissions_for(uid)
-                    needed = bot._permission_for_path(request.url.path)
-                    if needed not in perms:
-                        raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
-                    return {"user_id": uid, "auth_type": "telegram", "permissions": sorted(perms)}
-            except HTTPException:
-                raise
-            except Exception:
-                pass
         raise HTTPException(401, "ابتدا مدیر ربات وارد شود.")
 
     def require_owner(request: Request):
@@ -242,7 +227,9 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'�
     async def panel_logout(request: Request):
         if not bot._admin_origin_allowed(request):
             raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
-        response = RedirectResponse("/login", status_code=303)
+        session = decode(request.cookies.get("fxi_admin_session", ""))
+        destination = "/admin/login" if session.get("role") == "manager" else "/login"
+        response = RedirectResponse(destination, status_code=303)
         response.delete_cookie("fxi_admin_session", path="/")
         response.delete_cookie("fxi_user_session", path="/")
         return response
