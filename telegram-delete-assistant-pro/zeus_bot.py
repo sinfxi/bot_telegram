@@ -2942,42 +2942,29 @@ async def admin_payments(_: str = Depends(require_admin)):
 @app.post("/admin/api/payments/{payment_id}/{action}")
 async def admin_payment_action(payment_id: str, action: str, _: str = Depends(require_admin)):
     if not feature_enabled("payments"):
-        raise HTTPException(status_code=403, detail="قابلیت بررسی پرداخت‌ها غیرفعال است.")
-    if action not in {"approve", "reject"}:
-        raise HTTPException(status_code=400, detail="عملیات نامعتبر است.")
+        raise HTTPException(status_code=403, detail="قابلیت حمایت مالی غیرفعال است.")
+    if action != "confirm":
+        raise HTTPException(status_code=400, detail="فقط تأیید دریافت حمایت مالی مجاز است.")
     payment = admin_data.get("payments", {}).get(payment_id)
-    if not payment or payment.get("status") != "pending_review":
-        raise HTTPException(status_code=404, detail="درخواست در انتظار بررسی پیدا نشد.")
-    user_id = int(payment["user_id"])
+    if not payment or payment.get("status") != "pending_review" or payment.get("type") != "donation":
+        raise HTTPException(status_code=404, detail="حمایت در انتظار بررسی پیدا نشد.")
+    user_id = int(payment.get("user_id", 0))
+    payment["status"] = "confirmed"
     payment["reviewed_at"] = datetime.now(timezone.utc).isoformat()
     payment["reviewed_via"] = "admin_panel"
-    if action == "approve":
-        if user_id not in admin_data.setdefault("admins", []):
-            admin_data["admins"].append(user_id)
-        admin_data.setdefault("admin_permissions", {}).setdefault(str(user_id), ["dashboard"])
-        token = _make_admin_invite(user_id)
-        link = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin") + "/admin/invite/" + token
-        payment["status"] = "approved_admin"
-        message = "درخواست تأیید شد و دسترسی مدیریتی فعال شد."
-        if bot:
-            try:
-                await bot.send_message(user_id,
-                    "🎉 درخواست ادمینی شما تأیید شد و دسترسی مدیریتی FXI فعال شد.\n\n"
-                    "برای تکمیل ورود و فعال‌سازی دسترسی مدیریتی، لینک یک‌بارمصرف زیر را باز کنید؛ لینک تا ۳۰ دقیقه معتبر است.\n\n"
-                    f"{link}\n\nدسترسی اولیه: نمای کلی. مدیر اصلی می‌تواند امکانات بیشتری فعال کند.")
-            except Exception as exc:
-                log.warning("Could not notify approved payment user=%s: %s", user_id, type(exc).__name__)
-    else:
-        payment["status"] = "rejected"
-        message = "درخواست رد شد."
-        if bot:
-            try:
-                await bot.send_message(user_id, "درخواست ادمینی شما پس از بررسی تأیید نشد. از همراهی شما ممنونیم.")
-            except Exception:
-                log.exception("Could not notify rejected payment user=%s", user_id)
-    log_admin_action("payment_" + action, f"payment_id={payment_id}; user_id={user_id}")
     save_admin_data()
-    return {"message": message, "status": payment["status"]}
+    log_admin_action("donation_confirmed", f"payment_id={payment_id}; user_id={user_id}; amount={payment.get('amount_toman')}")
+    if bot and user_id:
+        try:
+            await bot.send_message(
+                user_id,
+                f"❤️ سلام {payment.get('full_name') or 'دوست عزیز'}!\n\n"
+                f"حمایت ارزشمندت به مبلغ {int(payment.get('amount_toman', 0)):,} تومان دریافت و تأیید شد. "
+                "از اعتماد و همراهی‌ات با FXI صمیمانه ممنونیم. 🙏🌹",
+            )
+        except Exception:
+            log.exception("Could not send donation thank-you to user=%s", user_id)
+    return {"message": "حمایت تأیید شد و پیام تشکر برای حامی ارسال شد.", "status": "confirmed"}
 
 
 @app.get("/admin/api/metrics")
