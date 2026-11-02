@@ -491,7 +491,9 @@ class BroadcastPayload(BaseModel):
 
 
 class CommunitySettingsPayload(BaseModel):
-    settings: dict[str, bool]
+    settings: dict[str, bool] = Field(default_factory=dict)
+    warn_limit: int | None = Field(default=None, ge=2, le=5)
+    blocked_words: list[str] | None = None
 
 
 class BotStatePayload(BaseModel):
@@ -678,12 +680,16 @@ async def start(message: Message):
     if user and feature_enabled("user_tracking"):
         remember_user(user_id, username=user.username, first_name=user.first_name, last_name=user.last_name)
     name = (user.first_name or "دوست من") if user else "دوست من"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    menu_rows = [
         [InlineKeyboardButton(text="📘 راهنمای کامل", callback_data="menu:help"),
          InlineKeyboardButton(text="🧠 انتخاب هوش مصنوعی", callback_data="menu:ai")],
-        [InlineKeyboardButton(text="📊 آمار جامعه", callback_data="menu:community"),
-         InlineKeyboardButton(text="🛠 پنل مدیریت", callback_data="menu:admin")],
-    ])
+        [InlineKeyboardButton(text="📊 آمار جامعه", callback_data="menu:community")],
+    ]
+    if user and is_admin(user_id):
+        menu_rows.append([InlineKeyboardButton(text="🛡 پنل مدیران ربات", url=ADMIN_PANEL_URL + "/admin/login")])
+    if user and _is_primary_admin(user_id):
+        menu_rows.append([InlineKeyboardButton(text="👑 پنل مالک ربات", url=ADMIN_PANEL_URL + "/owner")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=menu_rows)
     await message.answer(
         f"سلام {name}! 👋 به FXI خوش اومدی.\n\n"
         "من دستیار مدیریت و تعامل جامعه تلگرام هستم؛ می‌تونم به مدیرها در مدیریت گروه، "
@@ -723,17 +729,14 @@ async def start_menu_actions(callback: CallbackQuery):
             "در همون گروه بنویس «آمار گروه». آمار فقط شامل داده‌هاییه که ربات واقعاً دریافت کرده."
         )
     elif action == "admin":
-        base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-        is_owner = _is_primary_admin(callback.from_user.id)
-        panel_url = base_url + ("/owner" if is_owner else "/admin/login")
-        button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود به پنل مدیر ربات"
-        title = "مالک ربات" if is_owner else "مدیر ربات"
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=button_text, url=panel_url)]
-        ])
+        base_url = ADMIN_PANEL_URL
+        rows = [[InlineKeyboardButton(text="🛡 ورود به پنل مدیر ربات", url=base_url + "/admin/login")]]
+        if _is_primary_admin(callback.from_user.id):
+            rows.append([InlineKeyboardButton(text="👑 ورود به پنل مالک ربات", url=base_url + "/owner")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
         await callback.message.answer(
-            f"🛠 پنل {title} FXI\n\n"
-            "ورود به پنل مدیر ربات فقط با نام کاربری و رمز اختصاصی انجام می‌شود؛ مدیر گروه به‌تنهایی دسترسی پنل ندارد.",
+            "🛠 پنل‌های مدیریتی FXI\n\n"
+            "پنل مدیر ربات با نام کاربری و رمز اختصاصی مدیر باز می‌شود. پنل مالک فقط برای مالک اصلی فعال است؛ مدیر گروه به‌تنهایی دسترسی پنل ربات ندارد.",
             reply_markup=keyboard,
         )
     await callback.answer()
@@ -2527,6 +2530,8 @@ async def admin_community(_: str = Depends(require_admin)):
             "conversational_ai": bool(record.get("settings", {}).get("conversational_ai", False)),
             "link_guard_enabled": bool(record.get("settings", {}).get("link_guard_enabled", False)),
             "keyword_filter_enabled": bool(record.get("settings", {}).get("keyword_filter_enabled", False)),
+            "warn_limit": max(2, min(5, int(record.get("settings", {}).get("warn_limit", 3)))),
+            "blocked_words": list(record.get("blocked_words", []))[:100],
             "last_activity": record.get("last_activity") or record.get("last_message_at", ""),
         })
     items.sort(key=lambda item: item["message_count"], reverse=True)
@@ -2541,12 +2546,27 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
     if not record:
         raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
     allowed = {"bot_enabled", "ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled"}
-    if not payload.settings or any(key not in allowed or not isinstance(value, bool) for key, value in payload.settings.items()):
+    if any(key not in allowed or not isinstance(value, bool) for key, value in payload.settings.items()):
         raise HTTPException(status_code=422, detail="فقط کلیدهای مجاز با مقدار روشن/خاموش قابل تغییر هستند.")
+    if not payload.settings and payload.warn_limit is None and payload.blocked_words is None:
+        raise HTTPException(status_code=422, detail="هیچ تغییری برای ذخیره ارسال نشده است.")
     settings = record.setdefault("settings", {})
     settings.update(payload.settings)
+    if payload.warn_limit is not None:
+        settings["warn_limit"] = payload.warn_limit
+    if payload.blocked_words is not None:
+        if len(payload.blocked_words) > 100:
+            raise HTTPException(status_code=422, detail="حداکثر ۱۰۰ واژه می‌توان ثبت کرد.")
+        cleaned = []
+        for item in payload.blocked_words:
+            word = str(item).strip().casefold()
+            if not word or len(word) > 60 or any(ch.isspace() for ch in word):
+                raise HTTPException(status_code=422, detail="هر واژه باید کوتاه و بدون فاصله باشد.")
+            if word not in cleaned:
+                cleaned.append(word)
+        record["blocked_words"] = cleaned
     save_admin_data()
-    changed = ", ".join(payload.settings.keys())
+    changed = ", ".join([*payload.settings.keys(), *(["warn_limit"] if payload.warn_limit is not None else []), *(["blocked_words"] if payload.blocked_words is not None else [])])
     log_admin_action("community_settings_updated", f"chat={chat_id}; settings={changed}; by={auth.get('user_id', 0)}")
     return {
         "message": "تنظیمات فضا ذخیره شد.",
