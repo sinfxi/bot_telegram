@@ -1167,6 +1167,12 @@ def community_chat(chat_id: int) -> dict:
     settings.setdefault("bot_enabled", True)
     settings.setdefault("welcome_enabled", True)
     settings.setdefault("anti_flood_enabled", True)
+    settings.setdefault("conversational_ai", False)
+    settings.setdefault("link_guard_enabled", False)
+    settings.setdefault("keyword_filter_enabled", False)
+    settings.setdefault("warn_limit", 3)
+    record.setdefault("blocked_words", [])
+    record.setdefault("warnings", {})
     return record
 
 async def community_is_admin(chat_id: int, user_id: int) -> bool:
@@ -1195,6 +1201,9 @@ def community_settings_keyboard(chat_id: int) -> InlineKeyboardMarkup:
             text=("🛡 ضداسپم: روشن" if settings.get("anti_flood_enabled", True) else "🛡 ضداسپم: خاموش"),
             callback_data="community_settings:toggle:anti_flood_enabled"
         )],
+        [InlineKeyboardButton(text=("💬 گفت‌وگوی رفاقتی: روشن" if settings.get("conversational_ai", False) else "💬 گفت‌وگوی رفاقتی: خاموش"), callback_data="community_settings:toggle:conversational_ai")],
+        [InlineKeyboardButton(text=("🔗 کنترل لینک‌ها: روشن" if settings.get("link_guard_enabled", False) else "🔗 کنترل لینک‌ها: خاموش"), callback_data="community_settings:toggle:link_guard_enabled")],
+        [InlineKeyboardButton(text=("🚫 فیلتر کلمات: روشن" if settings.get("keyword_filter_enabled", False) else "🚫 فیلتر کلمات: خاموش"), callback_data="community_settings:toggle:keyword_filter_enabled")],
         [InlineKeyboardButton(text="📜 راهنمای قوانین گروه", callback_data="community_settings:rules_help")],
         [InlineKeyboardButton(text="🔄 تازه‌سازی فهرست", callback_data="community_settings:refresh")]
     ]
@@ -1211,7 +1220,7 @@ async def community_settings_menu(message: Message):
         return
     await message.answer(
         "⚙️ تنظیمات گروه FXI\nهر گزینه را برای روشن/خاموش‌کردن لمس کن. تغییرات فوراً ذخیره می‌شوند.\n"
-        "برای تغییر متن قوانین از دستور /setrules متن قوانین استفاده کن.",
+        "برای قوانین بنویس «ثبت قوانین متن دلخواه»؛ برای فیلتر کلمه «فیلتر کلمه واژه» را بنویس.",
         reply_markup=community_settings_keyboard(message.chat.id)
     )
 
@@ -1227,15 +1236,15 @@ async def community_settings_action(callback: CallbackQuery):
         return
     action = (callback.data or "").split(":")
     if len(action) >= 2 and action[1] == "rules_help":
-        await callback.answer("برای ثبت قوانین بنویس: /setrules متن قوانین", show_alert=True)
+        await callback.answer("برای ثبت قوانین بنویس: ثبت قوانین متن دلخواه", show_alert=True)
         return
     if len(action) >= 2 and action[1] == "toggle":
-        if len(action) != 3 or action[2] not in {"ai_enabled", "welcome_enabled", "anti_flood_enabled"}:
+        if len(action) != 3 or action[2] not in {"ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled"}:
             await callback.answer("گزینه تنظیمات معتبر نیست.", show_alert=True)
             return
         settings = community_chat(chat_id).setdefault("settings", {})
         key = action[2]
-        current_default = key != "ai_enabled"
+        current_default = key in {"welcome_enabled", "anti_flood_enabled"}
         settings[key] = not bool(settings.get(key, current_default))
         save_admin_data()
         await callback.answer("تنظیم ذخیره شد.")
@@ -1842,6 +1851,18 @@ def _natural_intent(text_value: str) -> str | None:
         return "suggestions"
     if value.startswith(("ثبت قوانین", "قوانین جدید", "تغییر قوانین")):
         return "set_rules"
+    if value.startswith(("فیلتر کلمه ", "افزودن کلمه ممنوع ")):
+        return "filter_word"
+    if value.startswith(("حذف فیلتر ", "برداشتن فیلتر ")):
+        return "unfilter_word"
+    if value in {"گفتگوی رفاقتی روشن", "گفت و گوی رفاقتی روشن", "حالت گفتگو روشن", "حالت مکالمه روشن"}:
+        return "enable_conversation"
+    if value in {"گفتگوی رفاقتی خاموش", "گفت و گوی رفاقتی خاموش", "حالت گفتگو خاموش", "حالت مکالمه خاموش"}:
+        return "disable_conversation"
+    if value in {"اخطار", "هشدار"}:
+        return "warn"
+    if value in {"پاک کردن اخطارها", "حذف اخطارها", "صفر کردن اخطارها"}:
+        return "clear_warnings"
     if value in {"برنامه محتوا", "برنامه پست", "تقویم محتوا"}:
         return "content_plan"
     if value in {"انتخاب هوش مصنوعی", "انتخاب مدل", "مدل هوش مصنوعی"}:
@@ -1862,7 +1883,7 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     intent = _natural_intent(request_text)
     if not intent:
         return False
-    if intent in {"enable_ai", "disable_ai", "draft", "pin", "delete", "mute", "unmute", "ban", "settings", "challenge", "suggestions", "top_posts", "report", "set_rules", "content_plan"}:
+    if intent in {"enable_ai", "disable_ai", "draft", "pin", "delete", "mute", "unmute", "ban", "settings", "challenge", "suggestions", "top_posts", "report", "set_rules", "content_plan", "filter_word", "unfilter_word", "enable_conversation", "disable_conversation", "warn", "clear_warnings"}:
         if not await community_is_admin(message.chat.id, message.from_user.id):
             await message.answer("⛔ این عملیات فقط برای مدیران گروه/کانال است.")
             return True
@@ -1872,6 +1893,7 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
         "unmute": "moderation", "ban": "moderation", "set_rules": "rules_management",
         "enable_ai": "ai_chat", "disable_ai": "ai_chat", "challenge": "engagement", "suggestions": "analytics", "top_posts": "analytics", "report": "analytics",
         "content_plan": "draft_generation", "draft": "draft_generation",
+        "warn": "moderation", "clear_warnings": "moderation",
     }.get(intent)
     if required_feature and (not feature_enabled("community_management") or not feature_enabled(required_feature)):
         await message.answer("این قابلیت در تنظیمات ربات غیرفعال است.")
