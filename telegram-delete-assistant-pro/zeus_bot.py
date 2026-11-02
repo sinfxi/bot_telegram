@@ -2440,7 +2440,11 @@ async def admin_logout():
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(auth=Depends(require_admin)):
     # The frontend receives only the current admin's effective permissions.
-    html = ADMIN_PANEL_HTML.replace("</head>", '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '"></head>')
+    html = ADMIN_PANEL_HTML.replace(
+        "</head>",
+        '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '">'
+        '<meta name="fxi-panel-role" content="manager"></head>',
+    )
     return HTMLResponse(html)
 
 
