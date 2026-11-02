@@ -90,11 +90,9 @@ def install_panel_auth(app, bot):
         if path == "/owner" and not is_root(request):
             token = request.cookies.get("fxi_admin_session", "")
             manager = decode(token)
-            try:
-                uid = int(manager.get("user_id", 0)) if manager.get("role") == "manager" else 0
-            except (TypeError, ValueError):
-                uid = 0
-            if uid and bot.is_admin(uid) and not bot._is_primary_admin(uid):
+            manager_name = str(manager.get("manager", "")).strip().lower() if manager.get("role") == "manager" else ""
+            record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
+            if manager_name and isinstance(record, dict) and record.get("enabled", True):
                 return RedirectResponse("/admin", status_code=303)
             return RedirectResponse("/login", status_code=303)
         if path == "/admin":
