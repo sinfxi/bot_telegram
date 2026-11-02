@@ -20,6 +20,7 @@ os.environ["OPENROUTER_API_KEY"] = ""
 os.environ["ADMIN_DATA_FILE"] = str(Path(_TEST_STATE.name) / "admin-state.json")
 os.environ["ADMIN_PANEL_USERNAME"] = "ci-owner"
 os.environ["ADMIN_PANEL_PASSWORD"] = "ci-owner-password-only"
+os.environ["MANAGER_CREATION_CODE"] = "ci-manager-code-2026"
 os.environ["SESSION_SECRET"] = "ci-session-secret-not-for-production"
 sys.path.insert(0, str(_PROJECT_DIR))
 
@@ -72,6 +73,32 @@ class ConfigurationTests(unittest.TestCase):
             zeus_bot.CommunitySettingsPayload(warn_limit=1)
         with self.assertRaises(ValidationError):
             zeus_bot.CommunitySettingsPayload(warn_limit=6)
+
+    def test_manager_creation_requires_owner_code_and_four_character_password(self):
+        payload = zeus_bot.ManagerAccountPayload(
+            username="new_manager",
+            password="A7b9",
+            setup_code="ci-manager-code-2026",
+            permissions=["dashboard"],
+        )
+        self.assertEqual(payload.password, "A7b9")
+        with self.assertRaises(ValidationError):
+            zeus_bot.ManagerAccountPayload(
+                username="short_pin",
+                password="123",
+                setup_code="ci-manager-code-2026",
+            )
+        with self.assertRaises(ValidationError):
+            zeus_bot.ManagerAccountPayload(
+                username="long_pin",
+                password="12345",
+                setup_code="ci-manager-code-2026",
+            )
+        with self.assertRaises(ValidationError):
+            zeus_bot.ManagerAccountPayload(
+                username="no_code",
+                password="1234",
+            )
 
     def test_manager_api_permissions_are_classified(self):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/community"), "community")
