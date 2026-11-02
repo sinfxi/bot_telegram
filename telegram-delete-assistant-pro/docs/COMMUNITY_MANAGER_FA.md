@@ -1,72 +1,74 @@
-# FXI Community Manager
+# راهنمای مدیریت گروه و کانال FXI
 
-FXI is being shifted from a private AI-chat bot to a Telegram group/channel management assistant.
+FXI یک دستیار مدیریت جامعه تلگرام است. اعضا می‌توانند با ربات گفت‌وگو کنند؛ اما عملیات مدیریتی فقط با تأیید مدیر گروه انجام می‌شود. **به‌جز `/start`، فرمان‌های اسلش‌دار برای کار روزمره پشتیبانی نمی‌شوند.**
 
-## Current implementation on the development branch
+## راه‌اندازی اولیه
 
-- Private `/start` now explains how to add FXI to a group or channel; private free-form messages no longer trigger AI chat replies.
-- Community message capture stores chat title/type, message count, recently observed member identity, and a bounded sample of recent text.
-- Conservative anti-flood protection removes repeated rapid messages in groups when the bot has delete-message permission. Group administrators are exempt.
-- Reply-based `/ban`, `/mute [minutes]`, `/unmute`, and `/pin` commands are available to group administrators.
-- Group rules: `/rules` and administrator-only `/setrules <text>`.
-- Group activity summary: `/communitystats`.
-- Administrator-only challenge publishing: `/challenge`.
-- Administrator-only five-item idea list: `/suggest`.
-- Reaction-count updates are recorded when Telegram delivers them; post records are ranked by total reactions.
-- New-member welcome message is attempted when Telegram sends a chat-member update.
-- Admin metrics expose observed communities, message counts, members seen, and tracked posts.
+1. ربات را به گروه اضافه کن.
+2. برای حذف پیام، سنجاق و محدودسازی اعضا، ربات را مدیر کن و فقط مجوزهای لازم را بده: Delete Messages، Pin Messages و Restrict Members.
+3. اگر می‌خواهی ربات پیام‌های عادی گروه را هم ببیند، در BotFather گزینه Group Privacy را خاموش کن. با Privacy روشن، تلگرام معمولاً فقط پیام‌های خطاب‌شده، منشن‌ها و موارد مجاز دیگر را می‌فرستد.
+4. در Render مقدار `ZEUS_BOT_TOKEN` و در صورت نیاز `OPENROUTER_API_KEY` را تنظیم کن.
+5. گروه پس از دریافت رویداد از ربات در فهرست پنل ثبت می‌شود. آمار از زمان اضافه‌شدن و دریافت رویدادها جمع‌آوری می‌شود؛ تاریخچه قدیمی تلگرام قابل بازیابی خودکار نیست.
 
-## Setup and Telegram permissions
+## عبارت‌های طبیعی مدیریت
 
-1. Add the bot to the target group. Promote it to administrator and grant **Delete messages** for anti-flood moderation.
-2. Add the bot to the target channel as administrator. Telegram channel post and reaction updates require appropriate channel access.
-3. In BotFather, ensure group privacy settings are configured for the message visibility you intend. A bot with privacy mode enabled will not receive every ordinary group message; commands and replies are still subject to Telegram's rules.
-4. The bot can only build its own history from updates received after it is added/configured. It cannot automatically download the group's old message history.
-5. Reaction counts are only available for messages for which Telegram sends reaction-count updates. A bot cannot see private identities of people who reacted unless Telegram explicitly provides those details.
+عملیات روی پیام عضو معمولاً با Reply انجام می‌شود:
 
-## Commands
-
-| Command | Purpose |
+| عبارت | کارکرد |
 |---|---|
-| `/community` | Community feature guide |
-| `/rules` | Show group rules |
-| `/setrules <text>` | Change rules (group administrator only) |
-| `/communitystats` | Show observed activity totals |
-| `/ban` (reply) | Ban the replied-to member (administrator only) |
-| `/mute [minutes]` (reply) | Restrict the replied-to member, default 60 minutes (administrator only) |
-| `/unmute` (reply) | Restore sending permissions (administrator only) |
-| `/pin` (reply) | Pin the replied-to message (administrator only) |
-| `/challenge` | Publish a group challenge (administrator only) |
-| `/suggest` | Produce five content/community ideas (administrator only) |
+| `پین` | سنجاق پیام ریپلای‌شده |
+| `حذف` | حذف پیام ریپلای‌شده |
+| `سکوت ۱۰ دقیقه` | محدودکردن نویسنده پیام ریپلای‌شده |
+| `آزاد` | رفع محدودیت نویسنده پیام ریپلای‌شده |
+| `بن` | مسدودکردن نویسنده پیام ریپلای‌شده |
+| `اخطار` | ثبت اخطار برای نویسنده پیام ریپلای‌شده |
+| `پاک کردن اخطارها` | صفرکردن اخطارهای نویسنده پیام ریپلای‌شده |
+| `قوانین` | نمایش قوانین گروه |
+| `ثبت قوانین متن دلخواه` | ثبت متن جدید قوانین |
+| `آمار گروه` | نمایش آمار مشاهده‌شده |
+| `تنظیمات` | نمایش تنظیمات قابل کنترل گروه |
+| `گفتگوی رفاقتی روشن` | فعال‌کردن حالت مکالمه طبیعی |
+| `گفتگوی رفاقتی خاموش` | خاموش‌کردن حالت مکالمه طبیعی |
+| `فیلتر کلمه تبلیغ` | افزودن واژه ممنوع |
+| `حذف فیلتر تبلیغ` | حذف واژه از فهرست فیلتر |
 
-## Known limitations / next integration work
+عبارت‌های مدیریتی فقط پس از بررسی مدیر بودن فرستنده اجرا می‌شوند. عضو عادی نمی‌تواند با نوشتن «پین»، «بن» یا «تنظیمات» عملیات مدیریتی انجام دهد.
 
-- The five suggestions currently use locally collected group activity and engagement records. The fifth item is a news-research prompt, **not** a live news result. A verified news/RSS provider must be connected before claiming real-time world-news recommendations.
-- Reaction totals do not equal unique people or quality; the current ranking is a simple engagement signal.
-- The current community state uses the existing bot-state persistence layer. For high-volume communities, move message/event history into dedicated PostgreSQL tables with retention and per-chat controls.
-- Add configurable moderation thresholds, allowlists, warning/ban escalation, link policy, join-request review, polls, scheduled posts, and full dashboard workflows before calling this production-complete.
-- Admin-only commands currently rely on Telegram group administrator status or configured FXI admin IDs.
-- Do not enable automatic bans or mass deletions without explicit per-community policy and admin controls.
+## ابزارهای محافظت
 
+- **ضدسیل:** الگوی پایه بیش از ۷ پیام متنی در پنجره ۳۰ ثانیه‌ای را بررسی می‌کند؛ در تکرار تخلف، پس از دو strike در بازه ۱۰ دقیقه‌ای، محدودیت ۵ دقیقه‌ای اعمال می‌شود. مدیران گروه از این کنترل مستثنا هستند.
+- **اخطار مرحله‌ای:** سقف اخطار برای هر گروه از پنل بین ۲ تا ۵ تنظیم می‌شود. با رسیدن به سقف، ربات تلاش می‌کند عضو را ۳۰ دقیقه محدود کند. اگر مجوز تلگرام را نداشته باشد، اخطار نگه داشته می‌شود و خطا گزارش می‌شود.
+- **فیلتر واژه:** حداکثر ۱۰۰ واژه کوتاه، بدون فاصله؛ در صورت تطبیق، پیام حذف می‌شود. این فیلتر به‌صورت پیش‌فرض خاموش است.
+- **کنترل لینک:** لینک‌های شناسایی‌شده را حذف می‌کند؛ به‌صورت پیش‌فرض خاموش است.
+- **خوشامدگویی:** با دریافت رویداد ورود عضو کار می‌کند و از تنظیمات گروه قابل خاموش‌کردن است.
 
-## قابلیت‌های اختصاصی کانال
+این فیلترها جایگزین نظارت انسانی نیستند. فهرست واژه‌ها و سیاست لینک را با دقت تنظیم کن تا پیام‌های مجاز به‌اشتباه حذف نشوند.
 
-- `/channelreport`: گزارش پست‌های ثبت‌شده، رتبه‌بندی تعامل و واژه‌های پرتکرار.
-- `/topposts`: نمایش ۱۰ پست برتر بر اساس داده‌های واکنش، بازدید و فوروارد.
-- `/contentplan`: ساخت برنامه پیشنهادی پنج‌پستی برای انتشار بعدی.
-- ثبت متن پست، نوع رسانه، شناسه پیام و داده‌های قابل‌دسترسی بازدید/فوروارد؛ واکنش‌ها از رویدادهای شمارش واکنش تلگرام به‌روزرسانی می‌شوند.
-- رتبه‌بندی از یک امتیاز شفاف استفاده می‌کند: واکنش‌ها وزن ۳، فوروارد وزن ۲ و بازدید وزن ۱ به ازای هر هزار بازدید (با سقف محاسباتی ۱۰۰ هزار).
+## هوش مصنوعی و گفت‌وگوی رفاقتی
 
-**محدودیت‌های تحلیل:** ربات فقط از زمان اضافه‌شدن و فقط از رویدادهایی که تلگرام برای آن می‌فرستد داده دارد؛ تاریخچه قدیمی کانال را خودکار بازیابی نمی‌کند. تعداد مشترکان، نرخ تعامل دقیق، بهترین ساعت انتشار و خبرهای روز بدون داده/منبع مستقل قابل محاسبه یا تأیید نیستند. گزارش‌ها این موارد را حدس نمی‌زنند. برای دریافت پست‌ها و واکنش‌ها، ربات باید در کانال ادمین باشد و دسترسی‌های لازم را داشته باشد.
+- تنها ارائه‌دهنده پیکربندی‌شده در این نسخه OpenRouter است.
+- حالت پیش‌فرض گروه: پاسخ به منشن ربات یا Reply به پیام ربات.
+- با فعال‌کردن «گفت‌وگوی رفاقتی»، پاسخ به پرسش‌ها و عبارت‌های محاوره‌ای مشخص هم ممکن می‌شود؛ ربات به تمام پیام‌ها پاسخ نمی‌دهد.
+- محدودیت زمانی پاسخ برای هر عضو و کل گروه وجود دارد تا مکالمه به اسپم تبدیل نشود.
+- هوش مصنوعی به‌تنهایی اجازه بن، حذف پیام یا تغییر تنظیمات را ندارد؛ عملیات مدیریتی در مسیرهای جداگانه و با بررسی مجوز مدیر انجام می‌شود.
+- برای پاسخ‌های هوشمند باید `OPENROUTER_API_KEY` معتبر و مدل قابل‌دسترسی تنظیم شده باشد.
 
+**حریم خصوصی:** متن‌های دریافت‌شده و بخشی از زمینه اخیر گروه ممکن است برای تولید پاسخ به OpenRouter ارسال شوند. قابلیت را فقط در گروهی فعال کن که اعضا از این موضوع آگاه‌اند و اطلاعات حساس را به ربات نفرستند.
 
-## پاسخ‌گویی طبیعی هوشمند در گروه
+## مدیریت از پنل
 
-- `/fxi_enable`: فعال‌سازی پاسخ هوشمند برای گروه (فقط مدیر).
-- `/fxi_disable`: خاموش‌کردن پاسخ هوشمند گروه (فقط مدیر).
-- پس از فعال‌سازی، ربات فقط وقتی به نام کاربری‌اش اشاره شود یا عضوی به پیام خود ربات ریپلای بزند پاسخ می‌دهد؛ به تمام پیام‌های گروه جواب نمی‌دهد.
-- برای کاهش مزاحمت، بین پاسخ‌های یک عضو در همان گروه حداقل ۸ ثانیه فاصله اعمال می‌شود.
-- پاسخ‌ها از سرویس AI تنظیم‌شده و انتخاب‌شده برای همان عضو استفاده می‌کنند؛ تاریخچه هر گفت‌وگوی گروهی از گفت‌وگوهای خصوصی جدا نگه داشته می‌شود.
-- `/draft <موضوع>`: ساخت پیش‌نویس فارسی برای انتشار؛ فقط مدیر مجاز است. پیش‌نویس به‌صورت خودکار در کانال منتشر نمی‌شود و باید توسط مدیر بازبینی شود.
+در بخش «گروه‌ها و کانال‌ها» می‌توانی برای هر گروه:
+- ربات را متوقف/فعال کنی.
+- پاسخ هوشمند، گفت‌وگوی رفاقتی، خوشامدگویی و ضدسیل را روشن/خاموش کنی.
+- کنترل لینک و فیلتر واژه را مدیریت کنی.
+- سقف اخطار و فهرست واژه‌های ممنوع را ویرایش کنی.
 
-**نکته حریم خصوصی:** با فعال‌سازی قابلیت هوشمند، متن پیام‌هایی که اعضا مستقیماً به ربات ارجاع می‌دهند برای پردازش به سرویس AI پیکربندی‌شده ارسال می‌شود. از ارسال اطلاعات حساس خودداری کنید.
+تنظیمات هر گروه مستقل ذخیره می‌شوند. توقف ربات در یک گروه، عضویت آن را تغییر نمی‌دهد.
+
+## محدودیت‌های واقعی تلگرام
+
+- ربات فقط رویدادهایی را می‌بیند که Telegram Bot API برایش ارسال می‌کند؛ تاریخچه قبل از اضافه‌شدن را نمی‌خواند.
+- برای دریافت پیام‌های عادی گروه، Group Privacy باید با کاربرد موردنظر هماهنگ باشد.
+- در کانال، ربات باید دسترسی مدیریتی مناسب داشته باشد تا پست‌ها و رویدادهای مرتبط را دریافت کند.
+- اگر ربات مجوز حذف/سنجاق/محدودسازی نداشته باشد، آن عملیات شکست می‌خورد؛ خطای تلگرام به معنی موفقیت عملیات نیست.
+- شمارش بازدید، فوروارد و واکنش فقط بر اساس داده‌هایی است که تلگرام در اختیار ربات قرار می‌دهد؛ این داده‌ها لزوماً نرخ تعامل کامل یا هویت واکنش‌دهندگان را نشان نمی‌دهند.
