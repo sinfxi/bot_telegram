@@ -1,5 +1,6 @@
 """Username/password authentication for the FXI panel."""
-import os, hmac, hashlib, secrets, re
+import os, hmac, hashlib, secrets, re, time
+from collections import defaultdict
 from datetime import datetime, timezone
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
@@ -11,6 +12,15 @@ def install_panel_auth(app, bot):
     admin_name = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
     admin_pass = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
     allow_signup = os.getenv("PANEL_ALLOW_REGISTRATION", "true").lower() in {"1","true","yes","on"}
+    login_attempts = defaultdict(list)
+
+    def enforce_login_limit(request):
+        address = request.client.host if request.client else "unknown"
+        now = time.time()
+        login_attempts[address] = [stamp for stamp in login_attempts[address] if now - stamp < 900]
+        if len(login_attempts[address]) >= 8:
+            raise HTTPException(429, "تعداد تلاش‌ها زیاد است؛ ۱۵ دقیقه دیگر امتحان کن.")
+        return address
 
     def decode(token, age):
         try: return signer.loads(token, max_age=age) if signer and token else {}
@@ -67,9 +77,12 @@ def install_panel_auth(app, bot):
     @app.post("/auth/admin-login")
     async def admin_login(request: Request):
         if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        address = enforce_login_limit(request)
         data = await request.json()
         if not signer or not admin_pass or not hmac.compare_digest(str(data.get("username","")), admin_name) or not hmac.compare_digest(str(data.get("password","")), admin_pass):
+            login_attempts[address].append(time.time())
             raise HTTPException(401, "نام کاربری یا رمز مدیر اشتباه است.")
+        login_attempts.pop(address, None)
         response = JSONResponse({"redirect":"/admin"})
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto","").split(",")[0].strip() == "https"
         response.set_cookie("fxi_admin_session", signer.dumps({"role":"admin","username":admin_name}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
@@ -94,11 +107,14 @@ def install_panel_auth(app, bot):
     @app.post("/auth/user-login")
     async def user_login(request: Request):
         if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        address = enforce_login_limit(request)
         data = await request.json()
         username = str(data.get("username","")).strip().lower()
         user = bot.admin_data.get("panel_users",{}).get(username)
         if not user or user.get("disabled") or not verify_password(str(data.get("password","")), user.get("password_hash","")):
+            login_attempts[address].append(time.time())
             raise HTTPException(401, "نام کاربری یا رمز عبور اشتباه است.")
+        login_attempts.pop(address, None)
         if not signer: raise HTTPException(503, "SESSION_SECRET تنظیم نشده است.")
         response = JSONResponse({"redirect":"/account"})
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto","").split(",")[0].strip() == "https"
@@ -109,6 +125,14 @@ def install_panel_auth(app, bot):
     async def account(request: Request):
         data = decode(request.cookies.get("fxi_user_session",""), 604800)
         username = str(data.get("username","")) if data.get("role") == "user" else ""
-        if not username or username not in bot.admin_data.get("panel_users",{}): return RedirectResponse("/login", status_code=303)
+        if not username or username not in bot.admin_data.get("panel_users",{}) or bot.admin_data["panel_users"][username].get("disabled"): return RedirectResponse("/login", status_code=303)
         import html
         return HTMLResponse("<html lang='fa' dir='rtl'><meta charset='utf-8'><h1>حساب کاربری</h1><p>خوش اومدی "+html.escape(username)+"</p><p>این حساب دسترسی مدیریت ندارد.</p></html>", headers={"Cache-Control":"no-store"})
+
+    @app.post("/auth/logout")
+    async def panel_logout(request: Request):
+        if not bot._admin_origin_allowed(request): raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie("fxi_admin_session", path="/")
+        response.delete_cookie("fxi_user_session", path="/")
+        return response
