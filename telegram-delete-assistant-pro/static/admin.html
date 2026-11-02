@@ -163,6 +163,161 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 @media(max-width:560px){.layout{padding:6px}.side{padding:12px}.brand b{font-size:15px}.top{padding:15px;gap:10px}.top h1{font-size:18px}.top .row{width:100%;flex-wrap:wrap}.content{padding:12px}.hero{padding:19px}.hero h2{font-size:20px}.grid,.providers,.stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:9px}.grid .card{padding:14px}.num{font-size:24px}.section.card{padding:14px}.quick-actions button{min-width:100%}.filterbar{flex-direction:column;align-items:stretch}.conv-layout{grid-template-columns:1fr!important}.conv-thread{max-height:440px}.permission-grid{grid-template-columns:1fr}.status{font-size:10px}.btn{padding:10px 12px}}
 @media(max-width:370px){.grid,.providers,.stat-strip{grid-template-columns:1fr!important}.nav button{font-size:11px}}
 .broadcast-targets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 20px}.broadcast-targets label{display:flex;gap:10px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025);cursor:pointer}.broadcast-targets input,.community-toggle input{width:18px;height:18px;accent-color:var(--mint);flex-shrink:0}.broadcast-targets span{display:grid;gap:5px}.broadcast-targets small{color:var(--muted);line-height:1.7}.community-item{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px;border-bottom:1px solid var(--line)}.community-info{display:grid;gap:7px;min-width:180px}.community-info small{line-height:1.8}.community-controls{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end}.community-toggle{display:flex;gap:7px;align-items:center;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}.community-toggle input:disabled{opacity:.5}@media(max-width:760px){.broadcast-targets{grid-template-columns:1fr}.community-item{align-items:flex-start;flex-direction:column}.community-controls{justify-content:flex-start}}@media(prefers-reduced-motion:reduce){.logo:after{animation:none}html{scroll-behavior:auto}}
+
+/* FXI visual refinement — polished, responsive, and accessible */
+:root{
+ --bg:#081116;--panel:#101d24;--panel2:#172831;--line:#2a4149;
+ --text:#eef8f4;--muted:#9aafa8;--mint:#b7f3d2;--green:#70d2a0;
+ --shadow:0 24px 70px rgba(0,0,0,.28);--radius:22px
+}
+html{scroll-behavior:smooth;scroll-padding-top:22px}
+body{
+ background:
+  radial-gradient(ellipse at 88% 4%,rgba(80,180,133,.14),transparent 32%),
+  radial-gradient(ellipse at 4% 88%,rgba(78,132,150,.10),transparent 30%),
+  var(--bg);
+ background-attachment:fixed
+}
+.layout{gap:20px;padding:20px;grid-template-columns:258px minmax(0,1fr)}
+.side,.main{
+ border-color:rgba(159,208,190,.13);
+ background:linear-gradient(155deg,rgba(19,34,41,.97),rgba(11,23,29,.97));
+ box-shadow:var(--shadow);backdrop-filter:blur(18px)
+}
+.side{position:sticky;top:20px;height:calc(100vh - 40px);min-height:580px;overflow:auto}
+.brand{padding:4px 2px 22px}
+.logo{position:relative;isolation:isolate;box-shadow:0 8px 26px rgba(111,196,154,.17)}
+.logo:after{content:"";position:absolute;inset:-5px;border-radius:18px;border:1px solid rgba(183,243,210,.2);z-index:-1}
+.brand b{letter-spacing:.7px}
+.brand small{letter-spacing:1.15px;margin-top:3px}
+.navlabel{letter-spacing:1px;font-weight:700}
+.nav{display:grid;gap:6px}
+.nav button{
+ position:relative;display:flex;align-items:center;gap:10px;text-align:right;
+ min-height:43px;padding:11px 13px;border:1px solid transparent;border-radius:13px;
+ color:#a7bbb5;background:transparent;transition:background .18s ease,border-color .18s ease,transform .18s ease,color .18s ease
+}
+.nav button:hover{background:rgba(168,231,199,.075);border-color:rgba(168,231,199,.12);color:#f2fff8;transform:translateX(-2px)}
+.nav button.active{
+ color:#eafff2;border-color:rgba(168,231,199,.24);
+ background:linear-gradient(100deg,rgba(111,196,154,.18),rgba(111,196,154,.045));
+ box-shadow:inset -3px 0 0 var(--mint),0 8px 22px rgba(0,0,0,.12)
+}
+.sidefoot{margin-top:auto;padding:16px 13px;border:1px solid rgba(168,231,199,.13);border-radius:16px;background:linear-gradient(135deg,rgba(111,196,154,.09),rgba(255,255,255,.015));line-height:1.8}
+.sidefoot p{margin:4px 0 0;color:var(--muted);font-size:11px}
+.main{min-width:0;overflow:hidden}
+.top{
+ position:sticky;top:0;z-index:10;gap:16px;padding:22px 26px;
+ background:rgba(13,26,32,.88);border-bottom:1px solid rgba(159,208,190,.12);
+ backdrop-filter:blur(22px)
+}
+.top h1{font-size:clamp(20px,2vw,27px);letter-spacing:-.5px}
+.top p{margin-top:5px;line-height:1.8}
+.content{padding:26px}
+.hero{
+ position:relative;isolation:isolate;overflow:hidden;
+ padding:27px 28px;margin-bottom:22px;border:1px solid rgba(168,231,199,.16);
+ border-radius:var(--radius);
+ background:linear-gradient(115deg,rgba(31,65,55,.64),rgba(18,39,46,.82) 52%,rgba(19,32,39,.65));
+ box-shadow:0 14px 38px rgba(0,0,0,.12)
+}
+.hero:before{
+ content:"";position:absolute;z-index:-1;width:220px;height:220px;left:-55px;top:-115px;
+ border-radius:50%;border:1px solid rgba(183,243,210,.12);
+ box-shadow:0 0 0 22px rgba(183,243,210,.025),0 0 0 48px rgba(183,243,210,.018)
+}
+.hero:after{
+ content:"";position:absolute;z-index:-1;width:150px;height:150px;left:5%;bottom:-125px;
+ border-radius:50%;background:rgba(111,196,154,.08);filter:blur(4px)
+}
+.hero small{display:inline-flex;align-items:center;gap:8px;color:var(--mint);font-size:10px;font-weight:800;letter-spacing:1.5px}
+.hero small:before{content:"";width:19px;height:2px;border-radius:9px;background:var(--mint)}
+.hero h2{font-size:clamp(22px,2.5vw,31px);line-height:1.55;letter-spacing:-.6px;margin:8px 0}
+.hero p{max-width:760px;line-height:2;color:#b2c5be}
+.grid{gap:15px}
+.card{
+ border:1px solid rgba(159,208,190,.13);border-radius:19px;
+ background:linear-gradient(145deg,rgba(25,43,51,.91),rgba(16,29,36,.95));
+ box-shadow:0 12px 30px rgba(0,0,0,.12);
+ transition:border-color .2s ease,transform .2s ease,box-shadow .2s ease
+}
+.grid>.card{position:relative;overflow:hidden;padding:21px}
+.grid>.card:after{
+ content:"";position:absolute;left:-34px;bottom:-52px;width:115px;height:115px;
+ border-radius:50%;border:1px solid rgba(168,231,199,.075);pointer-events:none
+}
+.grid>.card:hover{border-color:rgba(168,231,199,.25);transform:translateY(-2px);box-shadow:0 18px 38px rgba(0,0,0,.2)}
+.card label{font-size:12px;font-weight:600;color:#a9beb6}
+.num{font-size:clamp(27px,3vw,36px);font-weight:800;letter-spacing:-1px;line-height:1.45;color:#effff6}
+.sub{font-size:11px;line-height:1.9;color:var(--muted)}
+.section.card{padding:22px}
+.section-head{gap:12px;flex-wrap:wrap}
+.section-head h3,.card h3{font-size:15px;letter-spacing:-.2px}
+.btn{
+ border:1px solid rgba(183,243,210,.18);border-radius:12px;
+ box-shadow:0 5px 14px rgba(0,0,0,.12);
+ transition:transform .16s ease,filter .16s ease,box-shadow .16s ease
+}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 9px 20px rgba(0,0,0,.2)}
+.btn:active{transform:translateY(0)}
+.btn:focus-visible,.nav button:focus-visible,input:focus-visible,textarea:focus-visible{
+ outline:2px solid var(--mint);outline-offset:3px
+}
+.field{
+ border:1px solid rgba(159,208,190,.17);border-radius:12px;
+ background:rgba(6,17,22,.48);transition:border-color .18s ease,box-shadow .18s ease
+}
+.field:focus{border-color:rgba(183,243,210,.55);box-shadow:0 0 0 3px rgba(111,196,154,.09);outline:0}
+.listitem,.community-item{border-color:rgba(159,208,190,.1);transition:background .18s ease}
+.listitem:hover,.community-item:hover{background:rgba(168,231,199,.035)}
+.stat-strip{gap:11px}
+.mini-stat{border:1px solid rgba(159,208,190,.11);border-radius:15px;background:rgba(6,17,22,.25);padding:15px}
+.mini-stat span{line-height:1.8}
+.mini-stat b{font-size:23px;color:#effff6}
+.status,.badge{border:1px solid rgba(168,231,199,.14);background:rgba(111,196,154,.07);border-radius:999px;padding:7px 11px}
+.notice{border-radius:13px;line-height:1.9}
+.empty{border:1px dashed rgba(159,208,190,.18);border-radius:14px;padding:25px;line-height:2}
+.providers{gap:13px}
+.provider,.provider-card{border-radius:16px}
+.quick-actions{gap:9px}
+.quick-actions .btn{min-height:40px}
+.broadcast-targets label{transition:border-color .18s ease,background .18s ease,transform .18s ease}
+.broadcast-targets label:hover{border-color:rgba(168,231,199,.3);background:rgba(168,231,199,.045);transform:translateY(-1px)}
+.community-toggle{padding:7px 9px;border:1px solid rgba(159,208,190,.12);border-radius:10px;background:rgba(5,15,20,.28)}
+.community-toggle:has(input:checked){border-color:rgba(111,196,154,.32);color:#d9f8e6;background:rgba(111,196,154,.08)}
+.page.active{animation:fxiPageIn .22s ease both}
+@keyframes fxiPageIn{from{opacity:.65;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(min-width:1450px){.content{padding:30px}.grid{gap:18px}}
+@media(max-width:1050px){.layout{grid-template-columns:220px minmax(0,1fr);padding:12px;gap:12px}.side{padding:16px}.content{padding:20px}.top{padding:18px 20px}}
+@media(max-width:780px){
+ .layout{display:flex;flex-direction:column;padding:9px;gap:10px}
+ .side{position:relative;top:auto;height:auto;min-height:0;padding:13px;border-radius:18px}
+ .brand{padding:2px 2px 12px}.navlabel{margin:12px 5px 7px}
+ .nav{display:flex;gap:7px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:thin}
+ .nav button{width:auto;flex:0 0 auto;white-space:nowrap;min-height:39px;padding:9px 12px}
+ .sidefoot{display:none}
+ .main{border-radius:18px}
+ .top{position:relative;align-items:flex-start;flex-direction:column;padding:17px}
+ .top .row{width:100%;display:flex;flex-wrap:wrap;align-items:center}
+ .content{padding:13px}
+ .hero{padding:21px 19px;border-radius:18px}
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .grid>.card{padding:15px}
+ .section.card{padding:15px}
+ .conv-layout{grid-template-columns:1fr}
+}
+@media(max-width:460px){
+ .grid{grid-template-columns:1fr}
+ .top .row>*{max-width:100%}
+ .hero h2{font-size:22px}
+ .num{font-size:29px}
+ .section-head{align-items:flex-start}
+ .community-controls{gap:7px}
+}
+@media(prefers-reduced-motion:reduce){
+ *,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
+}
+
 </style></head><body><div class="layout"><aside class="side"><div class="brand"><div class="logo">F</div><div><b>FXI CONTROL</b><small>ADMINISTRATION SUITE</small></div></div><div class="navlabel">مدیریت سیستم</div><nav class="nav"><button class="active" data-page="overview">◫ نمای کلی</button><button data-page="providers">✦ سرویس‌های هوش مصنوعی</button><button data-page="users">♙ کاربران و مدیران</button><button data-page="community">◉ گروه‌ها و کانال‌ها</button><button data-page="conversations">▤ تاریخچه مکالمات</button><button data-page="audit">▣ گزارش فعالیت‌ها</button><button data-page="payments">▣ بررسی پرداخت‌ها</button><button data-page="broadcast">◉ پیام همگانی</button><button data-page="prompt">⌘ دستورالعمل دستیار</button><button data-page="system">⚙ سلامت و تنظیمات</button><button data-page="features">🎛 قابلیت‌های ربات</button></nav><div class="sidefoot">کنترل دقیق، تجربه بهتر<p>پنل مدیریت FXI · نسخه بازطراحی‌شده</p></div></aside>
 <main class="main"><header class="top"><div><h1 id="title">نمای کلی</h1><p>مرکز مدیریت و پایش ربات هوشمند FXI</p></div><div class="row"><button class="btn secondary" id="autoRefreshBtn" type="button" onclick="toggleAutoRefresh()">⏱ به‌روزرسانی خودکار: روشن</button><div class="status" id="status">● در حال اتصال</div></div></header><div class="content"><div id="notice" class="notice">در حال دریافت اطلاعات از سرور…</div>
 <section id="page-overview" class="page active" data-page-permission="dashboard"><div class="hero"><small>FXI SYSTEM OVERVIEW</small><h2>همه‌چیز تحت کنترل توست.</h2><p>وضعیت ربات، کاربران و سرویس‌های متصل را از یک پنل یکپارچه مدیریت کن.</p></div><div class="grid"><div class="card"><label>کاربران ثبت‌شده</label><div class="num" id="users">—</div><div class="sub">کاربرانی که ربات را شروع کرده‌اند</div></div><div class="card"><label>مدیران</label><div class="num" id="adminsCount">—</div><div class="sub">سطح دسترسی مدیریتی</div></div><div class="card"><label>سرویس‌های فعال</label><div class="num" id="providerCount">—</div><div class="sub">دارای کلید API معتبر در تنظیمات</div></div><div class="card"><label>وضعیت ربات</label><div class="num" id="bot">—</div><button class="btn secondary" onclick="toggleBot()">تغییر وضعیت ربات</button></div></div><div class="section card" id="providerOverviewCard"><div class="section-head"><h3>وضعیت اتصال مدل‌ها</h3><button class="btn secondary" onclick="refresh()">به‌روزرسانی</button></div><div class="providers" id="providerOverview"></div></div><div class="section card" id="communityOverviewCard"><div class="section-head"><h3>نمای جامعه تلگرام</h3><span class="badge">تحلیل داده‌های ثبت‌شده</span></div><div class="stat-strip"><div class="mini-stat"><span>گروه‌ها و کانال‌ها</span><b id="communityChats">—</b></div><div class="mini-stat"><span>پیام‌های ثبت‌شده</span><b id="communityMessages">—</b></div><div class="mini-stat"><span>اعضای مشاهده‌شده</span><b id="communityMembers">—</b></div><div class="mini-stat"><span>پست‌های قابل تحلیل</span><b id="communityPosts">—</b></div></div><div class="quick-actions"><button class="btn secondary" onclick="loadMetrics()">↻ به‌روزرسانی آمار</button><button class="btn secondary" onclick="goPage('system')" data-required-permission="system">⚙ مشاهده سلامت سیستم</button><button class="btn secondary" onclick="goPage('broadcast')" data-required-permission="broadcast">✉ رفتن به پیام همگانی</button></div><p class="muted">این اعداد مربوط به داده‌هایی است که ربات از زمان دسترسی ثبت کرده؛ به معنی دسترسی به تاریخچه کامل تلگرام نیست.</p></div></section>
