@@ -1,5 +1,7 @@
 # FXI Telegram Community Manager 🛡️
 
+[![FXI CI](https://github.com/sinfxi/bot_telegram/actions/workflows/telegram-delete-assistant-ci.yml/badge.svg?branch=feature%2Ftelegram-delete-assistant)](https://github.com/sinfxi/bot_telegram/actions/workflows/telegram-delete-assistant-ci.yml)
+
 ربات فارسی مدیریت گروه و کانال تلگرام با فرمان‌های طبیعی، ابزارهای حرفه‌ای مدیریت اعضا، گفت‌وگوی هوشمند مبتنی بر OpenRouter و پنل وب مستقل برای مالک و مدیران ربات.
 
 > **پروژه فعال این شاخه:** `telegram-delete-assistant-pro/`  
@@ -83,6 +85,10 @@ python -m unittest discover -s tests -p "test_fxi_core.py" -v
 ```
 
 GitHub Actions علاوه بر این موارد، نحو JavaScript پنل و صفحه ورود و ثبت مسیرهای اصلی احراز هویت را بررسی می‌کند. موفقیت CI جایگزین تست واقعی در تلگرام و مرورگر نیست.
+
+## تاریخچه نسخه‌ها
+
+- [تاریخچه تغییرات](CHANGELOG.md)
 
 ## مستندات تکمیلی
 
