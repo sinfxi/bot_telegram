@@ -2453,7 +2453,12 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
 
     recipients: list[tuple[str, int]] = []
     if "users" in targets:
-        recipients.extend(("users", int(uid)) for uid in dict.fromkeys(admin_data.get("users", [])) if str(uid).lstrip("-").isdigit())
+        recipients.extend(
+            ("users", int(uid))
+            for uid in dict.fromkeys(admin_data.get("users", []))
+            if str(uid).lstrip("-").isdigit()
+            and str(uid) not in admin_data.get("blocked_users", {})
+        )
     chat_records = admin_data.get("community", {}).get("chats", {})
     for raw_chat_id, record in chat_records.items():
         chat_type = str(record.get("type", "")).lower()
