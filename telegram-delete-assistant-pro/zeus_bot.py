@@ -34,7 +34,7 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-log = logging.getLogger("fxi-multi-ai-chat")
+log = logging.getLogger("fxi-telegram-community-manager")
 
 BOT_TOKEN = os.getenv("ZEUS_BOT_TOKEN", "").strip()
 SYSTEM_PROMPT = os.getenv(
@@ -1015,7 +1015,7 @@ def api_error(provider_id: str, status: int, data: dict) -> str:
     )):
         return (f"💳 اعتبار یا سهمیهٔ {PROVIDERS[provider_id]['label']} تمام شده است. "
                 "این خطا با تغییر کد حل نمی‌شود؛ مدیر باید اعتبار همان سرویس را شارژ کند "
-                "یا از /ai یک سرویس دارای اعتبار انتخاب شود.")
+                "یا از بخش «انتخاب مدل» در گفت‌وگوی خصوصی تنظیمات مدل را بررسی کند.")
     if any(term in detail_lower for term in (
         "incorrect api key", "invalid api key", "invalid x-api-key", "authentication",
         "unauthorized", "api key not valid",
@@ -1885,6 +1885,10 @@ def _natural_intent(text_value: str) -> str | None:
         return "disable_ai"
     if any(p in value for p in ("آمار گروه", "آمار کانال", "وضعیت گروه", "آمار جامعه")):
         return "stats"
+    # Put rule-editing intents before the broad "قوانین" lookup so
+    # "ثبت قوانین ..." is not swallowed by the read-only rules handler.
+    if value.startswith(("ثبت قوانین", "قوانین جدید", "تغییر قوانین")):
+        return "set_rules"
     if any(p in value for p in ("قوانین", "قانون ها", "قوانین گروه", "قانون های گروه", "قوانین کانال")):
         return "rules"
     if any(p in value for p in ("راهنما", "کمک", "راهنمای ربات", "چه دستورهایی", "چه کارهایی بلدی", "کمک ربات")):
@@ -1911,8 +1915,6 @@ def _natural_intent(text_value: str) -> str | None:
         return "challenge"
     if value in {"پیشنهادها", "تحلیل پیشنهادها"}:
         return "suggestions"
-    if value.startswith(("ثبت قوانین", "قوانین جدید", "تغییر قوانین")):
-        return "set_rules"
     if value.startswith(("فیلتر کلمه ", "افزودن کلمه ممنوع ")):
         return "filter_word"
     if value.startswith(("حذف فیلتر ", "برداشتن فیلتر ")):
@@ -2347,7 +2349,7 @@ async def lifespan(app: FastAPI):
     HTTP_SESSION = None
 
 
-app = FastAPI(title="FXI Multi-AI Chat Bot", version="6.0.0", lifespan=lifespan)
+app = FastAPI(title="FXI Telegram Community Manager", version="6.1.0", lifespan=lifespan)
 
 
 @app.middleware("http")
