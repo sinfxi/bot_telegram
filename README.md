@@ -41,12 +41,13 @@ python -m venv .venv
 # Windows: .venv\\Scripts\\activate
 # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-متغیرهای محیطی را از روی `.env.example` تنظیم کن و سپس اجرا کن:
+مقدارهای واقعی را در فایل محلی `.env` وارد کن؛ این فایل را هرگز commit نکن. سپس اجرا کن:
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000
+uvicorn app:app --env-file .env --host 0.0.0.0 --port 8000
 ```
 
 برای راهنمای کامل استقرار و تنظیمات، فایل [راهنمای پروژه](telegram-delete-assistant-pro/README.md) را ببین.
