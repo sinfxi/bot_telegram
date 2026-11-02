@@ -21,7 +21,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageReactionCountUpdated, ChatMemberUpdated, ChatPermissions
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, MessageReactionCountUpdated, ChatMemberUpdated, ChatPermissions, BufferedInputFile
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -479,8 +479,11 @@ class AdminIdPayload(BaseModel):
 
 
 class BroadcastPayload(BaseModel):
-    text: str = Field(min_length=1, max_length=3900)
+    text: str = Field(default="", max_length=3900)
     targets: list[str] = Field(default_factory=lambda: ["users", "groups", "channels"])
+    image_base64: str | None = Field(default=None, max_length=7_000_000)
+    image_mime: str | None = Field(default=None, max_length=40)
+    image_name: str | None = Field(default="broadcast-image", max_length=160)
 
 
 class CommunitySettingsPayload(BaseModel):
@@ -2382,8 +2385,18 @@ async def set_bot_state(payload: BotStatePayload, _: str = Depends(require_admin
 @app.post("/admin/api/broadcast")
 async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
     message_text = payload.text.strip()
-    if not message_text:
-        raise HTTPException(status_code=422, detail="متن پیام نمی‌تواند فقط شامل فاصله باشد.")
+    image_bytes = None
+    if payload.image_base64:
+        if payload.image_mime not in {"image/jpeg", "image/png", "image/webp"}:
+            raise HTTPException(status_code=422, detail="فرمت تصویر باید JPG، PNG یا WebP باشد.")
+        try:
+            image_bytes = base64.b64decode(payload.image_base64, validate=True)
+        except (ValueError, base64.binascii.Error):
+            raise HTTPException(status_code=422, detail="دادهٔ تصویر معتبر نیست.")
+        if not image_bytes or len(image_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=422, detail="حجم تصویر باید بیشتر از صفر و حداکثر ۵ مگابایت باشد.")
+    if not message_text and not image_bytes:
+        raise HTTPException(status_code=422, detail="متن یا تصویر پیام را وارد کن.")
     if not bot:
         raise HTTPException(status_code=503, detail="اتصال ربات تلگرام فعال نیست")
     allowed_targets = {"users", "groups", "channels"}
@@ -2410,10 +2423,25 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
         raise HTTPException(status_code=422, detail="برای مخاطبان انتخاب‌شده هنوز گیرنده‌ای ثبت نشده است. ربات باید در گروه/کانال عضو باشد و دست‌کم یک به‌روزرسانی دریافت کرده باشد.")
 
     totals = {key: {"sent": 0, "failed": 0} for key in allowed_targets}
-    log_admin_action("broadcast_started", f"targets={','.join(sorted(targets))}; recipients={len(recipients)}; chars={len(message_text)}")
+    log_admin_action("broadcast_started", f"targets={','.join(sorted(targets))}; recipients={len(recipients)}; chars={len(message_text)}; image={bool(image_bytes)}")
+
+    async def send_to_recipient(recipient_id: int):
+        if image_bytes:
+            # Telegram photo captions are limited to 1024 characters.
+            caption = message_text if len(message_text) <= 1024 else None
+            await bot.send_photo(
+                recipient_id,
+                BufferedInputFile(image_bytes, filename=payload.image_name or "broadcast-image"),
+                caption=caption,
+            )
+            if message_text and caption is None:
+                await bot.send_message(recipient_id, message_text)
+        elif message_text:
+            await bot.send_message(recipient_id, message_text)
+
     for kind, recipient_id in recipients:
         try:
-            await bot.send_message(recipient_id, message_text)
+            await send_to_recipient(recipient_id)
             totals[kind]["sent"] += 1
         except Exception as exc:
             # Respect Telegram's flood-control hint when available, then retry once.
@@ -2421,7 +2449,7 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
             if retry_after:
                 await asyncio.sleep(min(float(retry_after), 30.0))
                 try:
-                    await bot.send_message(recipient_id, message_text)
+                    await send_to_recipient(recipient_id)
                     totals[kind]["sent"] += 1
                     await asyncio.sleep(0.05)
                     continue
