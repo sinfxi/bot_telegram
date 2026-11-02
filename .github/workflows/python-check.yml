@@ -4,9 +4,18 @@ on:
   push:
     branches:
       - feature/personal-account-automation
+    paths:
+      - "foodmind.py"
+      - "requirements.txt"
+      - "tests/test_core.py"
+      - "scripts/**"
+      - ".github/workflows/python-check.yml"
   pull_request:
     paths:
-      - "telegram-delete-assistant-pro/**"
+      - "foodmind.py"
+      - "requirements.txt"
+      - "tests/test_core.py"
+      - "scripts/**"
       - ".github/workflows/python-check.yml"
 
 jobs:
