@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from pydantic import ValidationError
+
 _PROJECT_DIR = Path(__file__).resolve().parents[1] / "telegram-delete-assistant-pro"
 _TEST_STATE = tempfile.TemporaryDirectory(prefix="fxi-test-")
 os.environ["DATABASE_URL"] = ""
@@ -66,9 +68,9 @@ class ConfigurationTests(unittest.TestCase):
             blocked_words=["spam", "advert"],
         )
         self.assertEqual(valid.warn_limit, 4)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             zeus_bot.CommunitySettingsPayload(warn_limit=1)
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             zeus_bot.CommunitySettingsPayload(warn_limit=6)
 
     def test_manager_api_permissions_are_classified(self):
