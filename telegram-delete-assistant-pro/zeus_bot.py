@@ -1914,7 +1914,8 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
             await message.answer("عملیات انجام نشد؛ دسترسی‌های مدیریتی ربات را بررسی کن.")
         return True
     if intent == "set_rules":
-        rules_text = re.sub(r"^(?:ثبت قوانین|قوانین جدید|تغییر قوانین)\s*[:：-]?\s*", "", request_text.strip(), flags=re.I)
+        clean_request = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)[،,:؛\s-]*", "", request_text.strip(), flags=re.I)
+        rules_text = re.sub(r"^(?:ثبت قوانین|قوانین جدید|تغییر قوانین)\s*[:：-]?\s*", "", clean_request, flags=re.I)
         if not rules_text or len(rules_text) > 3000:
             await message.answer("متن قوانین را بعد از عبارت «ثبت قوانین» بنویس.")
             return True
