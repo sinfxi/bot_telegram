@@ -663,7 +663,7 @@ def provider_keyboard() -> InlineKeyboardMarkup:
         )])
     rows.append([InlineKeyboardButton(text="ℹ️ وضعیت سرویس‌ها", callback_data="providers:status")])
 
-    rows.append([InlineKeyboardButton(text="❤️ حمایت / درخواست ادمینی", callback_data="support:start")])
+    rows.append([InlineKeyboardButton(text="❤️ حمایت مالی از FXI", callback_data="support:start")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -713,7 +713,7 @@ async def start_menu_actions(callback: CallbackQuery):
     if action == "help":
         await callback.message.answer(
             "📘 راهنمای FXI\n\n"
-            "در گروه روی پیام عضو ریپلای کن و بنویس «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».\n"
+            "در گروه روی پیام عضو ریپلای کن و بنویس «پین»، «آنپین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد»، «بن» یا «آنبن».\n"
             "برای آمار، قوانین و تنظیمات عبارت‌هایی مثل «آمار گروه»، «قوانین» و «تنظیمات» را بنویس.\n"
             "در گفت‌وگوی خصوصی بنویس «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت» یا «راهنما».\n"
             "برای پاسخ هوشمند گروه، مدیر باید آن را فعال کند؛ پاسخ به گفت‌وگوی عادی فقط با منشن یا ریپلای به ربات انجام می‌شود."
@@ -942,7 +942,7 @@ async def help_command(message: Message):
     await message.answer(
         "راهنمای FXI 🤖\n\n"
         "در گفت‌وگوی خصوصی فقط کافی است بنویسی: «انتخاب مدل»، «پاک کردن تاریخچه»، «حمایت» یا «راهنما».\n\n"
-        "در گروه، روی پیام عضو ریپلای کن و بنویس: «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».\n"
+        "در گروه، روی پیام عضو ریپلای کن و بنویس: «پین»، «آنپین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد»، «بن» یا «آنبن».\n"
         "برای امکانات دیگر بنویس: «تنظیمات»، «قوانین»، «ثبت قوانین ...»، «آمار گروه»، «گزارش کانال»، «پست‌های برتر»، «چالش»، «پیشنهادها» یا «برنامه محتوا».\n\n"
         "عملیات مدیریتی فقط پس از بررسی مدیر بودن فرستنده و مجوز ربات انجام می‌شود. "
         "تاریخچهٔ هر کاربر و هر سرویس جداگانه نگه‌داری می‌شود. پاسخ مدل ممکن است اشتباه باشد؛ اطلاعات مهم را بررسی کن."
@@ -1898,6 +1898,8 @@ def _natural_intent(text_value: str) -> str | None:
         return "draft"
     if value in {"پین", "سنجاق", "سنجاق کن", "این پیام رو پین کن", "این پیام را سنجاق کن"}:
         return "pin"
+    if value in {"آنپین", "آنبین", "برداشتن پین", "لغو سنجاق", "پین رو بردار", "سنجاق رو بردار"}:
+        return "unpin"
     if value in {"حذف", "پاک کن", "حذف پیام", "این پیام رو حذف کن", "این پیام را پاک کن"}:
         return "delete"
     if value.startswith(("سکوت", "میوت", "محدود کن", "ساکت کن")):
@@ -1906,6 +1908,8 @@ def _natural_intent(text_value: str) -> str | None:
         return "unmute"
     if value in {"بن", "مسدود کن", "اخراج کن", "از گروه بنداز بیرون"}:
         return "ban"
+    if value in {"آنبن", "رفع بن", "رفع مسدودی", "از بن دربیار", "آزادسازی از بن"}:
+        return "unban"
     if value in {"تنظیمات", "تنظیمات گروه", "تنظیمات ربات"}:
         return "settings"
     if value in {"گزارش کانال", "گزارش گروه", "گزارش فعالیت"}:
@@ -1946,14 +1950,14 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     intent = _natural_intent(request_text)
     if not intent:
         return False
-    if intent in {"enable_ai", "disable_ai", "draft", "pin", "delete", "mute", "unmute", "ban", "settings", "challenge", "suggestions", "top_posts", "report", "set_rules", "content_plan", "filter_word", "unfilter_word", "enable_conversation", "disable_conversation", "warn", "clear_warnings"}:
+    if intent in {"enable_ai", "disable_ai", "draft", "pin", "unpin", "delete", "mute", "unmute", "ban", "unban", "settings", "challenge", "suggestions", "top_posts", "report", "set_rules", "content_plan", "filter_word", "unfilter_word", "enable_conversation", "disable_conversation", "warn", "clear_warnings"}:
         if not await community_is_admin(message.chat.id, message.from_user.id):
             await message.answer("⛔ این عملیات فقط برای مدیران گروه/کانال است.")
             return True
     data = community_chat(message.chat.id)
     required_feature = {
-        "pin": "moderation", "delete": "moderation", "mute": "moderation",
-        "unmute": "moderation", "ban": "moderation", "set_rules": "rules_management",
+        "pin": "moderation", "unpin": "moderation", "delete": "moderation", "mute": "moderation",
+        "unmute": "moderation", "ban": "moderation", "unban": "moderation", "set_rules": "rules_management",
         "enable_ai": "ai_chat", "disable_ai": "ai_chat", "challenge": "engagement", "suggestions": "analytics", "top_posts": "analytics", "report": "analytics",
         "content_plan": "draft_generation", "draft": "draft_generation",
         "warn": "moderation", "clear_warnings": "moderation",
@@ -2016,22 +2020,25 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
             warnings[user_key] = count; save_admin_data()
             await message.answer(f"⚠️ اخطار {count}/{limit} برای {target_user.full_name} ثبت شد.")
         return True
-    if intent in {"pin", "delete", "mute", "unmute", "ban"}:
+    if intent in {"pin", "unpin", "delete", "mute", "unmute", "ban", "unban"}:
         target_message = message.reply_to_message
         if not target_message:
             await message.answer("برای این کار، روی پیام فرد موردنظر ریپلای کن و بعد بنویس: «پین»، «حذف»، «سکوت ۱۰ دقیقه»، «آزاد» یا «بن».")
             return True
         target_user = target_message.from_user
-        if intent in {"mute", "unmute", "ban"} and (not target_user or target_user.is_bot):
+        if intent in {"mute", "unmute", "ban", "unban"} and (not target_user or target_user.is_bot):
             await message.answer("برای این عملیات باید روی پیام یک عضو واقعی ریپلای کنی.")
             return True
-        if intent in {"mute", "unmute", "ban"} and await community_is_admin(message.chat.id, target_user.id):
+        if intent in {"mute", "unmute", "ban", "unban"} and await community_is_admin(message.chat.id, target_user.id):
             await message.answer("این عملیات روی مدیران گروه اجرا نمی‌شود.")
             return True
         try:
             if intent == "pin":
                 await bot.pin_chat_message(message.chat.id, target_message.message_id)
                 await message.answer("📌 پیام سنجاق شد.")
+            elif intent == "unpin":
+                await bot.unpin_chat_message(message.chat.id, target_message.message_id)
+                await message.answer("📍 سنجاق پیام برداشته شد.")
             elif intent == "delete":
                 await bot.delete_message(message.chat.id, target_message.message_id)
                 await message.answer("🗑 پیام حذف شد.")
@@ -2054,6 +2061,9 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
             elif intent == "ban":
                 await bot.ban_chat_member(message.chat.id, target_user.id)
                 await message.answer(f"⛔ {target_user.full_name} از گروه مسدود شد.")
+            elif intent == "unban":
+                await bot.unban_chat_member(message.chat.id, target_user.id, only_if_banned=True)
+                await message.answer(f"✅ مسدودیت {target_user.full_name} برداشته شد.")
         except Exception:
             log.exception("Natural moderation action failed: intent=%s chat=%s", intent, message.chat.id)
             await message.answer("عملیات انجام نشد؛ دسترسی‌های مدیریتی ربات را بررسی کن.")
