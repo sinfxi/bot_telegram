@@ -723,13 +723,16 @@ async def start_menu_actions(callback: CallbackQuery):
             await callback.answer("این بخش فقط برای مدیرانه.", show_alert=True)
             return
         base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-        panel_url = base_url + "/admin"
+        is_owner = _is_primary_admin(callback.from_user.id)
+        panel_url = base_url + ("/owner" if is_owner else "/admin")
+        button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود به پنل مدیر ربات"
+        title = "مالک ربات" if is_owner else "مدیر ربات"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛠 ورود به پنل مدیریت", url=panel_url)]
+            [InlineKeyboardButton(text=button_text, url=panel_url)]
         ])
         await callback.message.answer(
-            "🛠 پنل مدیریت FXI\n\n"
-            "برای باز کردن پنل، روی دکمهٔ زیر بزن. اگر وارد نشده باشی، صفحهٔ ورود مدیر نمایش داده می‌شود.",
+            f"🛠 پنل {title} FXI\n\n"
+            "این پنل بر اساس نقش مدیریتی ربات شما انتخاب شده است؛ مدیران گروه به‌تنهایی دسترسی پنل ربات ندارند.",
             reply_markup=keyboard,
         )
     await callback.answer()
@@ -911,15 +914,18 @@ async def admin_command(message: Message):
         await message.answer("⛔ دسترسی مدیران لازم است.")
         return
     base_url = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").rstrip("/").removesuffix("/admin")
-    panel_url = base_url + "/admin"
+    is_owner = _is_primary_admin(message.from_user.id)
+    panel_url = base_url + ("/owner" if is_owner else "/admin")
     permissions = _admin_permissions_for(message.from_user.id)
     active = "، ".join(ADMIN_PERMISSIONS[p] for p in sorted(permissions))
+    title = "پنل مالک ربات" if is_owner else "پنل مدیر ربات"
+    button_text = "👑 ورود به پنل مالک" if is_owner else "🛡 ورود به پنل مدیر ربات"
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛠 باز کردن پنل مدیریت", url=panel_url)]
+        [InlineKeyboardButton(text=button_text, url=panel_url)]
     ])
     await message.answer(
-        "🛠 پنل مدیریت FXI\n\n"
-        "از دکمهٔ زیر وارد آدرس مستقیم پنل شو. اگر نشست مدیریتی نداشته باشی، صفحهٔ ورود مدیر باز می‌شود.\n\n"
+        f"🛠 {title} FXI\n\n"
+        "این لینک مخصوص سطح دسترسی حساب تلگرامی شماست. اگر نشست معتبر نداشته باشی، صفحهٔ ورود مربوط نمایش داده می‌شود.\n\n"
         f"دسترسی‌های فعلی: {active}",
         reply_markup=keyboard,
     )
