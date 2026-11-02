@@ -105,6 +105,22 @@ def _admin_origin_allowed(request: Request) -> bool:
     return configured_match or same_origin_host
 
 
+# Runtime configuration/state must be initialized before loading persisted bot data.
+ADMIN_PANEL_PASSWORD = os.getenv("ADMIN_PANEL_PASSWORD", "").strip()
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
+SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") if BOT_TOKEN else None
+STATIC_DIR = Path(__file__).parent / "static"
+ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_READY = False
+admin_security = HTTPBasic(auto_error=False)
+admin_auth_failures: dict[str, list[float]] = defaultdict(list)
+ADMIN_AUTH_WINDOW_SECONDS = 900
+ADMIN_AUTH_MAX_FAILURES = 8
+admin_data_lock = asyncio.Lock()
+bot_enabled = True
+
+
 def _db_connect():
     if not DATABASE_URL:
         return None
