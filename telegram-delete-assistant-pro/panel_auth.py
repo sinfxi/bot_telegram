@@ -145,7 +145,7 @@ button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;backg
 const form=document.getElementById('loginForm'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
 form.addEventListener('submit',async e=>{e.preventDefault();btn.disabled=true;btn.textContent='در حال بررسی…';msg.textContent='';
 try{const response=await fetch('/auth/manager-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:form.user_id.value,password:form.password.value,activation_code:form.activation_code.value})});
-const data=await response.json();if(!response.ok)throw new Error(data.detail||'ورود ناموفق بود');location.assign(data.redirect||'/owner');
+const data=await response.json();if(!response.ok)throw new Error(data.detail||'ورود ناموفق بود');location.assign(data.redirect||'/admin');
 }catch(error){msg.textContent=error.message;}finally{btn.disabled=false;btn.textContent='ورود به پنل مدیر ربات';}});
 </script></body></html>"""
         return HTMLResponse(page, headers={"Cache-Control": "no-store"})
@@ -221,7 +221,7 @@ button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;backg
 const form=document.getElementById('loginForm'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
 form.addEventListener('submit',async e=>{e.preventDefault();btn.disabled=true;btn.textContent='در حال بررسی…';msg.textContent='';
 try{const response=await fetch('/auth/admin-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:form.username.value,password:form.password.value})});
-const data=await response.json();if(!response.ok)throw new Error(data.detail||'ورود ناموفق بود');location.assign(data.redirect||'/admin');
+const data=await response.json();if(!response.ok)throw new Error(data.detail||'ورود ناموفق بود');location.assign(data.redirect||'/owner');
 }catch(error){msg.textContent=error.message;}finally{btn.disabled=false;btn.textContent='ورود به پنل مالک';}});
 </script></body></html>"""
         return HTMLResponse(page, headers={"Cache-Control": "no-store"})
