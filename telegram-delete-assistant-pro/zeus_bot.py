@@ -1898,6 +1898,59 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     if required_feature and (not feature_enabled("community_management") or not feature_enabled(required_feature)):
         await message.answer("این قابلیت در تنظیمات ربات غیرفعال است.")
         return True
+    if intent in {"filter_word", "unfilter_word"}:
+        clean_request = re.sub(r"^(?:ربات|اف\\s*ایکس\\s*آی|fxi)[،,:؛\\s-]*", "", request_text.strip(), flags=re.I)
+        word = re.sub(r"^(?:فیلتر کلمه|افزودن کلمه ممنوع|حذف فیلتر|برداشتن فیلتر)\\s*", "", clean_request, flags=re.I).strip().lower()
+        if not word or len(word) > 60 or any(ch.isspace() for ch in word):
+            await message.answer("یک واژه کوتاه و بدون فاصله وارد کن؛ مثال: «فیلتر کلمه تبلیغ»")
+            return True
+        words = data.setdefault("blocked_words", [])
+        if intent == "filter_word":
+            if word not in words: words.append(word)
+            data.setdefault("settings", {})["keyword_filter_enabled"] = True
+            reply_text = f"🚫 واژه «{word}» به فیلتر اضافه شد."
+        else:
+            data["blocked_words"] = [item for item in words if item != word]
+            reply_text = f"✅ واژه «{word}» از فیلتر حذف شد."
+        save_admin_data()
+        await message.answer(reply_text)
+        return True
+    if intent in {"enable_conversation", "disable_conversation"}:
+        data.setdefault("settings", {})["conversational_ai"] = intent == "enable_conversation"
+        if intent == "enable_conversation": data["settings"]["ai_enabled"] = True
+        save_admin_data()
+        await message.answer("💬 حالت گفت‌وگوی رفاقتی فعال شد؛ به سؤال‌ها و شروع گفتگوهای طبیعی پاسخ می‌دهم، نه به تک‌تک پیام‌ها." if intent == "enable_conversation" else "🔕 حالت گفت‌وگوی رفاقتی خاموش شد.")
+        return True
+    if intent in {"warn", "clear_warnings"}:
+        target_message = message.reply_to_message
+        target_user = target_message.from_user if target_message else None
+        if not target_user or target_user.is_bot:
+            await message.answer("روی پیام عضو موردنظر ریپلای کن و بعد «اخطار» یا «پاک کردن اخطارها» را بنویس.")
+            return True
+        if await community_is_admin(message.chat.id, target_user.id):
+            await message.answer("مدیران گروه از سیستم اخطار مستثنا هستند.")
+            return True
+        warnings = data.setdefault("warnings", {})
+        user_key = str(target_user.id)
+        if intent == "clear_warnings":
+            warnings.pop(user_key, None); save_admin_data()
+            await message.answer(f"✅ اخطارهای {target_user.full_name} پاک شد."); return True
+        count = int(warnings.get(user_key, 0)) + 1
+        limit = max(2, min(5, int(data.setdefault("settings", {}).get("warn_limit", 3))))
+        if count >= limit:
+            try:
+                until = datetime.now(timezone.utc) + timedelta(minutes=30)
+                await bot.restrict_chat_member(message.chat.id, target_user.id, permissions=ChatPermissions(can_send_messages=False), until_date=until)
+                warnings.pop(user_key, None); save_admin_data()
+                await message.answer(f"⛔ {target_user.full_name} به {limit} اخطار رسید و ۳۰ دقیقه سکوت شد.")
+            except Exception:
+                log.exception("Warning escalation failed chat=%s user=%s", message.chat.id, target_user.id)
+                warnings[user_key] = count; save_admin_data()
+                await message.answer(f"⚠️ اخطار {count}/{limit} ثبت شد؛ برای سکوت خودکار، ربات باید مجوز محدودکردن اعضا داشته باشد.")
+        else:
+            warnings[user_key] = count; save_admin_data()
+            await message.answer(f"⚠️ اخطار {count}/{limit} برای {target_user.full_name} ثبت شد.")
+        return True
     if intent in {"pin", "delete", "mute", "unmute", "ban"}:
         target_message = message.reply_to_message
         if not target_message:
