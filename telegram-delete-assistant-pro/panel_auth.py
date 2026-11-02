@@ -48,16 +48,14 @@ def install_panel_auth(app, bot):
         token = request.cookies.get("fxi_admin_session", "")
         session = decode(token)
         if session.get("role") == "manager":
-            try:
-                uid = int(session.get("user_id", 0))
-            except (TypeError, ValueError):
-                uid = 0
-            if uid and bot.is_admin(uid) and not bot._is_primary_admin(uid):
-                perms = bot._admin_permissions_for(uid)
+            manager_name = str(session.get("manager", "")).strip().lower()
+            record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
+            if manager_name and isinstance(record, dict) and record.get("enabled", True):
+                perms = set(record.get("permissions", ["dashboard"])).intersection(bot.ADMIN_PERMISSIONS) - {"admins"}
                 needed = bot._permission_for_path(request.url.path)
                 if needed not in perms:
                     raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
-                return {"user_id": uid, "auth_type": "manager_password", "permissions": sorted(perms)}
+                return {"user_id": 0, "manager": manager_name, "auth_type": "manager_account", "permissions": sorted(perms)}
         # Backward compatibility for valid one-time Telegram invite sessions.
         if token and bot.SESSION_SERIALIZER:
             try:
@@ -104,19 +102,11 @@ def install_panel_auth(app, bot):
                 return RedirectResponse("/owner", status_code=303)
             token = request.cookies.get("fxi_admin_session", "")
             manager = decode(token)
-            try:
-                manager_id = int(manager.get("user_id", 0)) if manager.get("role") == "manager" else 0
-            except (TypeError, ValueError):
-                manager_id = 0
-            if manager_id and bot.is_admin(manager_id) and not bot._is_primary_admin(manager_id):
+            manager_name = str(manager.get("manager", "")).strip().lower() if manager.get("role") == "manager" else ""
+            manager_record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
+            if manager_name and isinstance(manager_record, dict) and manager_record.get("enabled", True):
                 return await call_next(request)
-            try:
-                old = bot.SESSION_SERIALIZER.loads(token, max_age=43200) if token and bot.SESSION_SERIALIZER else {}
-                uid = int(old.get("user_id", 0))
-            except Exception:
-                uid = 0
-            if not uid or not bot.is_admin(uid) or bot._is_primary_admin(uid):
-                return RedirectResponse("/admin/login", status_code=303)
+            return RedirectResponse("/admin/login", status_code=303)
         return await call_next(request)
 
     @app.get("/owner", response_class=HTMLResponse)
@@ -142,9 +132,9 @@ label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:1
 button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer}
 #msg{min-height:24px;margin-top:14px;color:#ffb5a8;font-size:12px;line-height:1.8}.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:8px}
 </style></head><body><main class="card"><div class="logo">F</div><h1>ورود مدیر ربات</h1>
-<p class="sub">فقط شناسه‌هایی که مالک ربات ثبت کرده اجازه ورود دارند. در اولین ورود، کد فعال‌سازی دریافتی از مالک/بات و رمز دلخواهت را وارد کن؛ دفعات بعد فقط شناسه و رمز لازم است.</p>
+<p class="sub">مالک ربات برای تو یک نام کاربری و رمز تعیین کرده است. با همان اطلاعات وارد پنل اختصاصی مدیر ربات شو.</p>
 <form id="loginForm">
-<label for="user_id">شناسه عددی تلگرام</label><input id="user_id" inputmode="numeric" autocomplete="username" required pattern="[0-9]{5,15}" maxlength="15">
+<label for="username">نام کاربری مدیر</label><input id="username" autocomplete="username" required maxlength="64">
 <label for="password">رمز عبور شخصی</label><input id="password" type="password" autocomplete="current-password" required minlength="10" maxlength="256">
 <label for="activation_code">کد فعال‌سازی (فقط بار اول)</label><input id="activation_code" autocomplete="one-time-code" maxlength="80">
 <div class="hint">رمز باید حداقل ۱۰ کاراکتر داشته باشد. کد فعال‌سازی پس از ثبت رمز دیگر لازم نیست.</div>
@@ -152,7 +142,7 @@ button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;backg
 <script>
 const form=document.getElementById('loginForm'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
 form.addEventListener('submit',async e=>{e.preventDefault();btn.disabled=true;btn.textContent='در حال بررسی…';msg.textContent='';
-try{const response=await fetch('/auth/manager-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:form.user_id.value,password:form.password.value,activation_code:form.activation_code.value})});
+try{const response=await fetch('/auth/manager-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:form.username.value,password:form.password.value})});
 const data=await response.json();if(!response.ok)throw new Error(data.detail||'ورود ناموفق بود');location.assign(data.redirect||'/admin');
 }catch(error){msg.textContent=error.message;}finally{btn.disabled=false;btn.textContent='ورود به پنل مدیر ربات';}});
 </script></body></html>"""
@@ -165,32 +155,15 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'�
         address = enforce_login_limit(request)
         try:
             data = await request.json()
-            user_id = int(str(data.get("user_id", "")).strip())
-        except (ValueError, TypeError, AttributeError):
-            raise HTTPException(400, "شناسه عددی تلگرام معتبر نیست.")
+        except Exception:
+            raise HTTPException(400, "درخواست ورود معتبر نیست.")
+        username = str(data.get("username", "")).strip().lower()
         password = str(data.get("password", ""))
-        activation_code = str(data.get("activation_code", "")).strip()
-        if user_id <= 0 or len(password) < 10 or len(password) > 256:
-            raise HTTPException(400, "شناسه معتبر و رمز حداقل ۱۰ کاراکتری لازم است.")
-        if not bot.is_admin(user_id) or bot._is_primary_admin(user_id):
-            login_attempts[address].append(time.time())
-            raise HTTPException(401, "این شناسه توسط مالک به‌عنوان مدیر ربات ثبت نشده است.")
-        passwords = bot.admin_data.setdefault("admin_passwords", {})
-        record = passwords.get(str(user_id))
-        if record is None:
-            setup = bot.admin_data.setdefault("admin_setup_codes", {}).get(str(user_id), {})
-            expected = str(setup.get("sha256", ""))
-            actual = __import__("hashlib").sha256(activation_code.encode("utf-8")).hexdigest() if activation_code else ""
-            if not expected or int(setup.get("expires_at", 0)) < int(time.time()) or not hmac.compare_digest(actual, expected):
-                login_attempts[address].append(time.time())
-                raise HTTPException(401, "کد فعال‌سازی معتبر نیست یا منقضی شده است.")
-            salt = __import__("secrets").token_hex(16)
-            digest = __import__("hashlib").pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), 310000).hex()
-            passwords[str(user_id)] = {"salt": salt, "hash": digest, "iterations": 310000, "created_at": int(time.time())}
-            bot.admin_data["admin_setup_codes"].pop(str(user_id), None)
-            bot.log_admin_action("manager_password_created", f"user_id={user_id}")
-            bot.save_admin_data()
-        else:
+        if not username or len(username) > 64 or len(password) < 12 or len(password) > 256:
+            raise HTTPException(400, "نام کاربری و رمز معتبر وارد کن.")
+        record = bot.admin_data.get("panel_managers", {}).get(username, {})
+        valid = False
+        if isinstance(record, dict) and record.get("enabled", True):
             try:
                 salt = bytes.fromhex(str(record["salt"]))
                 iterations = max(200000, min(600000, int(record.get("iterations", 310000))))
@@ -198,13 +171,13 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'�
                 valid = hmac.compare_digest(actual, str(record.get("hash", "")))
             except (KeyError, ValueError, TypeError):
                 valid = False
-            if not valid:
-                login_attempts[address].append(time.time())
-                raise HTTPException(401, "شناسه یا رمز عبور اشتباه است.")
+        if not valid:
+            login_attempts[address].append(time.time())
+            raise HTTPException(401, "نام کاربری یا رمز عبور اشتباه است.")
         login_attempts.pop(address, None)
         response = JSONResponse({"redirect": "/admin"})
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
-        response.set_cookie("fxi_admin_session", signer.dumps({"role": "manager", "user_id": user_id}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
+        response.set_cookie("fxi_admin_session", signer.dumps({"role": "manager", "manager": username}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
         return response
 
     @app.get("/login", response_class=HTMLResponse)
