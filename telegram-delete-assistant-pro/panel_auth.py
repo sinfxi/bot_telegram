@@ -63,11 +63,25 @@ def install_panel_auth(app, bot):
                 pass
         raise HTTPException(401, "ابتدا مدیر ربات باید وارد شود.")
 
+    def require_owner(request: Request):
+        if not is_root(request):
+            raise HTTPException(401, "ورود مالک لازم است.")
+        return {
+            "user_id": bot.ADMIN_PANEL_AUTH_ID,
+            "auth_type": "owner",
+            "permissions": sorted(bot.ADMIN_PERMISSIONS),
+        }
+
     app.dependency_overrides[bot.require_admin] = require_admin
 
     @app.middleware("http")
     async def panel_login_guard(request, call_next):
-        if request.url.path == "/admin" and not is_root(request):
+        path = request.url.path
+        if path == "/owner" and not is_root(request):
+            return RedirectResponse("/login", status_code=303)
+        if path == "/admin":
+            if is_root(request):
+                return RedirectResponse("/owner", status_code=303)
             token = request.cookies.get("fxi_admin_session", "")
             try:
                 old = bot.SESSION_SERIALIZER.loads(token, max_age=43200) if token and bot.SESSION_SERIALIZER else {}
@@ -78,11 +92,20 @@ def install_panel_auth(app, bot):
                 return RedirectResponse("/login", status_code=303)
         return await call_next(request)
 
+    @app.get("/owner", response_class=HTMLResponse)
+    async def owner_panel(auth=Depends(require_owner)):
+        html = bot.ADMIN_PANEL_HTML.replace(
+            "</head>",
+            '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '">'
+            '<meta name="fxi-panel-role" content="owner"></head>',
+        )
+        return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
     @app.get("/login", response_class=HTMLResponse)
     async def panel_login():
         page = """<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><title>ورود مدیر · FXI Control</title>
+<meta name="robots" content="noindex,nofollow"><title>ورود مالک · FXI Control</title>
 <style>
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 15% 10%,#183b36,transparent 42%),#09131b;color:#edf7f2;font:14px Tahoma,Arial}
 .card{width:min(420px,100%);padding:30px;border:1px solid #34534b;border-radius:24px;background:linear-gradient(145deg,#142a2b,#12202b);box-shadow:0 25px 80px #0007}
@@ -91,11 +114,11 @@ h1{font-size:21px;margin:18px 0 7px}.sub{color:#9cb5ac;line-height:2;font-size:1
 label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:100%;padding:14px;border-radius:12px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}input:focus{border-color:#9ce7c0;box-shadow:0 0 0 3px #9ce7c01c}
 button{width:100%;padding:14px;margin-top:20px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer}
 #msg{min-height:24px;margin-top:14px;color:#ffb5a8;font-size:12px;line-height:1.8}.foot{margin-top:18px;color:#78958a;font-size:10px;text-align:center}
-</style></head><body><main class="card"><div class="logo">F</div><h1>ورود مدیر ربات</h1>
-<p class="sub">این بخش فقط برای مدیر ربات است. با نام کاربری و رمز عبور مدیریتی که در تنظیمات سرور قرار داده‌ای وارد شو.</p>
+</style></head><body><main class="card"><div class="logo">F</div><h1>ورود مالک ربات</h1>
+<p class="sub">این بخش مخصوص مالک اصلی ربات است. مدیران اجرایی از پنل جداگانهٔ خودشان وارد می‌شوند.</p>
 <form id="loginForm"><label for="username">نام کاربری مدیر</label><input id="username" name="username" autocomplete="username" required maxlength="128">
 <label for="password">رمز عبور</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
-<button id="submit" type="submit">ورود به پنل مدیریت</button></form><div id="msg" role="alert"></div><div class="foot">FXI Control · دسترسی محدود به مدیران</div></main>
+<button id="submit" type="submit">ورود به پنل مالک</button></form><div id="msg" role="alert"></div><div class="foot">FXI Control · دسترسی محدود به مدیران</div></main>
 <script>
 const form=document.getElementById('loginForm'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
 form.addEventListener('submit',async e=>{e.preventDefault();btn.disabled=true;btn.textContent='در حال بررسی…';msg.textContent='';
@@ -125,7 +148,7 @@ const data=await response.json();if(!response.ok)throw new Error(data.detail||'�
             login_attempts[address].append(time.time())
             raise HTTPException(401, "نام کاربری یا رمز مدیر اشتباه است.")
         login_attempts.pop(address, None)
-        response = JSONResponse({"redirect": "/admin"})
+        response = JSONResponse({"redirect": "/owner"})
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
         response.set_cookie(
             "fxi_admin_session",
