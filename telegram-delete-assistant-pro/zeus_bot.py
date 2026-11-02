@@ -1803,10 +1803,10 @@ def _natural_intent(text_value: str) -> str | None:
     value = re.sub(r"\s+", " ", value).strip()
     value = re.sub(r"^(?:ربات|اف\s*ایکس\s*آی|fxi)\s+", "", value).strip()
     # Only deterministic, low-risk actions are mapped directly. Other requests go to AI.
-    if any(p in value for p in ("پاسخ گویی رو روشن", "پاسخگویی رو روشن", "پاسخ هوشمند رو روشن",
+    if any(p in value for p in ("پاسخ گویی رو روشن", "پاسخگویی رو روشن", "پاسخ هوشمند رو روشن", "پاسخ هوشمند روشن",
                                  "هوش مصنوعی رو فعال", "جواب دادن رو فعال", "ربات فعال شو")):
         return "enable_ai"
-    if any(p in value for p in ("پاسخ گویی رو خاموش", "پاسخگویی رو خاموش", "پاسخ هوشمند رو خاموش",
+    if any(p in value for p in ("پاسخ گویی رو خاموش", "پاسخگویی رو خاموش", "پاسخ هوشمند رو خاموش", "پاسخ هوشمند خاموش",
                                  "هوش مصنوعی رو غیرفعال", "دیگه جواب نده", "ربات ساکت شو")):
         return "disable_ai"
     if any(p in value for p in ("آمار گروه", "آمار کانال", "وضعیت گروه", "آمار جامعه")):
@@ -1867,6 +1867,7 @@ async def _handle_natural_request(message: Message, request_text: str, *, from_v
     required_feature = {
         "pin": "moderation", "delete": "moderation", "mute": "moderation",
         "unmute": "moderation", "ban": "moderation", "set_rules": "rules_management",
+        "enable_ai": "ai_chat", "disable_ai": "ai_chat", "challenge": "engagement", "suggestions": "analytics", "top_posts": "analytics", "report": "analytics",
         "content_plan": "draft_generation", "draft": "draft_generation",
     }.get(intent)
     if required_feature and (not feature_enabled("community_management") or not feature_enabled(required_feature)):
