@@ -390,7 +390,7 @@ def _permission_for_path(path: str) -> str:
     if path in {"/admin", "/admin/"}: return "dashboard"
     if "/users/" in path or path.endswith("/users"): return "users"
     if path.endswith("/status") or path.endswith("/metrics"): return "dashboard"
-    if "/admins" in path: return "admins"
+    if "/admins" in path or "/managers" in path: return "admins"
     if "/users/export" in path or path.endswith("/users"): return "users"
     if "/community" in path: return "community"
     if "/conversations" in path: return "conversations"
