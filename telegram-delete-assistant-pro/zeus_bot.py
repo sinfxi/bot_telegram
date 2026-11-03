@@ -484,6 +484,10 @@ class ManagerRequestPayload(BaseModel):
     permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
 
+class ManagerInviteRevokePayload(BaseModel):
+    code: str = Field(min_length=8, max_length=64)
+
+
 class BroadcastPayload(BaseModel):
     text: str = Field(default="", max_length=3900)
     targets: list[str] = Field(default_factory=lambda: ["users", "groups", "channels"])
@@ -2750,6 +2754,20 @@ async def create_manager_invite(auth=Depends(require_admin)):
     save_admin_data()
     log_admin_action("manager_invite_created", "one-time invitation created; expires in 24h")
     return {"code": code, "expires_in": 86400, "request_url": ADMIN_PANEL_URL.rstrip("/") + "/admin/request"}
+
+
+@app.post("/admin/api/manager-invites/revoke")
+async def revoke_manager_invite(payload: ManagerInviteRevokePayload, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="فقط مالک می‌تواند کد دعوت را لغو کند.")
+    code_hash = hashlib.sha256(payload.code.strip().encode("utf-8")).hexdigest()
+    invites = admin_data.setdefault("manager_invites", {})
+    record = invites.pop(code_hash, None)
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=404, detail="کد دعوت پیدا نشد یا قبلاً حذف شده است.")
+    save_admin_data()
+    log_admin_action("manager_invite_revoked", "one-time manager invitation revoked and deleted")
+    return {"message": "کد دعوت لغو و از پنل مالک حذف شد."}
 
 
 @app.post("/admin/api/manager-requests")
