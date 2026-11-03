@@ -89,6 +89,13 @@ def install_group_owner(app, bot):
             raise HTTPException(429, "تعداد درخواست‌ها زیاد است؛ ۱۵ دقیقه دیگر دوباره تلاش کن.")
         stamps.append(now)
         request_stamps[ip] = stamps
+        if len(request_stamps) > 5000:
+            for key, values in list(request_stamps.items()):
+                if not values or now - values[-1] >= 900:
+                    request_stamps.pop(key, None)
+            if len(request_stamps) > 5000:
+                for key in list(request_stamps)[:1000]:
+                    request_stamps.pop(key, None)
         return ip
 
     def save():
@@ -140,8 +147,14 @@ def install_group_owner(app, bot):
         chat, _ = await verify_group_owner(chat_id, user_id)
         challenges = bot.admin_data.setdefault("group_owner_otp_challenges", {})
         key = f"{chat_id}:{user_id}"
-        previous = challenges.get(key, {})
         now = time.time()
+        for challenge_key, challenge_value in list(challenges.items()):
+            if not isinstance(challenge_value, dict) or float(challenge_value.get("expires_at", 0)) <= now:
+                challenges.pop(challenge_key, None)
+        if len(challenges) > 2000:
+            for challenge_key in list(challenges)[:1000]:
+                challenges.pop(challenge_key, None)
+        previous = challenges.get(key, {})
         if isinstance(previous, dict) and now - float(previous.get("sent_at", 0)) < 45:
             raise HTTPException(429, "برای دریافت کد تازه ۴۵ ثانیه صبر کن.")
         code = f"{secrets.randbelow(1_000_000):06d}"
@@ -424,6 +437,48 @@ def install_group_owner(app, bot):
     async def group_owner_add_link(auth=Depends(require_group_owner)):
         username = bot.TELEGRAM_BOT_USERNAME
         return {"url": f"https://t.me/{username}?startgroup=true", "note": "افزودن مستقیم ربات با شناسه گروه از طریق Telegram Bot API ممکن نیست؛ مالک باید از این لینک ربات را به گروه اضافه کند."}
+
+    @app.post("/admin/api/community/inspect")
+    async def owner_inspect_community(request: Request, auth=Depends(bot.require_admin)):
+        if not origin_ok(request):
+            raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        if auth.get("auth_type") != "owner":
+            raise HTTPException(403, "فقط مالک ربات می‌تواند گروه را با شناسه بررسی کند.")
+        try:
+            payload = await request.json()
+            chat_id = int(payload.get("chat_id", 0))
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(400, "شناسه عددی گروه معتبر نیست.")
+        if chat_id >= 0:
+            raise HTTPException(400, "شناسه گروه باید منفی باشد.")
+        try:
+            chat = await tg().get_chat(chat_id)
+        except Exception:
+            raise HTTPException(404, "گروه با این شناسه پیدا نشد یا ربات به آن دسترسی ندارد.")
+        bot_member_status = "unknown"
+        try:
+            member = await tg().get_chat_member(chat_id, tg().id)
+            bot_member_status = member.status
+        except Exception:
+            pass
+        is_present = bot_member_status in {"administrator", "creator", "member"}
+        if is_present:
+            record = bot.community_chat(chat_id)
+            record["title"] = chat.title or str(chat_id)
+            record["type"] = chat.type
+            record["last_verified_at"] = datetime.now(timezone.utc).isoformat()
+            save()
+            bot.log_admin_action("owner_verified_community", f"chat={chat_id}; type={chat.type}")
+        return {
+            "chat_id": chat_id,
+            "title": chat.title or str(chat_id),
+            "type": chat.type,
+            "bot_member_status": bot_member_status,
+            "registered": is_present,
+            "add_url": f"https://t.me/{bot.TELEGRAM_BOT_USERNAME}?startgroup=true",
+            "note": ("گروه بررسی و در فهرست پنل ثبت شد." if is_present else
+                     "ربات هنوز عضو گروه نیست. افزودن مستقیم با شناسه از طریق Bot API ممکن نیست؛ لینک افزودن را باز کن و ربات را دستی اضافه کن.")
+        }
 
     # Owner-bot-panel endpoints: same group data, but destructive actions are owner-only.
     @app.get("/admin/api/community/{chat_id}/messages")
