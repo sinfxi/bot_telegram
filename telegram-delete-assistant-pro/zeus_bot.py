@@ -111,7 +111,15 @@ TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip(
 SESSION_SERIALIZER = URLSafeTimedSerializer(BOT_TOKEN, salt="fxi-web-session") if BOT_TOKEN else None
 STATIC_DIR = Path(__file__).parent / "static"
 ADMIN_DATA_FILE = Path(os.getenv("ADMIN_DATA_FILE", "/tmp/fxi_admin_data.json"))
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+def _normalize_database_url(value: str | None) -> str:
+    """Accept PostgreSQL URLs as provided by Render and normalize legacy scheme."""
+    raw = (value or "").strip()
+    if raw.startswith("postgres://"):
+        return "postgresql://" + raw[len("postgres://"):]
+    return raw
+
+
+DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", ""))
 DATABASE_READY = False
 admin_security = HTTPBasic(auto_error=False)
 admin_auth_failures: dict[str, list[float]] = defaultdict(list)
@@ -123,9 +131,9 @@ bot_enabled = True
 
 def _db_connect():
     if not DATABASE_URL:
-        return None
+        raise RuntimeError("DATABASE_URL is not configured")
     import psycopg
-    return psycopg.connect(DATABASE_URL, connect_timeout=8)
+    return psycopg.connect(DATABASE_URL, connect_timeout=8, application_name="fxi-telegram-community-manager")
 
 
 def _ensure_db_table(conn) -> None:
