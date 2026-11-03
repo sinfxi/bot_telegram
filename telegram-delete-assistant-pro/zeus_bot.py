@@ -1737,7 +1737,7 @@ async def collect_community_message(message: Message):
             "text": text_value[:2000],
             "date": datetime.now(timezone.utc).isoformat(),
             "media_type": media_type,
-            "is_bot": bool(message.from_user and message.from_user.is_bot),
+            "is_bot": bool(message.from_user and bot and message.from_user.id == bot.id),
         })
         data["message_log"] = message_log[-120:]
     if text_value:
