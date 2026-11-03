@@ -115,8 +115,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DATABASE_READY = False
 admin_security = HTTPBasic(auto_error=False)
 admin_auth_failures: dict[str, list[float]] = defaultdict(list)
-ADMIN_AUTH_WINDOW_SECONDS = 900
-ADMIN_AUTH_MAX_FAILURES = 8
+ADMIN_AUTH_WINDOW_SECONDS = 60
+ADMIN_AUTH_MAX_FAILURES = 20
 admin_data_lock = asyncio.Lock()
 bot_enabled = True
 
@@ -453,7 +453,7 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
     attempts = [stamp for stamp in admin_auth_failures.get(client_ip, []) if now - stamp < ADMIN_AUTH_WINDOW_SECONDS]
     admin_auth_failures[client_ip] = attempts
     if len(attempts) >= ADMIN_AUTH_MAX_FAILURES:
-        raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
+        raise HTTPException(status_code=429, detail="تلاش‌های ورود بیش از حد است؛ یک دقیقه دیگر دوباره امتحان کن.")
     if credentials is None:
         raise HTTPException(status_code=401, detail="آیدی عددی تلگرام و رمز عبور را وارد کنید.", headers={"WWW-Authenticate": "Basic"})
     submitted_username = credentials.username.strip()
@@ -2976,12 +2976,12 @@ async def submit_manager_request(payload: ManagerRequestPayload, request: Reques
     address = request.client.host if request.client else "unknown"
     now = time.time()
     attempts = admin_data.setdefault("manager_invite_attempts", {})
-    recent = [stamp for stamp in attempts.get(address, []) if now - float(stamp) < 900]
-    if len(recent) >= 5:
-        raise HTTPException(status_code=429, detail="بیش از ۵ درخواست در ۱۵ دقیقه مجاز نیست؛ بعداً دوباره امتحان کن.")
+    recent = [stamp for stamp in attempts.get(address, []) if now - float(stamp) < 60]
+    if len(recent) >= 15:
+        raise HTTPException(status_code=429, detail="بیش از ۱۵ درخواست در یک دقیقه مجاز نیست؛ یک دقیقه دیگر دوباره امتحان کن.")
     global_recent = [stamp for stamp in admin_data.get("manager_invite_global_attempts", []) if now - float(stamp) < 900]
-    if len(global_recent) >= 30:
-        raise HTTPException(status_code=429, detail="محدودیت امنیتی سراسری فعال است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
+    if len(global_recent) >= 100:
+        raise HTTPException(status_code=429, detail="محدودیت امنیتی سراسری فعال است؛ یک دقیقه دیگر دوباره امتحان کن.")
     recent.append(now)
     global_recent.append(now)
     attempts[address] = recent
