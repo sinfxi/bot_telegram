@@ -126,44 +126,35 @@ def install_panel_auth(app, bot):
 
     @app.get("/admin/request", response_class=HTMLResponse)
     async def manager_access_request_page():
-        options = []
-        for key, label in bot.ADMIN_PERMISSIONS.items():
-            if key == "admins":
-                continue
-            checked = " checked disabled" if key == "dashboard" else ""
-            options.append(
-                '<label class="perm"><input type="checkbox" value="' + key + '"' + checked + '>'
-                + label + '</label>'
-            )
         page = """<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><title>درخواست دسترسی مدیریت · FXI</title>
+<meta name="robots" content="noindex,nofollow"><title>درخواست مدیریت · FXI</title>
 <style>
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 15% 10%,#183b36,transparent 42%),#09131b;color:#edf7f2;font:14px Tahoma,Arial}
-.card{width:min(560px,100%);padding:28px;border:1px solid #34534b;border-radius:22px;background:linear-gradient(145deg,#142a2b,#12202b);box-shadow:0 25px 80px #0007}
+.card{width:min(470px,100%);padding:28px;border:1px solid #34534b;border-radius:22px;background:linear-gradient(145deg,#142a2b,#12202b);box-shadow:0 25px 80px #0007}
 h1{font-size:21px;margin:0 0 8px}.sub{color:#9cb5ac;line-height:2;font-size:12px;margin:0 0 20px}
-label.field-label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}
-input[type=text],input[type=number]{width:100%;padding:13px;border-radius:11px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-top:12px}
-.perm{display:flex;gap:8px;align-items:center;padding:10px;border:1px solid #34534b;border-radius:10px;color:#c9ded4;font-size:12px}
-button{width:100%;padding:14px;margin-top:18px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer}
-#msg{min-height:25px;margin-top:14px;color:#b8efd1;line-height:1.8;font-size:12px}
-.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:14px}
-a{color:#b8efd1}
+label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:100%;padding:14px;border-radius:11px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}
+button,.link{display:block;text-align:center;width:100%;padding:14px;margin-top:16px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer;text-decoration:none}
+button:disabled{opacity:.55;cursor:not-allowed}#msg{min-height:25px;margin-top:14px;color:#b8efd1;line-height:1.9;font-size:12px}.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:14px}#telegramLink{display:none}
 </style></head><body><main class="card"><h1>درخواست دسترسی مدیریت FXI</h1>
-<p class="sub">کد دعوت عددی ۴ رقمی را که مالک برایت فرستاده وارد کن. درخواست پس از بررسی و تأیید مالک به حساب مدیر تبدیل می‌شود؛ ثبت درخواست به‌تنهایی دسترسی مدیریتی ایجاد نمی‌کند.</p>
+<p class="sub">فقط نام کاربری و کد دعوتی را که مالک برایت فرستاده وارد کن. پس از ثبت درخواست، حساب تلگرامت را با دکمه اتصال پیوند بده تا بعد از تأیید مالک بتوانیم کد ورود را برایت بفرستیم.</p>
 <form id="form">
-<label class="field-label" for="invite">کد دعوت</label><input id="invite" type="text" inputmode="numeric" autocomplete="one-time-code" required minlength="4" maxlength="4" pattern="[0-9]{4}" placeholder="کد ۴ رقمی">
-<label class="field-label" for="username">نام کاربری دلخواه</label><input id="username" type="text" autocomplete="username" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}" placeholder="مثلاً ali_admin">
-<label class="field-label" for="telegram">شناسه عددی تلگرام</label><input id="telegram" type="number" min="1" max="9007199254740991" step="1" required placeholder="شناسه عددی حساب تلگرام">
-<label class="field-label">دسترسی‌های موردنیاز</label><div class="grid">""" + "".join(options) + """</div>
-<button id="submit" type="submit">ارسال درخواست برای مالک</button></form>
-<div id="msg" role="status"></div><div class="hint">نکته: برای دریافت پیام تأیید و کد ورود، ابتدا ربات FXI را در تلگرام باز کن و /start را بزن. <a href="/admin/login">قبلاً مدیر شده‌ای؟ ورود مدیر</a></div>
+<label for="username">نام کاربری دلخواه</label><input id="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}" placeholder="مثلاً ali_manager">
+<label for="invite">کد دعوت ۴ رقمی</label><input id="invite" inputmode="numeric" autocomplete="one-time-code" required minlength="4" maxlength="4" pattern="[0-9]{4}" placeholder="کدی که مالک داده است">
+<button id="submit" type="submit">ثبت درخواست</button></form>
+<a id="telegramLink" class="link" target="_blank" rel="noopener">🔗 اتصال حساب تلگرام</a>
+<div id="msg" role="status" aria-live="polite"></div>
+<div class="hint">برای دریافت کد ورود، باید یک‌بار دکمه اتصال را بزنی و ربات را Start کنی. کد دعوت یک‌بارمصرف و دارای مهلت انقضاست. <a href="/admin/login" style="color:#b8efd1">قبلاً تأیید شده‌ای؟ ورود مدیر</a></div>
 </main><script>
-const form=document.getElementById('form'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
-form.addEventListener('submit',async e=>{e.preventDefault();const telegram_id=Number(document.getElementById('telegram').value);const raw=document.getElementById('telegram').value.trim();const username=document.getElementById('username').value.trim();const invite=document.getElementById('invite').value.trim();if(!/^[0-9]{4}$/.test(invite)){msg.textContent='کد دعوت باید دقیقاً ۴ رقم انگلیسی باشد.';return}if(!/^[1-9][0-9]{0,14}$/.test(raw)||!Number.isSafeInteger(telegram_id)){msg.textContent='شناسه عددی تلگرام معتبر وارد کن.';return}if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)){msg.textContent='نام کاربری باید ۳ تا ۶۴ کاراکتر و با حروف انگلیسی، عدد، نقطه، خط تیره یا زیرخط باشد.';return}const permissions=[...form.querySelectorAll('.perm input:checked')].map(x=>x.value);if(!permissions.includes('dashboard'))permissions.push('dashboard');btn.disabled=true;btn.textContent='در حال ارسال…';msg.textContent='';try{const r=await fetch('/admin/api/manager-requests',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({invite_code:document.getElementById('invite').value.trim(),username,telegram_id,permissions})});const d=await r.json();if(!r.ok)throw Error(d.detail||'ثبت درخواست ممکن نشد');form.reset();msg.textContent='✅ '+(d.message||'درخواست ثبت شد. پس از بررسی مالک منتظر پیام تلگرام باش.')}catch(err){msg.textContent='❌ '+err.message}finally{btn.disabled=false;btn.textContent='ارسال درخواست برای مالک'}});
+const form=document.getElementById('form'),msg=document.getElementById('msg'),btn=document.getElementById('submit'),link=document.getElementById('telegramLink');
+form.addEventListener('submit',async e=>{e.preventDefault();const username=document.getElementById('username').value.trim(),invite_code=document.getElementById('invite').value.trim();
+if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)){msg.textContent='نام کاربری باید ۳ تا ۶۴ کاراکتر معتبر باشد.';return}
+if(!/^[0-9]{4}$/.test(invite_code)){msg.textContent='کد دعوت باید دقیقاً ۴ رقم باشد.';return}
+btn.disabled=true;btn.textContent='در حال ثبت…';msg.textContent='';link.style.display='none';
+try{const r=await fetch('/admin/api/manager-requests',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({username,invite_code})});const d=await r.json();if(!r.ok)throw Error(d.detail||'ثبت درخواست ممکن نشد');msg.textContent='✅ '+d.message;link.href=d.telegram_link;link.style.display='block';form.reset();}
+catch(err){msg.textContent='❌ '+err.message}finally{btn.disabled=false;btn.textContent='ثبت درخواست'}});
 </script></body></html>"""
-        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+        return HTMLResponse(page, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
 
     @app.get("/admin/login", response_class=HTMLResponse)
     async def manager_login_page():
@@ -174,19 +165,75 @@ form.addEventListener('submit',async e=>{e.preventDefault();const telegram_id=Nu
 .card{width:min(430px,100%);padding:30px;border:1px solid #34534b;border-radius:24px;background:#14252a;box-shadow:0 22px 65px #0006}
 .logo{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:#b8efd1;color:#10231a;font-weight:900;font-size:21px}
 h1{font-size:21px;margin:18px 0 7px}.sub{color:#9cb5ac;line-height:2;font-size:12px;margin:0 0 22px}
-label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:100%;padding:14px;border-radius:12px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}input:focus{border-color:#9ce7c0;box-shadow:0 0 0 3px #9ce7c01c}
+label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:100%;padding:14px;border-radius:12px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}
 button{width:100%;padding:14px;margin-top:16px;border:0;border-radius:12px;background:#a8e7c7;color:#10251b;font-weight:bold;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}
-#msg{min-height:24px;margin-top:14px;color:#ffb5a8;font-size:12px;line-height:1.8}.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:14px}
-</style></head><body><main class="card"><div class="logo">F</div><h1>ورود مدیر اجرایی</h1><p class="sub">با نام کاربری و رمز اختصاصی ۴ کاراکتری که مالک برایت تعیین کرده وارد شو.</p>
-<form id="loginForm"><label for="username">نام کاربری مدیر</label><input id="username" autocomplete="username" required maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}">
-<label for="password">رمز عبور ۴ کاراکتری</label><input id="password" type="password" inputmode="text" autocomplete="current-password" minlength="4" maxlength="4" required>
-<button id="loginBtn" type="submit">ورود امن به پنل</button></form><div id="msg" role="alert" aria-live="polite"></div>
-<div class="hint">اگر حساب یا رمز نداری، از مالک ربات بخواه دسترسی را ایجاد یا رمزت را بازنشانی کند. <a href="/login" style="color:#b8efd1">ورود مالک</a></div></main>
+#msg{min-height:24px;margin-top:14px;color:#ffb5a8;font-size:12px;line-height:1.8}.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:14px}.timer{margin-top:10px;color:#b8efd1;font-size:12px}
+</style></head><body><main class="card"><div class="logo">F</div><h1>ورود مدیر اجرایی</h1><p class="sub">نام کاربری تأییدشده را وارد کن و کد یک‌بارمصرف را مستقیم در تلگرام دریافت کن. رمز ثابت لازم نیست.</p>
+<form id="requestForm"><label for="username">نام کاربری مدیر</label><input id="username" autocomplete="username" required maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}"><button id="requestBtn" type="submit">🔐 دریافت کد ورود در تلگرام</button></form>
+<form id="verifyForm" hidden><label for="otp">کد ۶ رقمی تلگرام</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required><div class="timer" id="timer">01:00</div><button id="verifyBtn" type="submit">تأیید کد و ورود</button><button id="resendBtn" type="button" hidden>دریافت کد تازه</button></form>
+<div id="msg" role="alert" aria-live="polite"></div><div class="hint">اگر هنوز درخواستت تأیید نشده یا حساب تلگرامت را متصل نکرده‌ای، ابتدا از صفحه درخواست مدیریت اقدام کن. <a href="/login" style="color:#b8efd1">ورود مالک</a></div></main>
 <script>
-const form=document.getElementById('loginForm'),btn=document.getElementById('loginBtn'),msg=document.getElementById('msg');
-form.addEventListener('submit',async e=>{e.preventDefault();const username=document.getElementById('username').value.trim(),password=document.getElementById('password').value;if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)||password.length!==4){msg.textContent='نام کاربری یا رمز باید در قالب تعیین‌شده باشد.';return}btn.disabled=true;btn.textContent='در حال بررسی…';msg.textContent='';try{const r=await fetch('/auth/manager-login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({username,password})});const d=await r.json();if(!r.ok)throw Error(d.detail||'ورود انجام نشد');location.assign(d.redirect||'/admin')}catch(err){msg.textContent=err.message}finally{btn.disabled=false;btn.textContent='ورود امن به پنل'}});
+const req=document.getElementById('requestForm'),verify=document.getElementById('verifyForm'),msg=document.getElementById('msg'),reqBtn=document.getElementById('requestBtn'),verifyBtn=document.getElementById('verifyBtn'),resend=document.getElementById('resendBtn'),timer=document.getElementById('timer');let expiresAt=0,clock=null,activeUsername='';
+function showTime(){const left=Math.max(0,Math.ceil((expiresAt-Date.now())/1000));timer.textContent='00:'+String(left).padStart(2,'0');if(!left){clearInterval(clock);resend.hidden=false;verifyBtn.disabled=true;msg.textContent='⏳ کد منقضی شد؛ کد تازه درخواست بده.'}}
+async function requestCode(){activeUsername=document.getElementById('username').value.trim();if(!/^[A-Za-z0-9_.-]{3,64}$/.test(activeUsername)){msg.textContent='نام کاربری معتبر وارد کن.';return}
+reqBtn.disabled=true;reqBtn.textContent='در حال ارسال کد…';msg.textContent='';
+try{const r=await fetch('/auth/manager-request-code',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({username:activeUsername})});const d=await r.json();if(!r.ok)throw Error(d.detail||'ارسال کد انجام نشد');req.hidden=true;verify.hidden=false;resend.hidden=true;verifyBtn.disabled=false;document.getElementById('otp').value='';expiresAt=Date.now()+60000;showTime();clock=setInterval(showTime,250);document.getElementById('otp').focus();msg.textContent='✅ کد ورود به تلگرام متصل‌شده ارسال شد.'}
+catch(e){msg.textContent=e.message}finally{reqBtn.disabled=false;reqBtn.textContent='🔐 دریافت کد ورود در تلگرام'}}
+req.addEventListener('submit',e=>{e.preventDefault();requestCode()});
+verify.addEventListener('submit',async e=>{e.preventDefault();const code=document.getElementById('otp').value;if(!/^[0-9]{6}$/.test(code)){msg.textContent='کد باید دقیقاً ۶ رقم باشد.';return}
+verifyBtn.disabled=true;verifyBtn.textContent='در حال بررسی…';msg.textContent='';
+try{const r=await fetch('/auth/manager-login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({username:activeUsername,code})});const d=await r.json();if(!r.ok)throw Error(d.detail||'کد ورود معتبر نیست');clearInterval(clock);location.assign(d.redirect||'/admin')}
+catch(e){msg.textContent=e.message;verifyBtn.disabled=Date.now()>=expiresAt}
+finally{verifyBtn.textContent='تأیید کد و ورود'}});
+resend.addEventListener('click',()=>{clearInterval(clock);verify.hidden=true;req.hidden=false;reqBtn.focus()});
 </script></body></html>"""
-        return HTMLResponse(page, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+        return HTMLResponse(page, headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
+
+    @app.post("/auth/manager-request-code")
+    async def manager_request_code(request: Request):
+        if not bot._admin_origin_allowed(request):
+            raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
+        address = enforce_login_limit(request)
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(400, "درخواست معتبر نیست.")
+        username = str(data.get("username", "")).strip().lower()
+        if not __import__("re").fullmatch(r"[a-zA-Z0-9_.-]{3,64}", username):
+            raise HTTPException(400, "نام کاربری معتبر نیست.")
+        record = bot.admin_data.get("panel_managers", {}).get(username, {})
+        telegram_id = int(record.get("telegram_id", 0) or 0) if isinstance(record, dict) else 0
+        if not isinstance(record, dict) or not record.get("enabled", True) or telegram_id <= 0:
+            login_attempts[address].append(time.time())
+            raise HTTPException(401, "حساب مدیر فعال و متصل به تلگرام پیدا نشد.")
+        now = time.time()
+        challenges = bot.admin_data.setdefault("manager_otp_challenges", {})
+        old = challenges.get(username, {})
+        if isinstance(old, dict) and now - float(old.get("sent_at", 0)) < 30:
+            raise HTTPException(429, "برای دریافت کد تازه ۳۰ ثانیه صبر کن.")
+        code = f"{secrets.randbelow(1000000):06d}"
+        salt = secrets.token_hex(16)
+        digest = hashlib.sha256(f"manager:{username}:{salt}:{code}".encode()).hexdigest()
+        challenges[username] = {"salt": salt, "hash": digest, "expires_at": now + 60, "sent_at": now, "attempts": 0}
+        bot.save_admin_data()
+        try:
+            telegram_bot = getattr(bot, "bot", None)
+            if telegram_bot is None:
+                raise RuntimeError("Telegram bot is not initialized")
+            await telegram_bot.send_message(
+                telegram_id,
+                "🔐 <b>کد ورود پنل مدیر FXI</b>\n\n"
+                f"<code>{code}</code>\n\n"
+                "⏳ این کد فقط ۶۰ ثانیه معتبر است و پس از ورود موفق باطل می‌شود. آن را در اختیار هیچ‌کس نگذار.",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            challenges.pop(username, None)
+            bot.save_admin_data()
+            log.warning("Manager OTP delivery failed (%s)", type(exc).__name__)
+            raise HTTPException(503, "ارسال کد ممکن نشد؛ ابتدا ربات را در تلگرام Start کن.")
+        login_attempts.pop(address, None)
+        return {"message": "کد ورود ارسال شد.", "expires_in": 60}
 
     @app.post("/auth/manager-login")
     async def manager_login(request: Request):
@@ -198,14 +245,34 @@ form.addEventListener('submit',async e=>{e.preventDefault();const username=docum
         except Exception:
             raise HTTPException(400, "درخواست ورود معتبر نیست.")
         username = str(data.get("username", "")).strip().lower()
-        password = str(data.get("password", ""))
-        if not username or not __import__("re").fullmatch(r"[a-zA-Z0-9_.-]{3,64}", username) or len(password) != 4:
+        code = str(data.get("code", ""))
+        if not __import__("re").fullmatch(r"[a-zA-Z0-9_.-]{3,64}", username) or not __import__("re").fullmatch(r"[0-9]{6}", code):
             login_attempts[address].append(time.time())
-            raise HTTPException(401, "نام کاربری یا رمز عبور معتبر نیست.")
+            raise HTTPException(401, "نام کاربری یا کد ورود معتبر نیست.")
         record = bot.admin_data.get("panel_managers", {}).get(username, {})
-        if not isinstance(record, dict) or not record.get("enabled", True) or not bot.verify_manager_password(password, record):
+        if not isinstance(record, dict) or not record.get("enabled", True) or int(record.get("telegram_id", 0) or 0) <= 0:
             login_attempts[address].append(time.time())
-            raise HTTPException(401, "نام کاربری یا رمز عبور نادرست است؛ اگر رمز را نداری از مالک بخواه آن را بازنشانی کند.")
+            raise HTTPException(401, "نام کاربری یا کد ورود معتبر نیست.")
+        challenges = bot.admin_data.setdefault("manager_otp_challenges", {})
+        challenge = challenges.get(username, {})
+        now = time.time()
+        if not isinstance(challenge, dict) or now >= float(challenge.get("expires_at", 0)):
+            challenges.pop(username, None)
+            bot.save_admin_data()
+            raise HTTPException(401, "کد ورود منقضی شده است؛ کد تازه درخواست بده.")
+        if int(challenge.get("attempts", 0)) >= 5:
+            challenges.pop(username, None)
+            bot.save_admin_data()
+            raise HTTPException(429, "پس از ۵ تلاش ناموفق، کد باطل شد.")
+        expected = hashlib.sha256(f"manager:{username}:{challenge.get('salt','')}:{code}".encode()).hexdigest()
+        if not hmac.compare_digest(expected, str(challenge.get("hash", ""))):
+            challenge["attempts"] = int(challenge.get("attempts", 0)) + 1
+            if challenge["attempts"] >= 5:
+                challenges.pop(username, None)
+            bot.save_admin_data()
+            login_attempts[address].append(now)
+            raise HTTPException(401, "کد ورود اشتباه است.")
+        challenges.pop(username, None)
         record["last_login_at"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
         record["last_login_ip_hash"] = hashlib.sha256(address.encode("utf-8")).hexdigest()[:16]
         bot.save_admin_data()
