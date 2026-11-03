@@ -1,13 +1,18 @@
 """Owner and manager authentication using Telegram one-time codes."""
+import asyncio
 import hashlib
 import hmac
+import json
 import os
+import tempfile
 import time
 import secrets
+from datetime import datetime, timezone
 from collections import defaultdict
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from itsdangerous import URLSafeTimedSerializer
 
 
@@ -123,6 +128,83 @@ def install_panel_auth(app, bot):
             '<meta name="fxi-panel-user" content="مالک"></head>',
         )
         return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
+    def build_database_backup_file():
+        if not bot.DATABASE_URL or not bot.DATABASE_READY:
+            raise HTTPException(503, "پایگاه داده PostgreSQL آماده نیست؛ ابتدا DATABASE_URL و اتصال دیتابیس را بررسی کن.")
+
+        # Export only the application's known tables. Never interpolate user input into SQL identifiers.
+        tables = (
+            ("fxi_bot_state", "id"),
+            ("fxi_chat_messages", "id"),
+            ("fxi_community_messages", "id"),
+        )
+        fd, path = tempfile.mkstemp(prefix="fxi-db-backup-", suffix=".jsonl")
+        digest = hashlib.sha256()
+        counts = {}
+        max_bytes = 256 * 1024 * 1024
+
+        def write_record(stream, record):
+            line = json.dumps(record, ensure_ascii=False, separators=(",", ":"), default=str) + "\n"
+            encoded = line.encode("utf-8")
+            if stream.tell() + len(encoded) > max_bytes:
+                raise HTTPException(413, "حجم نسخه پشتیبان از سقف ۲۵۶ مگابایت بیشتر است؛ از ابزار پشتیبان‌گیری خود میزبان دیتابیس استفاده کن.")
+            stream.write(line)
+            digest.update(encoded)
+
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                write_record(stream, {
+                    "type": "manifest",
+                    "format": "fxi-postgresql-jsonl",
+                    "version": 1,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "tables": [name for name, _ in tables],
+                    "note": "Sensitive owner-only export. Footer sha256 covers all preceding lines.",
+                })
+                with bot._db_connect() as conn:
+                    for table, order_column in tables:
+                        count = 0
+                        with conn.cursor(name=f"fxi_backup_{table}") as cursor:
+                            cursor.itersize = 500
+                            cursor.execute(
+                                f"SELECT row_to_json(t)::text FROM {table} AS t ORDER BY {order_column}"
+                            )
+                            for row in cursor:
+                                payload = row[0]
+                                data = json.loads(payload) if isinstance(payload, str) else payload
+                                write_record(stream, {"type": "row", "table": table, "data": data})
+                                count += 1
+                        counts[table] = count
+                footer = {
+                    "type": "footer",
+                    "counts": counts,
+                    "sha256": digest.hexdigest(),
+                }
+                stream.write(json.dumps(footer, ensure_ascii=False, separators=(",", ":")) + "\n")
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            return path, f"fxi-postgresql-backup-{stamp}.jsonl", counts
+        except Exception:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            raise
+
+    @app.get("/owner/api/backup")
+    async def owner_database_backup(auth=Depends(require_owner)):
+        path, filename, counts = await asyncio.to_thread(build_database_backup_file)
+        bot.log_admin_action(
+            "database_backup_downloaded",
+            "tables=" + ",".join(f"{name}:{count}" for name, count in counts.items()),
+        )
+        return FileResponse(
+            path,
+            media_type="application/x-ndjson",
+            filename=filename,
+            headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
+            background=BackgroundTask(lambda: os.path.exists(path) and os.unlink(path)),
+        )
 
     @app.get("/admin/request", response_class=HTMLResponse)
     async def manager_access_request_page():
