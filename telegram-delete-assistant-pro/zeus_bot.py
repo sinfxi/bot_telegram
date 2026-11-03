@@ -313,6 +313,203 @@ def _clear_chat_history_sync(user_id: int, provider_id: str) -> None:
         conn.commit()
 
 
+
+def _community_message_datetime(value) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)
+
+
+def _initialize_community_storage_sync() -> None:
+    """Create the indexed community archive and migrate bounded JSON logs once."""
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS fxi_community_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    chat_id BIGINT NOT NULL,
+                    message_id BIGINT NOT NULL,
+                    sender_id BIGINT NULL,
+                    sender_name TEXT NOT NULL DEFAULT '',
+                    username TEXT NULL,
+                    body TEXT NOT NULL DEFAULT '',
+                    media_type TEXT NOT NULL DEFAULT 'text',
+                    is_bot BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (chat_id, message_id)
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_fxi_community_chat_message
+                ON fxi_community_messages (chat_id, message_id DESC)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_fxi_community_chat_sender_message
+                ON fxi_community_messages (chat_id, sender_id, message_id DESC)
+            """)
+        # The old JSON archive is capped per chat; migrate it transactionally.
+        migrated = False
+        chats = admin_data.get("community", {}).get("chats", {})
+        if isinstance(chats, dict):
+            with conn.cursor() as cur:
+                for chat_id, record in chats.items():
+                    if not str(chat_id).lstrip("-").isdigit() or not isinstance(record, dict):
+                        continue
+                    rows = record.get("message_log", [])
+                    if not isinstance(rows, list) or not rows:
+                        continue
+                    values = []
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        try:
+                            message_id = int(row.get("message_id", 0))
+                            if message_id <= 0:
+                                continue
+                            raw_sender = row.get("sender_id")
+                            sender_id = int(raw_sender) if raw_sender is not None else None
+                            values.append((
+                                int(chat_id), message_id, sender_id,
+                                str(row.get("sender_name") or "")[:256],
+                                str(row.get("username") or "")[:128] or None,
+                                str(row.get("text") or "")[:4000],
+                                str(row.get("media_type") or "text")[:32],
+                                bool(row.get("is_bot")),
+                                _community_message_datetime(row.get("date")),
+                            ))
+                        except (TypeError, ValueError):
+                            continue
+                    if values:
+                        cur.executemany("""
+                            INSERT INTO fxi_community_messages
+                                (chat_id, message_id, sender_id, sender_name, username,
+                                 body, media_type, is_bot, created_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (chat_id, message_id) DO UPDATE SET
+                                sender_id=EXCLUDED.sender_id,
+                                sender_name=EXCLUDED.sender_name,
+                                username=EXCLUDED.username,
+                                body=EXCLUDED.body,
+                                media_type=EXCLUDED.media_type,
+                                is_bot=EXCLUDED.is_bot,
+                                created_at=EXCLUDED.created_at
+                        """, values)
+                        migrated = True
+                    # Clear only after all rows for this chat have been accepted.
+                    record["message_log"] = []
+        conn.commit()
+    if migrated:
+        save_admin_data()
+        log.info("Migrated legacy community message logs to PostgreSQL")
+
+
+def _save_community_message_sync(chat_id: int, row: dict) -> None:
+    message_id = int(row.get("message_id", 0))
+    if message_id <= 0:
+        return
+    raw_sender = row.get("sender_id")
+    sender_id = int(raw_sender) if raw_sender is not None else None
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO fxi_community_messages
+                    (chat_id, message_id, sender_id, sender_name, username,
+                     body, media_type, is_bot, created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (chat_id, message_id) DO UPDATE SET
+                    sender_id=EXCLUDED.sender_id,
+                    sender_name=EXCLUDED.sender_name,
+                    username=EXCLUDED.username,
+                    body=EXCLUDED.body,
+                    media_type=EXCLUDED.media_type,
+                    is_bot=EXCLUDED.is_bot,
+                    created_at=EXCLUDED.created_at
+            """, (
+                int(chat_id), message_id, sender_id,
+                str(row.get("sender_name") or "")[:256],
+                str(row.get("username") or "")[:128] or None,
+                str(row.get("text") or "")[:4000],
+                str(row.get("media_type") or "text")[:32],
+                bool(row.get("is_bot")),
+                _community_message_datetime(row.get("date")),
+            ))
+        conn.commit()
+
+
+def _list_community_messages_sync(chat_id: int, limit: int = 50,
+                                  before_message_id: int | None = None,
+                                  query: str = "", sender: str = "") -> tuple[list, bool]:
+    limit = max(1, min(100, int(limit)))
+    query = str(query or "").strip()[:100]
+    sender = str(sender or "").strip()[:80]
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT message_id, sender_id, sender_name, username, body,
+                       media_type, is_bot, created_at
+                FROM fxi_community_messages
+                WHERE chat_id = %s
+                  AND (%s IS NULL OR message_id < %s)
+                  AND (%s = '' OR body ILIKE %s)
+                  AND (%s = '' OR sender_name ILIKE %s OR COALESCE(username,'') ILIKE %s
+                       OR COALESCE(sender_id::text,'') ILIKE %s)
+                ORDER BY message_id DESC
+                LIMIT %s
+            """, (
+                int(chat_id), before_message_id, before_message_id,
+                query, f"%{query}%", sender, f"%{sender}%", f"%{sender}%", f"%{sender}%",
+                limit + 1,
+            ))
+            rows = cur.fetchall()
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    return ([{
+        "message_id": row[0], "sender_id": row[1], "sender_name": row[2],
+        "username": row[3], "text": row[4], "media_type": row[5],
+        "is_bot": bool(row[6]), "date": row[7].isoformat() if row[7] else None,
+    } for row in items], has_more)
+
+
+def _get_community_message_sync(chat_id: int, message_id: int) -> dict | None:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT message_id, sender_id, sender_name, username, body,
+                       media_type, is_bot, created_at
+                FROM fxi_community_messages WHERE chat_id=%s AND message_id=%s
+            """, (int(chat_id), int(message_id)))
+            row = cur.fetchone()
+    if not row:
+        return None
+    return {"message_id": row[0], "sender_id": row[1], "sender_name": row[2],
+            "username": row[3], "text": row[4], "media_type": row[5],
+            "is_bot": bool(row[6]), "date": row[7].isoformat() if row[7] else None}
+
+
+def _delete_community_message_sync(chat_id: int, message_id: int) -> bool:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM fxi_community_messages WHERE chat_id=%s AND message_id=%s",
+                        (int(chat_id), int(message_id)))
+            deleted = cur.rowcount > 0
+        conn.commit()
+    return deleted
+
+
+def _edit_community_message_sync(chat_id: int, message_id: int, text: str) -> bool:
+    with _db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE fxi_community_messages SET body=%s
+                WHERE chat_id=%s AND message_id=%s AND is_bot=TRUE
+            """, (str(text)[:4000], int(chat_id), int(message_id)))
+            updated = cur.rowcount > 0
+        conn.commit()
+    return updated
+
+
 def _admin_conversation_list_sync(limit: int = 100) -> list:
     with _db_connect() as conn:
         with conn.cursor() as cur:
@@ -1231,7 +1428,7 @@ async def answer_and_log(message: Message, *args, **kwargs):
     sent = await message.answer(*args, **kwargs)
     if message.chat.type in {"group", "supergroup"}:
         value = args[0] if args else kwargs.get("text", "")
-        record_community_bot_message(message.chat.id, sent, str(value or ""))
+        await record_community_bot_message(message.chat.id, sent, str(value or ""))
     return sent
 
 async def _delete_temporary_message(chat_id: int, message_id: int, delay: int = 60):
@@ -1265,7 +1462,7 @@ async def send_bot_message_and_log(*args, **kwargs):
         chat_id = int(chat_id)
         record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id), {})
         if chat_id < 0 and isinstance(record, dict) and record.get("type") in {"group", "supergroup"}:
-            record_community_bot_message(chat_id, sent, str(text_value or ""))
+            await record_community_bot_message(chat_id, sent, str(text_value or ""))
     except (TypeError, ValueError):
         pass
     return sent
@@ -1307,12 +1504,11 @@ def community_chat(chat_id: int) -> dict:
     record.setdefault("warnings", {})
     return record
 
-def record_community_bot_message(chat_id: int, sent_message: Message, text_value: str) -> None:
-    """Keep a bounded log of messages sent by FXI so owners can review/edit/delete them."""
+async def record_community_bot_message(chat_id: int, sent_message: Message, text_value: str) -> None:
+    """Persist bot-authored community messages without growing the JSON state."""
     try:
         record = community_chat(chat_id)
-        rows = record.setdefault("message_log", [])
-        rows.append({
+        row = {
             "message_id": int(sent_message.message_id),
             "sender_id": int(bot.id) if bot and bot.id else None,
             "sender_name": "FXI Bot",
@@ -1321,8 +1517,13 @@ def record_community_bot_message(chat_id: int, sent_message: Message, text_value
             "date": datetime.now(timezone.utc).isoformat(),
             "media_type": "text",
             "is_bot": True,
-        })
-        record["message_log"] = rows[-120:]
+        }
+        if DATABASE_READY:
+            await asyncio.to_thread(_save_community_message_sync, chat_id, row)
+        else:
+            rows = record.setdefault("message_log", [])
+            rows.append(row)
+            record["message_log"] = rows[-120:]
         save_admin_data()
     except Exception:
         log.exception("Could not record bot message for group %s", chat_id)
@@ -1813,8 +2014,7 @@ async def collect_community_message(message: Message):
                       "animation" if message.animation else "document" if message.document else
                       "audio" if message.audio else "voice" if message.voice else
                       "sticker" if message.sticker else "text")
-        message_log = data.setdefault("message_log", [])
-        message_log.append({
+        archive_row = {
             "message_id": int(message.message_id),
             "sender_id": int(message.from_user.id) if message.from_user else None,
             "sender_name": message.from_user.full_name if message.from_user else "کاربر ناشناس",
@@ -1823,8 +2023,19 @@ async def collect_community_message(message: Message):
             "date": datetime.now(timezone.utc).isoformat(),
             "media_type": media_type,
             "is_bot": bool(message.from_user and bot and message.from_user.id == bot.id),
-        })
-        data["message_log"] = message_log[-120:]
+        }
+        if DATABASE_READY:
+            try:
+                await asyncio.to_thread(_save_community_message_sync, message.chat.id, archive_row)
+            except Exception:
+                log.exception("PostgreSQL community archive write failed; retaining bounded JSON fallback")
+                message_log = data.setdefault("message_log", [])
+                message_log.append(archive_row)
+                data["message_log"] = message_log[-120:]
+        else:
+            message_log = data.setdefault("message_log", [])
+            message_log.append(archive_row)
+            data["message_log"] = message_log[-120:]
     if text_value:
         data.setdefault("activity", []).append({
             "text": text_value[:COMMUNITY_MAX_TEXT],
@@ -2574,6 +2785,7 @@ async def lifespan(app: FastAPI):
     if DATABASE_URL:
         try:
             await asyncio.to_thread(_initialize_chat_storage_sync)
+            await asyncio.to_thread(_initialize_community_storage_sync)
             DATABASE_READY = True
             log.info("Persistent chat storage is ready")
         except Exception:
