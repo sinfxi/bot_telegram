@@ -111,9 +111,12 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('id="username"', auth)
         self.assertIn('id="invite"', auth)
         self.assertIn("telegram_link", auth)
+        self.assertIn("manager_bind_", (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8"))
+        self.assertIn("schedule_temporary_message_cleanup", (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8"))
         self.assertNotIn('id="telegram"', auth)
         self.assertIn("item.telegram_linked", script)
         self.assertNotIn('id="managerCreateForm"', panel)
+        self.assertNotIn('id="telegram"', auth)
 
     def test_manager_otp_flow_replaces_static_password_login(self):
         auth = (_PROJECT_DIR / "panel_auth.py").read_text(encoding="utf-8")
