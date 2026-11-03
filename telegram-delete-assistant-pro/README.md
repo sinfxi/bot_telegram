@@ -38,6 +38,7 @@ uvicorn app:app --env-file .env --host 0.0.0.0 --port 8000
 | متغیر | کاربرد |
 |---|---|
 | `ZEUS_BOT_TOKEN` | توکن ربات تلگرام از BotFather |
+| `DATABASE_URL` | آدرس اتصال PostgreSQL؛ در Render مقدار Internal Database URL را وارد کن. برنامه جدول‌ها و ایندکس‌های خودش را هنگام راه‌اندازی خودکار می‌سازد. آدرس‌های قدیمی با پیشوند `postgres://` نیز پشتیبانی می‌شوند. |
 | `TELEGRAM_BOT_USERNAME` | نام کاربری ربات بدون @؛ برای تشخیص خطاب مستقیم |
 | `ADMIN_IDS` | شناسه‌های عددی مدیران اصلی، جداشده با کاما |
 | `ADMIN_PANEL_USERNAME` | نام کاربری مالک اصلی پنل |\n| `ADMIN_PANEL_PASSWORD` | رمز عبور مالک اصلی پنل |\n| `SESSION_SECRET` | کلید تصادفی و ثابت برای امضای نشست‌های پنل |\n| `ADMIN_PANEL_URL` | آدرس عمومی پایهٔ پنل، بدون `/admin`؛ برای ساخت لینک‌های یک‌بارمصرف ادمین |
