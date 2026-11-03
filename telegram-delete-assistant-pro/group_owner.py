@@ -84,14 +84,14 @@ def install_group_owner(app, bot):
     def rate_limit(request: Request):
         ip = request.client.host if request.client else "unknown"
         now = time.time()
-        stamps = [stamp for stamp in request_stamps.get(ip, []) if now - stamp < 900]
-        if len(stamps) >= 8:
-            raise HTTPException(429, "تعداد درخواست‌ها زیاد است؛ ۱۵ دقیقه دیگر دوباره تلاش کن.")
+        stamps = [stamp for stamp in request_stamps.get(ip, []) if now - stamp < 60]
+        if len(stamps) >= 20:
+            raise HTTPException(429, "تعداد درخواست‌ها زیاد است؛ یک دقیقه دیگر دوباره تلاش کن.")
         stamps.append(now)
         request_stamps[ip] = stamps
         if len(request_stamps) > 5000:
             for key, values in list(request_stamps.items()):
-                if not values or now - values[-1] >= 900:
+                if not values or now - values[-1] >= 60:
                     request_stamps.pop(key, None)
             if len(request_stamps) > 5000:
                 for key in list(request_stamps)[:1000]:
