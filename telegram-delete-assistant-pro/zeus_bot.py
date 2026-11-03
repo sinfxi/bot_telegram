@@ -2631,12 +2631,14 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
                 cleaned.append(word)
         record["blocked_words"] = cleaned
     save_admin_data()
-    changed = ", ".join([*payload.settings.keys(), *(["warn_limit"] if payload.warn_limit is not None else []), *(["blocked_words"] if payload.blocked_words is not None else [])])
+    changed = ", ".join([*payload.settings.keys(), *(["warn_limit"] if payload.warn_limit is not None else []), *(["flood_limit"] if payload.flood_limit is not None else []), *(["welcome_message"] if payload.welcome_message is not None else []), *(["blocked_words"] if payload.blocked_words is not None else [])])
     log_admin_action("community_settings_updated", f"chat={chat_id}; settings={changed}; by={auth.get('user_id', 0)}")
     return {
         "message": "تنظیمات فضا ذخیره شد.",
         "chat_id": chat_id,
-        "settings": {key: bool(settings.get(key, key != "ai_enabled")) for key in allowed}
+        "settings": {key: bool(settings.get(key, key != "ai_enabled")) for key in allowed},
+        "flood_limit": max(3, min(20, int(settings.get("flood_limit", COMMUNITY_MAX_MESSAGES)))),
+        "welcome_message": str(settings.get("welcome_message", ""))[:500]
     }
 
 
