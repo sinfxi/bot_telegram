@@ -93,7 +93,56 @@ finally{button.disabled=false;setTimeout(()=>{button.textContent=original},1300)
 function renderFeatureSettings(features,definitions){featureDraft={...features};const box=$('featureSettings');box.replaceChildren();Object.entries(definitions).forEach(([key,meta])=>{const row=document.createElement('label');row.className='listitem';row.style.cursor='pointer';const info=document.createElement('div');const title=document.createElement('b');title.textContent=meta.label;const desc=document.createElement('div');desc.className='muted';desc.textContent=meta.description;info.append(title,desc);const toggle=document.createElement('input');toggle.type='checkbox';toggle.checked=Boolean(featureDraft[key]);toggle.disabled=meta.available===false;toggle.setAttribute('aria-label',meta.label);toggle.style.width='20px';toggle.style.height='20px';toggle.addEventListener('change',()=>{featureDraft[key]=toggle.checked});row.append(info,toggle);box.append(row)});if(!box.children.length)box.innerHTML='<div class="empty">تنظیماتی برای نمایش وجود ندارد یا سطح دسترسی کافی نیست.</div>'}
 async function saveFeatureSettings(){try{const d=await api('features','POST',{features:featureDraft});featureDraft={...d.features};$('featureSaveStatus').textContent=d.message;note(d.message);await refresh()}catch(e){$('featureSaveStatus').textContent=e.message;note(e.message)}}
 function providerCards(){const html=Object.entries(labels).map(([id,label])=>{const ready=data.providers.includes(id);return '<div class="provider"><b><i class="dot '+(ready?'':'off')+'"></i>'+label+'</b><span>'+(ready?'آمادهٔ استفاده':'نیازمند تنظیم کلید API')+'</span></div>'}).join('');$('providerOverview').innerHTML=html;$('providerList').innerHTML=html;$('providerCount').textContent=data.providers.length}
-async function refreshRequest(){if(refreshInProgress)return;refreshInProgress=true;try{data=await api('status');$('status').textContent='● متصل به سرور';$('users').textContent=data.users_count;$('adminsCount').textContent=data.admins_count??data.admins.length;$('bot').textContent=data.bot_enabled?'روشن':'خاموش';$('prompt').value=data.system_prompt;providerCards();if(data.permissions.includes('system'))renderFeatureSettings(data.features||{},data.feature_definitions||{});$('admins').innerHTML='';data.admins.forEach(username=>{const el=document.createElement('div');el.className='listitem';const label=document.createElement('span');label.textContent='مدیر پنل: '+username;const actions=document.createElement('div');actions.className='actions';const perms=document.createElement('button');perms.className='btn secondary';perms.textContent='دسترسی‌ها';perms.onclick=()=>managePermissions(username);actions.appendChild(perms);const b=document.createElement('button');b.className='btn danger';b.textContent='حذف';b.onclick=()=>removeAdmin(username);actions.appendChild(b);el.append(label,actions);const permissionLine=document.createElement('small');permissionLine.className='muted';permissionLine.textContent=(data.admin_permissions?.[String(username)]||['dashboard']).map(p=>permissionNames[p]||p).join(' · ');el.appendChild(permissionLine);$('admins').appendChild(el)});userItems=(data.recent_user_profiles||[]).slice().reverse();renderUsers();if(!userItems.length)$('userList').innerHTML='<div class="empty">هنوز کاربری ثبت نشده است.</div>';note('اطلاعات با موفقیت دریافت شد');if(document.getElementById('page-payments')?.classList.contains('active'))loadPayments()}catch(e){$('status').textContent='● خطا در اتصال';note(e.message)}finally{refreshInProgress=false}}
+async function refreshRequest(){
+if(refreshInProgress)return;refreshInProgress=true;
+try{
+data=await api('status');
+$('status').textContent='● متصل به سرور';
+$('users').textContent=data.users_count;
+$('adminsCount').textContent=data.admins_count??(data.admins||[]).length;
+$('bot').textContent=data.bot_enabled?'روشن':'خاموش';
+$('prompt').value=data.system_prompt;
+providerCards();
+if(data.permissions.includes('system'))renderFeatureSettings(data.features||{},data.feature_definitions||{});
+$('admins').innerHTML='';
+(data.admins||[]).forEach(username=>{
+ const record=data.manager_records?.[username]||{};
+ const el=document.createElement('div');el.className='listitem';
+ const info=document.createElement('div');
+ const label=document.createElement('b');label.textContent='ادمین پنل: '+username;
+ const meta=document.createElement('small');meta.className='muted';meta.textContent='شناسه تلگرام: '+(record.telegram_id||'نامشخص');
+ info.append(label,meta);
+ const actions=document.createElement('div');actions.className='actions';
+ const perms=document.createElement('button');perms.className='btn secondary';perms.textContent='دسترسی‌ها';perms.onclick=()=>managePermissions(username);actions.appendChild(perms);
+ const b=document.createElement('button');b.className='btn danger';b.textContent='حذف';b.onclick=()=>removeAdmin(username);actions.appendChild(b);
+ el.append(info,actions);
+ const permissionLine=document.createElement('small');permissionLine.className='muted';permissionLine.textContent=(data.admin_permissions?.[String(username)]||record.permissions||['dashboard']).map(p=>permissionNames[p]||p).join(' · ');el.appendChild(permissionLine);
+ $('admins').appendChild(el);
+});
+if($('managerRequests')){
+ $('managerRequests').innerHTML='';
+ const requests=data.manager_requests||[];
+ if(!requests.length)$('managerRequests').innerHTML='<div class="empty">درخواست در انتظار تأییدی وجود ندارد.</div>';
+ requests.forEach(item=>{
+  const card=document.createElement('div');card.className='manager-request-card';
+  const title=document.createElement('b');title.textContent='درخواست از '+(item.username||'بدون نام');
+  const meta=document.createElement('div');meta.className='manager-request-meta';
+  meta.textContent='شناسه تلگرام: '+item.telegram_id+' · زمان درخواست: '+(item.requested_at||'نامشخص');
+  const perms=document.createElement('div');perms.className='manager-request-meta';
+  perms.textContent='دسترسی‌های درخواستی: '+(item.permissions||[]).map(p=>permissionNames[p]||p).join('، ');
+  const actions=document.createElement('div');actions.className='manager-request-actions';
+  const approve=document.createElement('button');approve.className='btn';approve.textContent='تأیید و ایجاد ادمین';approve.onclick=()=>approveManagerRequest(item.request_id);
+  const reject=document.createElement('button');reject.className='btn danger';reject.textContent='رد درخواست';reject.onclick=()=>rejectManagerRequest(item.request_id);
+  actions.append(approve,reject);card.append(title,meta,perms,actions);$('managerRequests').appendChild(card);
+ });
+}
+userItems=(data.recent_user_profiles||[]).slice().reverse();renderUsers();
+if(!userItems.length)$('userList').innerHTML='<div class="empty">هنوز کاربری ثبت نشده است.</div>';
+note('اطلاعات با موفقیت دریافت شد');
+if(document.getElementById('page-payments')?.classList.contains('active'))loadPayments();
+}catch(e){$('status').textContent='● خطا در اتصال';note(e.message)}
+finally{refreshInProgress=false}
+}
 function renderUsers(){const q=($('userSearch')?.value||'').trim().toLocaleLowerCase('fa');const items=userItems.filter(p=>[p.display_name,p.first_name,p.last_name,p.username,p.user_id].some(v=>String(v??'').toLocaleLowerCase('fa').includes(q)));$('userList').innerHTML='';$('userCount').textContent=items.length+' کاربر';items.forEach(p=>{const el=document.createElement('div');el.className='listitem';el.style.display='flex';el.style.justifyContent='space-between';el.style.alignItems='center';el.style.gap='12px';const info=document.createElement('div');const title=document.createElement('b');title.textContent=p.display_name||[p.first_name,p.last_name].filter(Boolean).join(' ')||'نام ثبت نشده';const meta=document.createElement('small');meta.className='muted';meta.textContent='شناسه: '+p.user_id+' · '+(p.username?'@'+p.username:'بدون نام کاربری')+' · آخرین فعالیت: '+formatWhen(p.last_seen);const state=document.createElement('small');state.textContent=p.is_blocked?' · مسدود':' · فعال';state.style.color=p.is_blocked?'#ffaaaa':'#9de8bd';meta.append(state);info.append(title,meta);const action=document.createElement('button');action.type='button';action.className='btn '+(p.is_blocked?'secondary':'danger');action.textContent=p.is_blocked?'فعال‌سازی':'مسدودسازی';action.onclick=()=>setUserBlocked(p.user_id,!p.is_blocked);el.append(info,action);$('userList').appendChild(el)});if(!items.length)$('userList').innerHTML='<div class="empty">کاربری با این جست‌وجو پیدا نشد.</div>'}
 async function setUserBlocked(userId,blocked){const verb=blocked?'مسدود':'فعال';if(!confirm('دسترسی این کاربر به ربات '+verb+' شود؟'))return;try{const d=await api('users/'+encodeURIComponent(userId)+'/'+(blocked?'block':'unblock'),'POST',{});note(d.message);await refresh()}catch(e){note(e.message)}}
 function filterUsers(){renderUsers()}
@@ -104,26 +153,30 @@ const box=$('managerPermissionChoices');if(!box||box.dataset.ready==='1')return;
 Object.entries(managerPermissionLabels).forEach(([key,label])=>{const wrap=document.createElement('label');const input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=key==='dashboard';if(key==='dashboard')input.disabled=true;const span=document.createElement('span');span.textContent=label;wrap.append(input,span);box.append(wrap)});
 box.dataset.ready='1';
 }
-async function addAdmin(){
-initManagerPermissionChoices();
-const button=document.querySelector('button[onclick="addAdmin()"]');
-try{
-const username=$('managerName').value.trim().toLowerCase();
-const rawId=$('managerTelegramId').value.trim();
-const telegram_id=Number(rawId);
-const setup_code=$('managerSetupCode').value.trim();
-if(!/^[a-zA-Z0-9_.-]{3,64}$/.test(username))throw Error('نام کاربری باید ۳ تا ۶۴ کاراکتر و فقط شامل حروف انگلیسی، عدد، نقطه، خط تیره یا زیرخط باشد.');
-if(!/^[1-9][0-9]{0,14}$/.test(rawId)||!Number.isSafeInteger(telegram_id))throw Error('شناسه عددی تلگرام معتبر وارد کن.');
-if(setup_code.length<8)throw Error('کد اختصاصی ساخت مدیر را وارد کن (حداقل ۸ کاراکتر).');
-if(button){button.disabled=true;button.dataset.originalText=button.textContent;button.textContent='در حال ثبت مدیر…'}
-note('در حال بررسی اطلاعات و ثبت حساب مدیر…');
-const permissions=[...$('managerPermissionChoices').querySelectorAll('input:checked')].map(x=>x.value);if(!permissions.includes('dashboard'))permissions.push('dashboard');
-const d=await api('managers','POST',{username,telegram_id,setup_code,permissions});
-$('managerName').value='';$('managerTelegramId').value='';$('managerSetupCode').value='';
-note(d.message||'✅ حساب مدیر ثبت شد؛ راهنمای ورود برای او ارسال شد.');
-await refresh();
-}catch(e){note('ثبت مدیر انجام نشد: '+e.message)}
-finally{if(button){button.disabled=false;button.textContent=button.dataset.originalText||'ثبت مدیر'}}
+async function createManagerInvite(){
+ const button=$('createManagerInviteBtn');
+ try{
+  if(button){button.disabled=true;button.textContent='در حال ساخت کد…'}
+  const d=await api('manager-invites','POST',{});
+  $('managerInviteCode').textContent=d.code;
+  $('managerRequestLink').href=location.origin+'/admin/request';
+  $('managerInviteResult').hidden=false;
+  note('کد دعوت ساخته شد. همین حالا آن را کپی و برای مدیر موردنظر ارسال کن؛ کد فقط یک بار قابل استفاده است.');
+ }catch(e){note('ساخت کد دعوت انجام نشد: '+e.message)}
+ finally{if(button){button.disabled=false;button.textContent='✨ ایجاد کد برای مدیر'}}
+}
+async function copyManagerInvite(){
+ const code=$('managerInviteCode')?.textContent||'';
+ if(!code)return note('کدی برای کپی وجود ندارد');
+ try{await navigator.clipboard.writeText(code);note('کد دعوت کپی شد.')}catch(e){note('کپی خودکار ممکن نشد؛ کد را دستی انتخاب و کپی کن.')}
+}
+async function approveManagerRequest(id){
+ if(!confirm('این درخواست تأیید و حساب ادمین ساخته شود؟'))return;
+ try{const d=await api('manager-requests/'+encodeURIComponent(id)+'/approve','POST',{});note(d.message||'ادمین ساخته شد.');await refresh()}catch(e){note(e.message)}
+}
+async function rejectManagerRequest(id){
+ if(!confirm('این درخواست مدیریت رد شود؟'))return;
+ try{const d=await api('manager-requests/'+encodeURIComponent(id)+'/reject','POST',{});note(d.message||'درخواست رد شد.');await refresh()}catch(e){note(e.message)}
 }
 async function resetAdminPassword(username){const password=prompt('رمز جدید مدیر «'+username+'» را وارد کن (دقیقاً ۴ کاراکتر):');if(password===null)return;if(password.length!==4)return note('رمز باید دقیقاً ۴ کاراکتر باشد');try{const d=await api('managers/'+encodeURIComponent(username)+'/password','POST',{password});note(d.message)}catch(e){note(e.message)}}
 async function removeAdmin(username){if(!confirm('دسترسی مدیر «'+username+'» لغو شود؟'))return;try{const d=await api('managers/'+encodeURIComponent(username),'DELETE');note(d.message);await refresh()}catch(e){note(e.message)}}
