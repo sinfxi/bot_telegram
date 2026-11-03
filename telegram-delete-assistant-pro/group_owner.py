@@ -365,8 +365,8 @@ def install_group_owner(app, bot):
         row = next((item for item in record.get("message_log", []) if int(item.get("message_id", 0)) == message_id), None)
         if row is None:
             raise HTTPException(404, "پیام در تاریخچه ثبت‌شده پیدا نشد.")
-        if not row.get("is_bot"):
-            raise HTTPException(403, "تلگرام اجازه ویرایش پیام اعضا را به ربات نمی‌دهد؛ فقط پیام‌های خود ربات قابل ویرایش‌اند.")
+        if not row.get("is_bot") or int(row.get("sender_id") or 0) != int(tg().id):
+            raise HTTPException(403, "تلگرام اجازه ویرایش پیام اعضا یا ربات‌های دیگر را نمی‌دهد؛ فقط پیام‌های خود FXI قابل ویرایش‌اند.")
         try:
             await tg().edit_message_text(chat_id=auth["chat_id"], message_id=message_id, text=text)
         except Exception as exc:
@@ -532,8 +532,8 @@ def install_group_owner(app, bot):
             raise HTTPException(422, "متن جدید باید بین ۱ تا ۴۰۰۰ نویسه باشد.")
         record = bot.admin_data.get("community", {}).get("chats", {}).get(str(chat_id), {})
         row = next((item for item in record.get("message_log", []) if int(item.get("message_id", 0)) == message_id), None)
-        if not row or not row.get("is_bot"):
-            raise HTTPException(403, "فقط پیام‌های خود ربات قابل ویرایش هستند.")
+        if not row or not row.get("is_bot") or int(row.get("sender_id") or 0) != int(tg().id):
+            raise HTTPException(403, "فقط پیام‌های خود FXI قابل ویرایش هستند.")
         try:
             await tg().edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
         except Exception:
