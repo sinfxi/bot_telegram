@@ -104,13 +104,23 @@ class ConfigurationTests(unittest.TestCase):
                 password="1234",
             )
 
-    def test_manager_creation_form_is_connected_to_owner_api(self):
+    def test_manager_request_is_name_and_invite_only_then_telegram_bind(self):
         panel = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
+        auth = (_PROJECT_DIR / "panel_auth.py").read_text(encoding="utf-8")
         script = (_PROJECT_DIR / "static" / "admin.js").read_text(encoding="utf-8")
-        self.assertIn('id="managerCreateForm"', panel)
-        self.assertIn("createManagerAccount(event)", panel)
-        self.assertIn("api('managers','POST',payload)", script)
-        self.assertIn("initManagerCreatePermissions();", script)
+        self.assertIn('id="username"', auth)
+        self.assertIn('id="invite"', auth)
+        self.assertIn("telegram_link", auth)
+        self.assertNotIn('id="telegram"', auth)
+        self.assertIn("item.telegram_linked", script)
+        self.assertNotIn('id="managerCreateForm"', panel)
+
+    def test_manager_otp_flow_replaces_static_password_login(self):
+        auth = (_PROJECT_DIR / "panel_auth.py").read_text(encoding="utf-8")
+        self.assertIn("/auth/manager-request-code", auth)
+        self.assertIn("manager_otp_challenges", auth)
+        self.assertIn("کد یک‌بارمصرف", auth)
+        self.assertNotIn("/auth/manager-login',", auth)
 
     def test_manager_api_permissions_are_classified(self):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/community"), "community")
