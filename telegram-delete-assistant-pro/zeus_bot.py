@@ -1186,6 +1186,7 @@ def community_chat(chat_id: int) -> dict:
         "settings": {}
     })
     record.setdefault("message_log", [])
+    record.setdefault("group_owner_session_version", 1)
     settings = record.setdefault("settings", {})
     settings.setdefault("ai_enabled", True)
     settings.setdefault("bot_enabled", True)
