@@ -1876,9 +1876,9 @@ async def collect_community_message(message: Message):
                     await bot.restrict_chat_member(message.chat.id, message.from_user.id,
                         permissions=ChatPermissions(can_send_messages=False), until_date=until)
                     strikes[bucket_key] = []
-                    await answer_and_log(message, "🔇 به‌دلیل تکرار اسپم، ۵ دقیقه محدود شدی. اگر اشتباهی رخ داده با مدیر گروه صحبت کن.")
+                    await answer_temporary_and_log(message, "🔇 به‌دلیل تکرار اسپم، ۵ دقیقه محدود شدی. اگر اشتباهی رخ داده با مدیر گروه صحبت کن.")
                 else:
-                    await answer_and_log(message, "⚠️ پیام‌های پشت‌سرهم حذف شدند؛ لطفاً کمی آهسته‌تر پیام بده.")
+                    await answer_temporary_and_log(message, "⚠️ پیام‌های پشت‌سرهم حذف شدند؛ لطفاً کمی آهسته‌تر پیام بده.")
                 save_admin_data()
             except Exception:
                 log.warning("Anti-flood could not delete/restrict message in chat=%s", message.chat.id)
@@ -2954,56 +2954,6 @@ async def admin_conversation(user_id: int, _: str = Depends(require_admin)):
     except Exception:
         log.exception("Admin conversation read failed for user=%s", user_id)
         raise HTTPException(status_code=503, detail="خواندن مکالمه ممکن نشد.")
-
-
-@app.post("/admin/api/managers")
-async def create_panel_manager(payload: ManagerAccountPayload, auth=Depends(require_admin)):
-    """Owner-created manager account with a short password and explicit permissions."""
-    if auth.get("auth_type") != "owner":
-        raise HTTPException(status_code=403, detail="ساخت حساب مدیر فقط در اختیار مالک است.")
-    expected_code = os.getenv("MANAGER_CREATION_CODE", "").strip()
-    if not expected_code:
-        raise HTTPException(status_code=503, detail="کد ساخت مدیر در تنظیمات سرور تعریف نشده است.")
-    if not hmac.compare_digest(payload.setup_code.strip(), expected_code):
-        raise HTTPException(status_code=403, detail="کد ساخت مدیر معتبر نیست.")
-    username = payload.username.strip().lower()
-    if username in {"owner", "admin", "root"}:
-        raise HTTPException(status_code=400, detail="این نام کاربری قابل استفاده نیست.")
-    managers = admin_data.setdefault("panel_managers", {})
-    if username in managers:
-        raise HTTPException(status_code=409, detail="این نام کاربری قبلاً ثبت شده است.")
-    permissions = sorted(set(payload.permissions) | {"dashboard"})
-    if set(permissions) - set(ADMIN_PERMISSIONS) or "admins" in permissions:
-        raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
-    credential = hash_manager_password(payload.password)
-    managers[username] = {
-        **credential,
-        "telegram_id": int(payload.telegram_id or 0),
-        "permissions": permissions,
-        "enabled": True,
-        "session_version": 1,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    log_admin_action("panel_manager_created", f"username={username}; permissions={','.join(permissions)}")
-    save_admin_data()
-    notification_sent = False
-    if payload.telegram_id and bot:
-        try:
-            labels = "، ".join(ADMIN_PERMISSIONS[key] for key in permissions)
-            await send_bot_message_and_log(
-                payload.telegram_id,
-                "🎉 حساب مدیریت FXI برای شما ساخته شد.\n\n"
-                f"👤 نام کاربری: <b>{username}</b>\n"
-                f"🔗 ورود: {ADMIN_PANEL_URL.rstrip('/')}/admin/login\n"
-                "🔐 رمز ۴ کاراکتری را مالک به‌صورت امن در اختیارت قرار می‌دهد.\n"
-                f"🧩 دسترسی‌ها: {labels}",
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            notification_sent = True
-        except Exception as exc:
-            log.warning("Manager creation notification failed (%s)", type(exc).__name__)
-    return {"message": f"حساب مدیر «{username}» ساخته شد.", "notification_sent": notification_sent}
 
 
 @app.post("/admin/api/manager-invites")
