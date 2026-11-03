@@ -123,7 +123,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("/auth/manager-request-code", auth)
         self.assertIn("manager_otp_challenges", auth)
         self.assertIn("کد یک‌بارمصرف", auth)
-        self.assertNotIn("/auth/manager-login',", auth)
+        self.assertNotIn("password.length!==4", auth)
 
     def test_manager_api_permissions_are_classified(self):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/community"), "community")
