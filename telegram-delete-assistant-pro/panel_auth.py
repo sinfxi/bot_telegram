@@ -173,7 +173,7 @@ req.addEventListener('submit',e=>{e.preventDefault();requestCode()});verify.addE
             raise HTTPException(400, "درخواست ورود معتبر نیست.")
         username = str(data.get("username", "")).strip().lower()
         code = str(data.get("code", ""))
-        if not username or not __import__("re").fullmatch(r"[0-9]{4}", code):
+        if not username or not __import__("re").fullmatch(r"[0-9]{6}", code):
             raise HTTPException(400, "نام کاربری و کد ۴ رقمی معتبر وارد کن.")
         record = bot.admin_data.get("panel_managers", {}).get(username, {})
         challenges = bot.admin_data.setdefault("manager_otp_challenges", {})
