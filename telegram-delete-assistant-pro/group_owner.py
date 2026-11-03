@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from itsdangerous import URLSafeTimedSerializer
 
 
@@ -120,7 +120,7 @@ def install_group_owner(app, bot):
         path = STATIC_DIR / asset
         if not path.is_file():
             raise HTTPException(404, "فایل پیدا نشد.")
-        return HTMLResponse(path.read_text(encoding="utf-8"), media_type="text/css" if asset.endswith(".css") else "application/javascript",
+        return Response(path.read_text(encoding="utf-8"), media_type="text/css" if asset.endswith(".css") else "application/javascript",
                             headers={"Cache-Control": "public, max-age=300"})
 
     @app.post("/group-owner/api/request-code")
@@ -238,6 +238,7 @@ def install_group_owner(app, bot):
                      "type": chat.type, "member_count": member_count,
                      "message_count": int(record.get("message_count", 0)),
                      "members_seen": len(record.get("members_seen", {})),
+                     "bot_enabled": bool(record.get("settings", {}).get("bot_enabled", True)),
                      "last_activity": record.get("last_activity") or record.get("last_message_at", "")},
             "settings": {key: settings.get(key, default) for key, default in {
                 "bot_enabled": True, "ai_enabled": True, "conversational_ai": False,
