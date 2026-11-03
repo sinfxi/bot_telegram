@@ -18,7 +18,8 @@ def install_panel_auth(app, bot):
     # Prefer an explicit owner ID; for backward compatibility accept ADMIN_IDS
     # only when it contains exactly one account (ambiguous lists fail closed).
     def configured_owner_id():
-        raw = os.getenv("OWNER_TELEGRAM_ID", "").strip()
+        # ZEUS_ADMIN_ID is the existing owner identity setting used by this bot.
+        raw = os.getenv("ZEUS_ADMIN_ID", "").strip() or os.getenv("OWNER_TELEGRAM_ID", "").strip()
         if raw.isdigit() and int(raw) > 0:
             return int(raw)
         stored = bot.admin_data.get("owner_telegram_id")
@@ -188,7 +189,7 @@ req.addEventListener('submit',e=>{e.preventDefault();requestCode()});verify.addE
         username = str(data.get("username", "")).strip().lower()
         code = str(data.get("code", ""))
         if not username or not __import__("re").fullmatch(r"[0-9]{6}", code):
-            raise HTTPException(400, "نام کاربری و کد ۴ رقمی معتبر وارد کن.")
+            raise HTTPException(400, "نام کاربری و کد ۶ رقمی معتبر وارد کن.")
         record = bot.admin_data.get("panel_managers", {}).get(username, {})
         challenges = bot.admin_data.setdefault("manager_otp_challenges", {})
         challenge = challenges.get(username, {})
