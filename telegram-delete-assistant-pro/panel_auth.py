@@ -33,9 +33,9 @@ def install_panel_auth(app, bot):
     def enforce_login_limit(request):
         address = request.client.host if request.client else "unknown"
         now = time.time()
-        login_attempts[address] = [stamp for stamp in login_attempts[address] if now - stamp < 900]
-        if len(login_attempts[address]) >= 8:
-            raise HTTPException(429, "تعداد تلاش‌ها زیاد است؛ ۱۵ دقیقه دیگر امتحان کن.")
+        login_attempts[address] = [stamp for stamp in login_attempts[address] if now - stamp < 60]
+        if len(login_attempts[address]) >= 20:
+            raise HTTPException(429, "تعداد تلاش‌ها زیاد است؛ یک دقیقه دیگر امتحان کن.")
         return address
 
     def decode(token):
@@ -261,14 +261,14 @@ resend.addEventListener('click',()=>{clearInterval(clock);verify.hidden=true;req
             challenges.pop(username, None)
             bot.save_admin_data()
             raise HTTPException(401, "کد ورود منقضی شده است؛ کد تازه درخواست بده.")
-        if int(challenge.get("attempts", 0)) >= 5:
+        if int(challenge.get("attempts", 0)) >= 10:
             challenges.pop(username, None)
             bot.save_admin_data()
-            raise HTTPException(429, "پس از ۵ تلاش ناموفق، کد باطل شد.")
+            raise HTTPException(429, "پس از ۱۰ تلاش ناموفق، کد باطل شد.")
         expected = hashlib.sha256(f"manager:{username}:{challenge.get('salt','')}:{code}".encode()).hexdigest()
         if not hmac.compare_digest(expected, str(challenge.get("hash", ""))):
             challenge["attempts"] = int(challenge.get("attempts", 0)) + 1
-            if challenge["attempts"] >= 5:
+            if challenge["attempts"] >= 10:
                 challenges.pop(username, None)
             bot.save_admin_data()
             login_attempts[address].append(now)
@@ -377,7 +377,7 @@ resend.addEventListener('click',()=>{verify.hidden=true;req.hidden=false;reqBtn.
         if int(challenge.get("attempts", 0)) >= 5:
             bot.admin_data.pop("owner_otp_challenge", None)
             bot.save_admin_data()
-            raise HTTPException(429, "پس از ۵ تلاش ناموفق، کد باطل شد. کد تازه درخواست بده.")
+            raise HTTPException(429, "پس از ۱۰ تلاش ناموفق، کد باطل شد. کد تازه درخواست بده.")
         expected = hashlib.sha256(f"owner:{owner_id}:{challenge.get('salt','')}:{code}".encode()).hexdigest()
         if not hmac.compare_digest(expected, str(challenge.get("hash", ""))):
             challenge["attempts"] = int(challenge.get("attempts", 0)) + 1
