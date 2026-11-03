@@ -595,11 +595,7 @@ async def feature_message_gate(handler, event: Message, data):
         if str(event.from_user.id) in blocked and not is_admin(event.from_user.id):
             await event.answer("⛔ دسترسی شما به ربات توسط مدیر محدود شده است.")
             return None
-    if isinstance(event, Message) and event.text and event.text.startswith("/"):
-        command_name = event.text.split(maxsplit=1)[0].split("@", 1)[0][1:].lower()
-        if command_name != "start":
-            await event.answer("برای کار با FXI دیگر نیازی به دستورهای اسلش‌دار نیست 🙂\nعبارت ساده‌ای مثل «راهنما»، «آمار گروه»، «انتخاب مدل» یا «تنظیمات» را بنویس.")
-            return None
+    # Let registered Telegram command handlers receive supported slash commands.
     if isinstance(event, Message) and event.chat.type in {"group", "supergroup", "channel"}:
         chat_settings = community_chat(event.chat.id).setdefault("settings", {})
         if not chat_settings.get("bot_enabled", True):
@@ -1167,7 +1163,7 @@ def community_chat(chat_id: int) -> dict:
         "settings": {}
     })
     settings = record.setdefault("settings", {})
-    settings.setdefault("ai_enabled", False)
+    settings.setdefault("ai_enabled", True)
     settings.setdefault("bot_enabled", True)
     settings.setdefault("welcome_enabled", True)
     settings.setdefault("anti_flood_enabled", True)
@@ -1194,7 +1190,7 @@ def community_settings_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     settings = community_chat(chat_id).setdefault("settings", {})
     rows = [
         [InlineKeyboardButton(
-            text=("🧠 پاسخ هوشمند: روشن" if settings.get("ai_enabled", False) else "🧠 پاسخ هوشمند: خاموش"),
+            text=("🧠 پاسخ هوشمند: روشن" if settings.get("ai_enabled", True) else "🧠 پاسخ هوشمند: خاموش"),
             callback_data="community_settings:toggle:ai_enabled"
         )],
         [InlineKeyboardButton(
@@ -2181,7 +2177,7 @@ async def community_voice(message: Message):
     # Voice can be used to enable AI too; deterministic actions are checked before the AI toggle.
     if await _handle_natural_request(message, transcript, from_voice=True):
         return
-    if not data.get("settings", {}).get("ai_enabled", False):
+    if not data.get("settings", {}).get("ai_enabled", True):
         await message.answer("🔕 پاسخ هوشمند این گروه خاموشه. مدیر گروه می‌تونه با ویس یا متن بگه «ربات، پاسخ هوشمند رو روشن کن».")
         return
     provider_id = selected_provider[message.from_user.id]
@@ -2260,7 +2256,7 @@ async def chat(message: Message):
     # Natural commands are intentionally accepted without slash prefixes or bot mentions.
     if feature_enabled("natural_commands") and await _handle_natural_request(message, message.text):
         return
-    if not feature_enabled("ai_chat") or not addressed or not data.get("settings", {}).get("ai_enabled", False):
+    if not feature_enabled("ai_chat") or not addressed or not data.get("settings", {}).get("ai_enabled", True):
         return
     # Avoid flooding when several members mention the bot repeatedly.
     cooldowns = data.setdefault("settings", {}).setdefault("user_cooldowns", {})
@@ -2310,9 +2306,24 @@ async def _telegram_watchdog() -> None:
             log.info("Watchdog: polling task is running")
 
 
+def enable_default_community_ai() -> None:
+    """Enable mention-based AI replies in existing and newly registered groups."""
+    chats = admin_data.get("community", {}).get("chats", {})
+    changed = False
+    for record in chats.values():
+        settings = record.setdefault("settings", {})
+        if settings.get("ai_enabled") is not True:
+            settings["ai_enabled"] = True
+            changed = True
+    if changed:
+        save_admin_data()
+        log.info("Enabled AI replies for %s registered communities", len(chats))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global bot, polling_task, watchdog_task, DATABASE_READY, HTTP_SESSION
+    enable_default_community_ai()
     if DATABASE_URL:
         try:
             await asyncio.to_thread(_initialize_chat_storage_sync)
@@ -2871,6 +2882,7 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
         raise HTTPException(status_code=422, detail="برای مخاطبان انتخاب‌شده هنوز گیرنده‌ای ثبت نشده است. ربات باید در گروه/کانال عضو باشد و دست‌کم یک به‌روزرسانی دریافت کرده باشد.")
 
     totals = {key: {"sent": 0, "failed": 0} for key in allowed_targets}
+    failure_samples: list[dict] = []
     log_admin_action("broadcast_started", f"targets={','.join(sorted(targets))}; recipients={len(recipients)}; chars={len(message_text)}; image={bool(image_bytes)}")
 
     async def send_to_recipient(recipient_id: int):
@@ -2904,13 +2916,27 @@ async def broadcast(payload: BroadcastPayload, _: str = Depends(require_admin)):
                 except Exception as retry_exc:
                     exc = retry_exc
             totals[kind]["failed"] += 1
-            log.warning("Broadcast failed for %s %s: %s", kind, recipient_id, type(exc).__name__)
+            error_detail = str(exc).replace("\n", " ")[:240]
+            if len(failure_samples) < 12:
+                failure_samples.append({
+                    "type": kind,
+                    "chat_id": recipient_id,
+                    "error": error_detail or type(exc).__name__,
+                })
+            log.warning("Broadcast failed for %s %s: %s: %s",
+                        kind, recipient_id, type(exc).__name__, error_detail)
         await asyncio.sleep(0.05)
 
     sent = sum(item["sent"] for item in totals.values())
     failed = sum(item["failed"] for item in totals.values())
-    log_admin_action("broadcast_finished", f"sent={sent}; failed={failed}; breakdown={totals}")
-    return {"sent": sent, "failed": failed, "targets": sorted(targets), "breakdown": totals, "total": len(recipients)}
+    log_admin_action("broadcast_finished", f"sent={sent}; failed={failed}; image={bool(image_bytes)}; breakdown={totals}")
+    return {
+        "sent": sent, "failed": failed, "targets": sorted(targets),
+        "breakdown": totals, "total": len(recipients),
+        "image_sent": bool(image_bytes and sent > 0),
+        "image_size_bytes": len(image_bytes) if image_bytes else 0,
+        "failure_samples": failure_samples,
+    }
 
 
 @app.post("/admin/api/prompt")
