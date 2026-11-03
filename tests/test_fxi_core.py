@@ -55,6 +55,17 @@ class NaturalLanguageIntentTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_database_url_accepts_render_postgres_scheme_and_normalizes_it(self):
+        self.assertEqual(
+            zeus_bot._normalize_database_url("postgres://user:pass@host:5432/db"),
+            "postgresql://user:pass@host:5432/db",
+        )
+        self.assertEqual(
+            zeus_bot._normalize_database_url("postgresql://user:pass@host:5432/db"),
+            "postgresql://user:pass@host:5432/db",
+        )
+        self.assertEqual(zeus_bot._normalize_database_url(""), "")
+
     def test_only_openrouter_is_configured(self):
         self.assertEqual(set(zeus_bot.PROVIDERS), {"openrouter"})
         self.assertFalse(zeus_bot.provider_ready("openrouter"))
