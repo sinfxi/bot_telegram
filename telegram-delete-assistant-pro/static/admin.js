@@ -170,6 +170,20 @@ async function copyManagerInvite(){
  if(!code)return note('کدی برای کپی وجود ندارد');
  try{await navigator.clipboard.writeText(code);note('کد دعوت کپی شد.')}catch(e){note('کپی خودکار ممکن نشد؛ کد را دستی انتخاب و کپی کن.')}
 }
+async function revokeManagerInvite(){
+ const code=$('managerInviteCode')?.textContent?.trim()||'';
+ if(!code)return note('کد فعالی برای لغو وجود ندارد');
+ if(!confirm('کد دعوت لغو شود؟ پس از لغو، دیگر قابل استفاده نخواهد بود و از پنل هم حذف می‌شود.'))return;
+ const button=$('revokeManagerInviteBtn');
+ try{
+  if(button){button.disabled=true;button.textContent='در حال لغو…'}
+  const d=await api('manager-invites/revoke','POST',{code});
+  $('managerInviteCode').textContent='';
+  $('managerInviteResult').hidden=true;
+  note(d.message||'کد دعوت لغو و حذف شد.');
+ }catch(e){note('لغو کد انجام نشد: '+e.message)}
+ finally{if(button){button.disabled=false;button.textContent='لغو و حذف کد'}}
+}
 async function approveManagerRequest(id){
  if(!confirm('این درخواست تأیید و حساب ادمین ساخته شود؟'))return;
  try{const d=await api('manager-requests/'+encodeURIComponent(id)+'/approve','POST',{});note(d.message||'ادمین ساخته شد.');await refresh()}catch(e){note(e.message)}
