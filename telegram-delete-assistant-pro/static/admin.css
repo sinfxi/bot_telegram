@@ -520,3 +520,6 @@ body:before{display:none}
 .view-loading:before{content:"";width:8px;height:8px;border-radius:50%;background:#82c9a2;flex:0 0 auto}
 [aria-busy="true"]{cursor:progress}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}}
+
+/* Friendly manager onboarding card */
+.manager-help{margin:12px 0 15px;padding:14px 16px;border:1px solid #42634f;border-radius:14px;background:#172a25;color:#d8f1e2;line-height:1.95}.manager-help b{font-size:12px}.manager-help p{margin:5px 0;color:#c1d9ca;font-size:11px}.manager-help small{display:block;color:#a8c8b5;font-size:10px}.manager-help+ .muted{margin-top:10px}
