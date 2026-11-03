@@ -188,7 +188,46 @@ def log_admin_action(action: str, details: str = "") -> None:
         log.exception("Could not persist admin audit event")
 
 
+def prune_ephemeral_admin_state(now: float | None = None) -> None:
+    """Drop expired, reconstructible security/rate-limit state before persisting snapshots."""
+    current = time.time() if now is None else float(now)
+    # One-time codes are useless after expiry; never keep stale OTP hashes on disk.
+    manager_codes = admin_data.get("manager_otp_challenges", {})
+    if isinstance(manager_codes, dict):
+        for username, challenge in list(manager_codes.items()):
+            if not isinstance(challenge, dict) or current >= float(challenge.get("expires_at", 0) or 0):
+                manager_codes.pop(username, None)
+        if not manager_codes:
+            admin_data.pop("manager_otp_challenges", None)
+    owner_code = admin_data.get("owner_otp_challenge")
+    if isinstance(owner_code, dict) and current >= float(owner_code.get("expires_at", 0) or 0):
+        admin_data.pop("owner_otp_challenge", None)
+    # Rate-limit timestamps older than the one-minute window cannot affect future decisions.
+    invite_attempts = admin_data.get("manager_invite_attempts", {})
+    if isinstance(invite_attempts, dict):
+        for address, stamps in list(invite_attempts.items()):
+            fresh = [float(stamp) for stamp in stamps if current - float(stamp) < 60]
+            if fresh:
+                invite_attempts[address] = fresh
+            else:
+                invite_attempts.pop(address, None)
+        if not invite_attempts:
+            admin_data.pop("manager_invite_attempts", None)
+    global_attempts = admin_data.get("manager_invite_global_attempts", [])
+    if isinstance(global_attempts, list):
+        fresh_global = [float(stamp) for stamp in global_attempts if current - float(stamp) < 60]
+        if fresh_global:
+            admin_data["manager_invite_global_attempts"] = fresh_global
+        else:
+            admin_data.pop("manager_invite_global_attempts", None)
+    # Keep a hard bound on administrative audit records.
+    audit = admin_data.get("audit_log")
+    if isinstance(audit, list) and len(audit) > 500:
+        admin_data["audit_log"] = audit[-500:]
+
+
 def save_admin_data() -> None:
+    prune_ephemeral_admin_state()
     if DATABASE_URL:
         try:
             with _db_connect() as conn:
