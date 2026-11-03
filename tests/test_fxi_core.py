@@ -108,6 +108,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("idx_fxi_community_chat_message", source)
         self.assertIn("ON CONFLICT (chat_id, message_id)", source)
         self.assertIn("before_message_id", source)
+        self.assertIn("%s::BIGINT IS NULL", source)
         self.assertIn("_list_community_messages_sync", owner_source)
         self.assertIn("before_message_id", owner_source)
         self.assertIn("now - stamp < 60", owner_source)
