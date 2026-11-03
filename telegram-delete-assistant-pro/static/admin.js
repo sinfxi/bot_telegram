@@ -120,7 +120,7 @@ note('در حال بررسی اطلاعات و ثبت حساب مدیر…');
 const permissions=[...$('managerPermissionChoices').querySelectorAll('input:checked')].map(x=>x.value);if(!permissions.includes('dashboard'))permissions.push('dashboard');
 const d=await api('managers','POST',{username,telegram_id,setup_code,permissions});
 $('managerName').value='';$('managerTelegramId').value='';$('managerSetupCode').value='';
-note(d.message||'حساب مدیر ثبت شد.');
+note(d.message||'✅ حساب مدیر ثبت شد؛ راهنمای ورود برای او ارسال شد.');
 await refresh();
 }catch(e){note('ثبت مدیر انجام نشد: '+e.message)}
 finally{if(button){button.disabled=false;button.textContent=button.dataset.originalText||'ثبت مدیر'}}
