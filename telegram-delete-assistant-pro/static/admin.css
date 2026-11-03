@@ -647,3 +647,12 @@ body:before{display:none}
  .nav button,.panel-identity,.card,.provider,.listitem,.community-item,.btn,.field{transition:none!important}
  .grid>.card:hover,.provider:hover,.community-item:hover,.btn:hover{transform:none!important}
 }
+
+/* Advanced group-message control modal */
+.community-modal-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(2,8,14,.78);backdrop-filter:blur(12px);display:grid;place-items:center;padding:18px}
+.community-modal-backdrop[hidden]{display:none!important}
+.community-modal{width:min(980px,100%);max-height:min(88vh,900px);overflow:auto;background:linear-gradient(145deg,#122431,#0c1824);border:1px solid rgba(124,231,189,.22);border-radius:22px;padding:22px;box-shadow:0 30px 100px #0009;animation:fxiPanelEnter .3s ease both}
+.community-modal>header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;border-bottom:1px solid var(--line);padding-bottom:14px}
+.community-modal>header small{color:var(--mint);letter-spacing:1.5px}.community-modal>header h2{margin:6px 0;font-size:19px}.community-modal-actions{display:flex;gap:8px;flex-wrap:wrap;padding:14px 0}
+.community-modal-list{display:grid;gap:10px}.community-message{border:1px solid var(--line);border-radius:14px;padding:13px;background:#07172299}.community-message-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.community-message-head small{color:var(--muted)}.community-message-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9;margin:10px 0}.community-message-actions{display:flex;gap:7px;flex-wrap:wrap}.community-message-actions .btn{font-size:11px;padding:7px 11px}
+@media(max-width:640px){.community-modal{padding:15px}.community-modal>header{flex-direction:column}.community-modal-actions .btn{flex:1}}
