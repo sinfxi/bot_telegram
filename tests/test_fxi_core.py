@@ -98,6 +98,25 @@ class ConfigurationTests(unittest.TestCase):
             state.clear()
             state.update(original)
 
+    def test_community_archive_uses_postgres_and_keyset_pagination(self):
+        source = (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8")
+        owner_source = (_PROJECT_DIR / "group_owner.py").read_text(encoding="utf-8")
+        owner_js = (_PROJECT_DIR / "static" / "group-owner.js").read_text(encoding="utf-8")
+        admin_js = (_PROJECT_DIR / "static" / "admin.js").read_text(encoding="utf-8")
+        self.assertIn("CREATE TABLE IF NOT EXISTS fxi_community_messages", source)
+        self.assertIn("UNIQUE (chat_id, message_id)", source)
+        self.assertIn("idx_fxi_community_chat_message", source)
+        self.assertIn("ON CONFLICT (chat_id, message_id)", source)
+        self.assertIn("before_message_id", source)
+        self.assertIn("_list_community_messages_sync", owner_source)
+        self.assertIn("before_message_id", owner_source)
+        self.assertIn("now - stamp < 60", owner_source)
+        self.assertIn("len(stamps) >= 20", owner_source)
+        self.assertIn("loadMoreMessages", owner_js)
+        self.assertIn("filterMessages", owner_js)
+        self.assertIn("loadOlderCommunityMessages", admin_js)
+        self.assertIn("filterCommunityMessages", admin_js)
+
     def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
         payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
         self.assertEqual(payload.username, "ali_manager")
