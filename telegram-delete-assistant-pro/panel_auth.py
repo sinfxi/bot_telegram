@@ -124,13 +124,54 @@ def install_panel_auth(app, bot):
         )
         return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
+    @app.get("/admin/request", response_class=HTMLResponse)
+    async def manager_access_request_page():
+        options = []
+        for key, label in bot.ADMIN_PERMISSIONS.items():
+            if key == "admins":
+                continue
+            checked = " checked disabled" if key == "dashboard" else ""
+            options.append(
+                '<label class="perm"><input type="checkbox" value="' + key + '"' + checked + '>'
+                + label + '</label>'
+            )
+        page = """<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>درخواست دسترسی مدیریت · FXI</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 15% 10%,#183b36,transparent 42%),#09131b;color:#edf7f2;font:14px Tahoma,Arial}
+.card{width:min(560px,100%);padding:28px;border:1px solid #34534b;border-radius:22px;background:linear-gradient(145deg,#142a2b,#12202b);box-shadow:0 25px 80px #0007}
+h1{font-size:21px;margin:0 0 8px}.sub{color:#9cb5ac;line-height:2;font-size:12px;margin:0 0 20px}
+label.field-label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}
+input[type=text],input[type=number]{width:100%;padding:13px;border-radius:11px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-top:12px}
+.perm{display:flex;gap:8px;align-items:center;padding:10px;border:1px solid #34534b;border-radius:10px;color:#c9ded4;font-size:12px}
+button{width:100%;padding:14px;margin-top:18px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer}
+#msg{min-height:25px;margin-top:14px;color:#b8efd1;line-height:1.8;font-size:12px}
+.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:14px}
+a{color:#b8efd1}
+</style></head><body><main class="card"><h1>درخواست دسترسی مدیریت FXI</h1>
+<p class="sub">کد دعوتی را که مالک برایت فرستاده وارد کن. درخواست پس از بررسی و تأیید مالک به حساب مدیر تبدیل می‌شود؛ ثبت درخواست به‌تنهایی دسترسی مدیریتی ایجاد نمی‌کند.</p>
+<form id="form">
+<label class="field-label" for="invite">کد دعوت</label><input id="invite" type="text" autocomplete="off" required minlength="8" maxlength="64" placeholder="کد دعوت را وارد کن">
+<label class="field-label" for="username">نام کاربری دلخواه</label><input id="username" type="text" autocomplete="username" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}" placeholder="مثلاً ali_admin">
+<label class="field-label" for="telegram">شناسه عددی تلگرام</label><input id="telegram" type="number" min="1" max="9007199254740991" step="1" required placeholder="شناسه عددی حساب تلگرام">
+<label class="field-label">دسترسی‌های موردنیاز</label><div class="grid">""" + "".join(options) + """</div>
+<button id="submit" type="submit">ارسال درخواست برای مالک</button></form>
+<div id="msg" role="status"></div><div class="hint">نکته: برای دریافت پیام تأیید و کد ورود، ابتدا ربات FXI را در تلگرام باز کن و /start را بزن. <a href="/admin/login">قبلاً مدیر شده‌ای؟ ورود مدیر</a></div>
+</main><script>
+const form=document.getElementById('form'),msg=document.getElementById('msg'),btn=document.getElementById('submit');
+form.addEventListener('submit',async e=>{e.preventDefault();const telegram_id=Number(document.getElementById('telegram').value);const raw=document.getElementById('telegram').value.trim();const username=document.getElementById('username').value.trim();if(!/^[1-9][0-9]{0,14}$/.test(raw)||!Number.isSafeInteger(telegram_id)){msg.textContent='شناسه عددی تلگرام معتبر وارد کن.';return}if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)){msg.textContent='نام کاربری باید ۳ تا ۶۴ کاراکتر و با حروف انگلیسی، عدد، نقطه، خط تیره یا زیرخط باشد.';return}const permissions=[...form.querySelectorAll('.perm input:checked')].map(x=>x.value);if(!permissions.includes('dashboard'))permissions.push('dashboard');btn.disabled=true;btn.textContent='در حال ارسال…';msg.textContent='';try{const r=await fetch('/admin/api/manager-requests',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({invite_code:document.getElementById('invite').value.trim(),username,telegram_id,permissions})});const d=await r.json();if(!r.ok)throw Error(d.detail||'ثبت درخواست ممکن نشد');form.reset();msg.textContent='✅ '+(d.message||'درخواست ثبت شد. پس از بررسی مالک منتظر پیام تلگرام باش.')}catch(err){msg.textContent='❌ '+err.message}finally{btn.disabled=false;btn.textContent='ارسال درخواست برای مالک'}});
+</script></body></html>"""
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+
     @app.get("/admin/login", response_class=HTMLResponse)
     async def manager_login_page():
         page = """<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ورود مدیر · FXI</title>
 <style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 15% 10%,#183b36,transparent 42%),#09131b;color:#edf7f2;font:14px Tahoma,Arial}.card{width:min(430px,100%);padding:30px;border:1px solid #34534b;border-radius:24px;background:linear-gradient(145deg,#142a2b,#12202b);box-shadow:0 25px 80px #0007}.logo{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:#b8efd1;color:#10231a;font-weight:900;font-size:21px}h1{font-size:21px;margin:18px 0 7px}.sub{color:#9cb5ac;line-height:2;font-size:12px;margin:0 0 22px}label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:100%;padding:14px;border-radius:12px;border:1px solid #38534f;background:#0b191f;color:#fff;outline:none}input:focus{border-color:#9ce7c0}button{width:100%;padding:14px;margin-top:16px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}#msg{min-height:24px;margin-top:14px;color:#ffb5a8;font-size:12px;line-height:1.8}.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:8px}.timer{color:#b8efd1;text-align:center;margin-top:12px;font-weight:bold}</style></head><body><main class="card"><div class="logo">F</div><h1>ورود امن مدیر</h1><p class="sub">برای ورود، یک کد ۶ رقمی تازه به تلگرام ثبت‌شده‌ات می‌فرستیم؛ کد ۲ دقیقه اعتبار دارد و فقط یک بار قابل استفاده است.</p>
 <form id="requestForm"><label for="username">نام کاربری مدیر</label><input id="username" autocomplete="username" required maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}"><div class="hint">اول ربات FXI را در تلگرام باز کن و /start را بزن تا بتوانیم کد را خصوصی برایت بفرستیم.</div><button id="requestBtn" type="submit">ارسال کد به تلگرام</button></form>
-<form id="verifyForm" hidden><label for="otp">کد ۶ رقمی تلگرام</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required><div class="timer" id="timer">02:00</div><button id="verifyBtn" type="submit">تأیید کد و ورود</button><button id="resendBtn" type="button" hidden>ارسال مجدد کد</button></form><div id="msg" role="alert"></div></main>
+<form id="verifyForm" hidden><label for="otp">کد ۶ رقمی تلگرام</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required><div class="timer" id="timer">02:00</div><button id="verifyBtn" type="submit">تأیید کد و ورود</button><button id="resendBtn" type="button" hidden>ارسال مجدد کد</button></form><div id="msg" role="alert"></div><div class="hint" style="margin-top:14px"><a href="/admin/request" style="color:#b8efd1">برای دریافت دسترسی جدید، کد دعوت داری؟ ثبت درخواست مدیریت</a></div></main>
 <script>
 const req=document.getElementById('requestForm'),verify=document.getElementById('verifyForm'),msg=document.getElementById('msg'),reqBtn=document.getElementById('requestBtn'),verifyBtn=document.getElementById('verifyBtn'),resend=document.getElementById('resendBtn'),timer=document.getElementById('timer');let username='',expiresAt=0,clock=null;
 function showTime(){const left=Math.max(0,Math.ceil((expiresAt-Date.now())/1000));timer.textContent=String(Math.floor(left/60)).padStart(2,'0')+':'+String(left%60).padStart(2,'0');if(!left){clearInterval(clock);resend.hidden=false;verifyBtn.disabled=true;msg.textContent='کد منقضی شد؛ برای دریافت کد تازه دوباره درخواست بده.'}}
