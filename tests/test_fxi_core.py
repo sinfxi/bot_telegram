@@ -84,6 +84,8 @@ class ConfigurationTests(unittest.TestCase):
             permissions=["dashboard"],
         )
         self.assertEqual(payload.password, "A7b9")
+        self.assertTrue(zeus_bot.verify_manager_password("A7b9", zeus_bot.hash_manager_password("A7b9")))
+        self.assertFalse(zeus_bot.verify_manager_password("bad!", zeus_bot.hash_manager_password("A7b9")))
         with self.assertRaises(ValidationError):
             zeus_bot.ManagerAccountPayload(
                 username="short_pin",
