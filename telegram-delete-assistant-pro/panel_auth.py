@@ -104,7 +104,8 @@ def install_panel_auth(app, bot):
         html = bot.ADMIN_PANEL_HTML.replace(
             "</head>",
             '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '">'
-            '<meta name="fxi-panel-role" content="owner"></head>',
+            '<meta name="fxi-panel-role" content="owner">'
+            '<meta name="fxi-panel-user" content="' + str(admin_name).replace('"', '&quot;') + '"></head>',
         )
         return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
