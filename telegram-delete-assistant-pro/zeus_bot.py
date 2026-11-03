@@ -480,7 +480,7 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
 
 class ManagerAccountPayload(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=4, max_length=4)
+    telegram_id: int = Field(gt=0)
     setup_code: str = Field(min_length=8, max_length=128)
     permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
@@ -687,6 +687,8 @@ async def start(message: Message):
         [InlineKeyboardButton(text="📊 آمار جامعه", callback_data="menu:community")],
     ]
     keyboard = InlineKeyboardMarkup(inline_keyboard=menu_rows)
+    if message.chat.type == "private" and user:
+        await message.answer(f"🆔 شناسه تلگرام شما: <code>{user_id}</code>\nاگر قرار است مدیر پنل شوید، این شناسه را برای مالک ربات بفرستید.", parse_mode="HTML")
     await message.answer(
         f"سلام {name}! 👋 به FXI خوش اومدی.\n\n"
         "من دستیار مدیریت و تعامل جامعه تلگرام هستم؛ می‌تونم به مدیرها در مدیریت گروه، "
@@ -2712,11 +2714,15 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
     unknown = set(permissions) - set(ADMIN_PERMISSIONS)
     if unknown or "admins" in permissions:
         raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
-    salt = secrets.token_bytes(16)
-    iterations = 310000
-    digest = hashlib.pbkdf2_hmac("sha256", payload.password.encode("utf-8"), salt, iterations).hex()
+    if not bot:
+        raise HTTPException(status_code=503, detail="ربات تلگرام در دسترس نیست.")
+    try:
+        await bot.send_message(payload.telegram_id,
+            "✅ حساب شما به‌عنوان مدیر پنل FXI ثبت شد. از این پس برای ورود، کد یک‌بارمصرف به همین گفت‌وگوی خصوصی ارسال می‌شود.")
+    except Exception:
+        raise HTTPException(status_code=422, detail="ارسال پیام به این شناسه ممکن نشد؛ مدیر باید ابتدا ربات را Start کند و شناسه تلگرام صحیح باشد.")
     admin_data["panel_managers"][username] = {
-        "salt": salt.hex(), "hash": digest, "iterations": iterations,
+        "telegram_id": payload.telegram_id,
         "permissions": permissions, "enabled": True, "session_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
