@@ -424,7 +424,7 @@ def install_group_owner(app, bot):
         except Exception as exc:
             bot.log.info("Group owner edit failed chat=%s message=%s: %s", auth["chat_id"], message_id, type(exc).__name__)
             raise HTTPException(409, "ویرایش پیام ممکن نشد؛ شاید پیام حذف یا ویرایش‌ناپذیر شده باشد.")
-        await update_message_record(chat_id, message_id, text)
+        await update_message_record(auth["chat_id"], message_id, text)
         bot.log_admin_action("group_owner_bot_message_edited", f"chat={auth['chat_id']}; message={message_id}; owner={auth['user_id']}")
         return {"message": "پیام ربات ویرایش شد."}
 
@@ -611,9 +611,7 @@ def install_group_owner(app, bot):
             await tg().edit_message_text(chat_id=chat_id, message_id=message_id, text=text)
         except Exception:
             raise HTTPException(409, "ویرایش پیام ممکن نشد.")
-        row["text"] = text
-        row["edited_at"] = datetime.now(timezone.utc).isoformat()
-        save()
+        await update_message_record(chat_id, message_id, text)
         bot.log_admin_action("owner_panel_group_message_edited", f"chat={chat_id}; message={message_id}")
         return {"message": "پیام ربات ویرایش شد."}
 
