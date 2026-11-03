@@ -58,7 +58,6 @@ SUPPORT_CARDHOLDER = 'سینا نوبخت'
 pending_receipts = set()
 ADMIN_IDS = {int(part.strip()) for part in os.getenv("ADMIN_IDS", "").replace(";", ",").split(",") if part.strip().isdigit()}
 ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
-MANAGER_CREATION_CODE = os.getenv("MANAGER_CREATION_CODE", "").strip()
 # Internal identity for password-authenticated panel login when no Telegram ID is supplied.
 ADMIN_PANEL_AUTH_ID = -1
 ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://telegram-delete-assistant-pro.onrender.com").strip().rstrip("/")
@@ -478,10 +477,10 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
     return {"user_id": login_user_id, "auth_type": "root_basic", "permissions": sorted(_admin_permissions_for(login_user_id))}
 
 
-class ManagerAccountPayload(BaseModel):
+class ManagerRequestPayload(BaseModel):
+    invite_code: str = Field(min_length=8, max_length=64)
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     telegram_id: int = Field(gt=0)
-    setup_code: str = Field(min_length=8, max_length=128)
     permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
 
@@ -2667,6 +2666,26 @@ async def admin_status(auth=Depends(require_admin)):
         "users_count": len(admin_data.get("users", [])),
         "admins_count": len(managers),
         "admins": managers,
+        "manager_records": {
+            name: {
+                "telegram_id": int(record.get("telegram_id", 0)),
+                "permissions": sorted(set(record.get("permissions", ["dashboard"])).intersection(ADMIN_PERMISSIONS) - {"admins"}),
+                "created_at": record.get("created_at"),
+            }
+            for name, record in admin_data.get("panel_managers", {}).items()
+            if isinstance(record, dict)
+        } if "admins" in permissions else {},
+        "manager_requests": [
+            {
+                "request_id": request_id,
+                "username": record.get("username", ""),
+                "telegram_id": int(record.get("telegram_id", 0)),
+                "permissions": sorted(set(record.get("permissions", ["dashboard"])).intersection(ADMIN_PERMISSIONS) - {"admins"}),
+                "requested_at": record.get("requested_at", ""),
+            }
+            for request_id, record in admin_data.get("manager_requests", {}).items()
+            if isinstance(record, dict) and record.get("status") == "pending"
+        ] if auth.get("auth_type") == "owner" else [],
         "primary_admins": [] if "admins" in permissions else [],
         "recent_users": admin_data.get("users", [])[-50:] if "users" in permissions else [],
         "recent_user_profiles": [
@@ -2710,70 +2729,136 @@ async def admin_conversation(user_id: int, _: str = Depends(require_admin)):
         raise HTTPException(status_code=503, detail="خواندن مکالمه ممکن نشد.")
 
 
-@app.post("/admin/api/managers")
-async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin)):
+@app.post("/admin/api/manager-invites")
+async def create_manager_invite(auth=Depends(require_admin)):
     if auth.get("auth_type") != "owner":
-        raise HTTPException(status_code=403, detail="فقط مالک ربات می‌تواند مدیر پنل ثبت کند.")
+        raise HTTPException(status_code=403, detail="فقط مالک می‌تواند کد دعوت مدیر بسازد.")
+    now = time.time()
+    invites = admin_data.setdefault("manager_invites", {})
+    # Remove expired and already consumed invitation records.
+    for key, record in list(invites.items()):
+        if not isinstance(record, dict) or record.get("status") != "active" or float(record.get("expires_at", 0)) <= now:
+            invites.pop(key, None)
+    code = secrets.token_urlsafe(12)
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    invites[code_hash] = {
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": now + 86400,
+    }
+    save_admin_data()
+    log_admin_action("manager_invite_created", "one-time invitation created; expires in 24h")
+    return {"code": code, "expires_in": 86400, "request_url": ADMIN_PANEL_URL.rstrip("/") + "/admin/request"}
+
+
+@app.post("/admin/api/manager-requests")
+async def submit_manager_request(payload: ManagerRequestPayload, request: Request):
+    if not _admin_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
+    address = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempts = admin_data.setdefault("manager_invite_attempts", {})
+    recent = [stamp for stamp in attempts.get(address, []) if now - float(stamp) < 900]
+    if len(recent) >= 8:
+        raise HTTPException(status_code=429, detail="تعداد تلاش‌ها زیاد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
+    recent.append(now)
+    attempts[address] = recent
     username = payload.username.strip().lower()
-    if not MANAGER_CREATION_CODE:
-        raise HTTPException(status_code=503, detail="کد اختصاصی ساخت مدیر در تنظیمات امن سرور تعریف نشده است.")
-    if not hmac.compare_digest(payload.setup_code, MANAGER_CREATION_CODE):
-        raise HTTPException(status_code=403, detail="کد اختصاصی ساخت مدیر نادرست است.")
     if username in {"owner", "admin", "root"}:
         raise HTTPException(status_code=400, detail="این نام کاربری قابل استفاده نیست.")
     if username in admin_data.setdefault("panel_managers", {}):
-        raise HTTPException(status_code=409, detail="این نام کاربری قبلاً ثبت شده است.")
+        raise HTTPException(status_code=409, detail="این نام کاربری قبلاً مدیر پنل است.")
+    requests = admin_data.setdefault("manager_requests", {})
+    if any(
+        isinstance(item, dict) and item.get("status") == "pending"
+        and (str(item.get("username", "")).lower() == username or int(item.get("telegram_id", 0)) == payload.telegram_id)
+        for item in requests.values()
+    ):
+        raise HTTPException(status_code=409, detail="برای این نام کاربری یا شناسه تلگرام درخواست در انتظار وجود دارد.")
+    invite_code = payload.invite_code.strip()
+    invite_hash = hashlib.sha256(invite_code.encode("utf-8")).hexdigest()
+    invite = admin_data.setdefault("manager_invites", {}).get(invite_hash)
+    if not isinstance(invite, dict) or invite.get("status") != "active" or now >= float(invite.get("expires_at", 0)):
+        raise HTTPException(status_code=401, detail="کد دعوت نامعتبر، منقضی یا قبلاً استفاده شده است.")
     permissions = sorted(set(payload.permissions) | {"dashboard"})
     unknown = set(permissions) - set(ADMIN_PERMISSIONS)
     if unknown or "admins" in permissions:
         raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
-    # Persist the manager account before attempting Telegram notification. A failed
-    # notification must never roll back account creation.
-    admin_data["panel_managers"][username] = {
+    invite["status"] = "used"
+    invite["used_at"] = datetime.now(timezone.utc).isoformat()
+    request_id = secrets.token_hex(8)
+    requests[request_id] = {
+        "username": username,
         "telegram_id": payload.telegram_id,
-        "permissions": permissions, "enabled": True, "session_version": 1,
+        "permissions": permissions,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "status": "pending",
+    }
+    save_admin_data()
+    return {"message": "درخواست مدیریت ثبت شد و برای تأیید به مالک ارسال شد.", "request_id": request_id}
+
+
+@app.post("/admin/api/manager-requests/{request_id}/approve")
+async def approve_manager_request(request_id: str, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="فقط مالک می‌تواند درخواست مدیریت را تأیید کند.")
+    requests = admin_data.setdefault("manager_requests", {})
+    item = requests.get(request_id)
+    if not isinstance(item, dict) or item.get("status") != "pending":
+        raise HTTPException(status_code=404, detail="درخواست در انتظار پیدا نشد.")
+    username = str(item.get("username", "")).strip().lower()
+    telegram_id = int(item.get("telegram_id", 0))
+    managers = admin_data.setdefault("panel_managers", {})
+    if username in managers or telegram_id <= 0:
+        raise HTTPException(status_code=409, detail="نام کاربری تکراری یا شناسه تلگرام نامعتبر است.")
+    permissions = sorted(set(item.get("permissions", ["dashboard"])) | {"dashboard"})
+    permissions = [key for key in permissions if key in ADMIN_PERMISSIONS and key != "admins"]
+    managers[username] = {
+        "telegram_id": telegram_id,
+        "permissions": permissions,
+        "enabled": True,
+        "session_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    log_admin_action("panel_manager_created", f"username={username}; permissions={','.join(permissions)}")
-
+    item["status"] = "approved"
+    item["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+    log_admin_action("panel_manager_approved", f"username={username}; permissions={','.join(permissions)}")
     notification_sent = False
-    notification_error = ""
-    login_url = ADMIN_PANEL_URL + "/admin/login"
-    permission_labels = "، ".join(ADMIN_PERMISSIONS[item] for item in permissions)
-    onboarding_message = (
-        "🎉 دسترسی مدیریت FXI برای شما فعال شد.\n\n"
-        f"👤 نام کاربری: {username}\n"
-        f"🔗 صفحه ورود: {login_url}\n\n"
-        "🔐 روش ورود:\n"
-        "۱) صفحه ورود مدیر را باز کن.\n"
-        "۲) نام کاربری بالا را وارد و درخواست کد ورود را بزن.\n"
-        "۳) کد یک‌بارمصرف ۶ رقمی برای همین حساب تلگرام ارسال می‌شود.\n"
-        "۴) کد را در صفحه وارد کن تا وارد پنل شوی.\n\n"
-        "⏳ کد ورود فقط ۲ دقیقه اعتبار دارد و فقط یک بار قابل استفاده است.\n"
-        "🛡 کد را برای هیچ‌کس نفرست؛ حتی اگر خودش را پشتیبانی معرفی کرد.\n\n"
-        f"🧩 دسترسی‌های فعال: {permission_labels}\n"
-        "اگر ربات را هنوز Start نکرده‌ای، ابتدا وارد ربات شو و /start را بزن."
-    )
-    if bot:
-        try:
-            await bot.send_message(payload.telegram_id, onboarding_message, disable_web_page_preview=True)
-            notification_sent = True
-        except Exception as exc:
-            notification_error = type(exc).__name__
-            log.warning("Manager %s was created but Telegram onboarding notification failed (%s)", username, notification_error)
+    try:
+        if not bot:
+            raise RuntimeError("Telegram bot is not initialized")
+        labels = "، ".join(ADMIN_PERMISSIONS[key] for key in permissions)
+        await bot.send_message(
+            telegram_id,
+            "🎉 درخواست مدیریت FXI تأیید شد.\n\n"
+            f"👤 نام کاربری: <b>{username}</b>\n"
+            f"🔗 ورود به پنل: {ADMIN_PANEL_URL.rstrip('/')}/admin/login\n\n"
+            "برای ورود، نام کاربری را وارد کن تا کد یک‌بارمصرف به همین تلگرام ارسال شود.\n"
+            f"🧩 دسترسی‌ها: {labels}\n\n"
+            "اگر هنوز ربات را Start نکرده‌ای، ابتدا /start را بزن.",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        notification_sent = True
+    except Exception as exc:
+        log.warning("Manager approval notification failed (%s)", type(exc).__name__)
+    save_admin_data()
+    return {"message": f"درخواست «{username}» تأیید شد و حساب مدیر ساخته شد.", "notification_sent": notification_sent}
 
-    message = f"✅ مدیر «{username}» ثبت شد."
-    if notification_sent:
-        message += " راهنمای ورود و لینک پنل به‌صورت خصوصی برای او ارسال شد."
-    else:
-        message += " ارسال پیام خصوصی انجام نشد؛ مدیر باید ربات را Start کند و بعد از صفحه ورود، کد یک‌بارمصرف بگیرد."
-    return {
-        "message": message,
-        "username": username,
-        "permissions": permissions,
-        "notification_sent": notification_sent,
-        "notification_error": notification_error or None,
-    }
+
+@app.post("/admin/api/manager-requests/{request_id}/reject")
+async def reject_manager_request(request_id: str, auth=Depends(require_admin)):
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="فقط مالک می‌تواند درخواست مدیریت را رد کند.")
+    requests = admin_data.setdefault("manager_requests", {})
+    item = requests.get(request_id)
+    if not isinstance(item, dict) or item.get("status") != "pending":
+        raise HTTPException(status_code=404, detail="درخواست در انتظار پیدا نشد.")
+    item["status"] = "rejected"
+    item["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+    log_admin_action("panel_manager_rejected", f"username={item.get('username','')}")
+    save_admin_data()
+    return {"message": f"درخواست «{item.get('username','')}» رد شد."}
 
 
 @app.delete("/admin/api/managers/{username}")
