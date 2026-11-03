@@ -130,6 +130,23 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("op.storage_backend", script)
         self.assertIn("هیچ پاک‌سازی خودکاری", html)
 
+    def test_owner_database_backup_is_owner_only_and_streamed_to_temporary_file(self):
+        auth = (_PROJECT_DIR / "panel_auth.py").read_text(encoding="utf-8")
+        html = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
+        script = (_PROJECT_DIR / "static" / "admin.js").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/owner/api/backup")', auth)
+        self.assertIn('auth=Depends(require_owner)', auth)
+        self.assertIn('fxi_bot_state', auth)
+        self.assertIn('fxi_chat_messages', auth)
+        self.assertIn('fxi_community_messages', auth)
+        self.assertIn('cursor.itersize = 500', auth)
+        self.assertIn('fxi-postgresql-jsonl', auth)
+        self.assertIn('hashlib.sha256()', auth)
+        self.assertIn('BackgroundTask', auth)
+        self.assertIn('id="ownerBackupCard"', html)
+        self.assertIn('panelRole!==\'owner\'', script)
+        self.assertIn('۲۵۶ مگابایت', html)
+
     def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
         payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
         self.assertEqual(payload.username, "ali_manager")
