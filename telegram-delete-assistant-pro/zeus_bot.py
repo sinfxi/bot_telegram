@@ -1161,7 +1161,10 @@ async def ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
 
 async def send_long_message(message: Message, text: str):
     for i in range(0, len(text), 3900):
-        await message.answer(text[i:i + 3900])
+        chunk = text[i:i + 3900]
+        sent = await message.answer(chunk)
+        if message.chat.type in {"group", "supergroup"}:
+            record_community_bot_message(message.chat.id, sent, chunk)
 
 
 
@@ -1178,9 +1181,11 @@ def community_chat(chat_id: int) -> dict:
     store = community_store()
     record = store.setdefault("chats", {}).setdefault(str(chat_id), {
         "title": "", "type": "", "message_count": 0, "members_seen": {},
-        "activity": [], "top_posts": [], "rules": "به اعضا احترام بگذارید؛ از اسپم و تبلیغات ناخواسته خودداری کنید.",
+        "activity": [], "top_posts": [], "message_log": [],
+        "rules": "به اعضا احترام بگذارید؛ از اسپم و تبلیغات ناخواسته خودداری کنید.",
         "settings": {}
     })
+    record.setdefault("message_log", [])
     settings = record.setdefault("settings", {})
     settings.setdefault("ai_enabled", True)
     settings.setdefault("bot_enabled", True)
@@ -1196,6 +1201,27 @@ def community_chat(chat_id: int) -> dict:
     record.setdefault("blocked_words", [])
     record.setdefault("warnings", {})
     return record
+
+def record_community_bot_message(chat_id: int, sent_message: Message, text_value: str) -> None:
+    """Keep a bounded log of messages sent by FXI so owners can review/edit/delete them."""
+    try:
+        record = community_chat(chat_id)
+        rows = record.setdefault("message_log", [])
+        rows.append({
+            "message_id": int(sent_message.message_id),
+            "sender_id": int(bot.id) if bot and bot.id else None,
+            "sender_name": "FXI Bot",
+            "username": TELEGRAM_BOT_USERNAME,
+            "text": str(text_value or "")[:4000],
+            "date": datetime.now(timezone.utc).isoformat(),
+            "media_type": "text",
+            "is_bot": True,
+        })
+        record["message_log"] = rows[-300:]
+        save_admin_data()
+    except Exception:
+        log.exception("Could not record bot message for group %s", chat_id)
+
 
 async def community_is_admin(chat_id: int, user_id: int) -> bool:
     if is_admin(user_id):
@@ -1677,6 +1703,23 @@ async def collect_community_message(message: Message):
             "username": message.from_user.username,
             "last_seen": datetime.now(timezone.utc).isoformat()
         }
+    if message.chat.type in {"group", "supergroup"}:
+        media_type = ("photo" if message.photo else "video" if message.video else
+                      "animation" if message.animation else "document" if message.document else
+                      "audio" if message.audio else "voice" if message.voice else
+                      "sticker" if message.sticker else "text")
+        message_log = data.setdefault("message_log", [])
+        message_log.append({
+            "message_id": int(message.message_id),
+            "sender_id": int(message.from_user.id) if message.from_user else None,
+            "sender_name": message.from_user.full_name if message.from_user else "کاربر ناشناس",
+            "username": message.from_user.username if message.from_user else None,
+            "text": text_value[:4000],
+            "date": datetime.now(timezone.utc).isoformat(),
+            "media_type": media_type,
+            "is_bot": bool(message.from_user and message.from_user.is_bot),
+        })
+        data["message_log"] = message_log[-300:]
     if text_value:
         data.setdefault("activity", []).append({
             "text": text_value[:COMMUNITY_MAX_TEXT],
@@ -1887,7 +1930,8 @@ async def community_member_update(event: ChatMemberUpdated):
                 if not template:
                     template = "👋 خوش اومدی {name} به {group}! قوانین گروه رو با نوشتن «قوانین» بخون."
                 welcome_text = template.replace("{name}", event.new_chat_member.user.full_name).replace("{group}", event.chat.title or "گروه")
-                await bot.send_message(event.chat.id, welcome_text[:500])
+                sent = await bot.send_message(event.chat.id, welcome_text[:500])
+                record_community_bot_message(event.chat.id, sent, welcome_text[:500])
             except Exception:
                 log.info("Welcome message unavailable for chat=%s", event.chat.id)
     save_admin_data()
