@@ -253,6 +253,8 @@ req.addEventListener('submit',e=>{e.preventDefault();requestCode()});verify.addE
             bot.save_admin_data()
             raise HTTPException(401, "کد ورود اشتباه است.")
         challenges.pop(username, None)
+        record["last_login_at"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        record["last_login_ip_hash"] = hashlib.sha256(address.encode("utf-8")).hexdigest()[:16]
         bot.save_admin_data()
         login_attempts.pop(address, None)
         response = JSONResponse({"redirect": "/admin"})
