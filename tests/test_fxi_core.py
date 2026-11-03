@@ -20,7 +20,6 @@ os.environ["OPENROUTER_API_KEY"] = ""
 os.environ["ADMIN_DATA_FILE"] = str(Path(_TEST_STATE.name) / "admin-state.json")
 os.environ["ADMIN_PANEL_USERNAME"] = "ci-owner"
 os.environ["ADMIN_PANEL_PASSWORD"] = "ci-owner-password-only"
-os.environ["MANAGER_CREATION_CODE"] = "ci-manager-code-2026"
 os.environ["SESSION_SECRET"] = "ci-session-secret-not-for-production"
 sys.path.insert(0, str(_PROJECT_DIR))
 
@@ -76,33 +75,16 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             zeus_bot.CommunitySettingsPayload(warn_limit=6)
 
-    def test_manager_creation_requires_owner_code_and_four_character_password(self):
-        payload = zeus_bot.ManagerAccountPayload(
-            username="new_manager",
-            password="A7b9",
-            setup_code="ci-manager-code-2026",
-            permissions=["dashboard"],
-        )
-        self.assertEqual(payload.password, "A7b9")
-        self.assertTrue(zeus_bot.verify_manager_password("A7b9", zeus_bot.hash_manager_password("A7b9")))
-        self.assertFalse(zeus_bot.verify_manager_password("bad!", zeus_bot.hash_manager_password("A7b9")))
+    def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
+        payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
+        self.assertEqual(payload.username, "ali_manager")
+        self.assertEqual(payload.invite_code, "4821")
+        self.assertFalse(hasattr(payload, "telegram_id"))
+        self.assertFalse(hasattr(payload, "permissions"))
         with self.assertRaises(ValidationError):
-            zeus_bot.ManagerAccountPayload(
-                username="short_pin",
-                password="123",
-                setup_code="ci-manager-code-2026",
-            )
+            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="123")
         with self.assertRaises(ValidationError):
-            zeus_bot.ManagerAccountPayload(
-                username="long_pin",
-                password="12345",
-                setup_code="ci-manager-code-2026",
-            )
-        with self.assertRaises(ValidationError):
-            zeus_bot.ManagerAccountPayload(
-                username="no_code",
-                password="1234",
-            )
+            zeus_bot.ManagerRequestPayload(username="bad name", invite_code="1234")
 
     def test_manager_request_is_name_and_invite_only_then_telegram_bind(self):
         panel = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
