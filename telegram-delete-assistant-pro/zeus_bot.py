@@ -1213,20 +1213,20 @@ def record_community_bot_message(chat_id: int, sent_message: Message, text_value
             "sender_id": int(bot.id) if bot and bot.id else None,
             "sender_name": "FXI Bot",
             "username": TELEGRAM_BOT_USERNAME,
-            "text": str(text_value or "")[:4000],
+            "text": str(text_value or "")[:2000],
             "date": datetime.now(timezone.utc).isoformat(),
             "media_type": "text",
             "is_bot": True,
         })
-        record["message_log"] = rows[-300:]
+        record["message_log"] = rows[-120:]
         save_admin_data()
     except Exception:
         log.exception("Could not record bot message for group %s", chat_id)
 
 
 async def community_is_admin(chat_id: int, user_id: int) -> bool:
-    if is_admin(user_id):
-        return True
+    # Group actions require a real Telegram admin/creator role in this chat.
+    # Global bot owners must not bypass per-group authorization.
     if not bot:
         return False
     try:
@@ -1715,12 +1715,12 @@ async def collect_community_message(message: Message):
             "sender_id": int(message.from_user.id) if message.from_user else None,
             "sender_name": message.from_user.full_name if message.from_user else "کاربر ناشناس",
             "username": message.from_user.username if message.from_user else None,
-            "text": text_value[:4000],
+            "text": text_value[:2000],
             "date": datetime.now(timezone.utc).isoformat(),
             "media_type": media_type,
             "is_bot": bool(message.from_user and message.from_user.is_bot),
         })
-        data["message_log"] = message_log[-300:]
+        data["message_log"] = message_log[-120:]
     if text_value:
         data.setdefault("activity", []).append({
             "text": text_value[:COMMUNITY_MAX_TEXT],
@@ -3373,7 +3373,7 @@ async def health():
 async def readiness():
     # Readiness reports whether the required integrations are configured.
     # Keep detailed secrets/provider identifiers out of this public response.
-    database_ok = not DATABASE_URL or DATABASE_READY
+    database_ok = bool(DATABASE_URL) and DATABASE_READY
     telegram_ok = bool(BOT_TOKEN)
     ai_ok = any(provider_ready(name) for name in PROVIDERS)
     ready = telegram_ok and ai_ok and database_ok
