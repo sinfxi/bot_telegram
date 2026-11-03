@@ -485,40 +485,6 @@ class ManagerRequestPayload(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
 
 
-class ManagerAccountPayload(BaseModel):
-    username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=4, max_length=4)
-    setup_code: str = Field(min_length=8, max_length=128)
-    permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
-    telegram_id: int | None = Field(default=None, gt=0)
-
-
-def hash_manager_password(password: str) -> dict:
-    """Hash a four-character manager password with a unique salt and PBKDF2."""
-    if len(password) != 4:
-        raise ValueError("Manager passwords must contain exactly four characters.")
-    salt = secrets.token_bytes(16)
-    iterations = 310000
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-    return {"salt": salt.hex(), "hash": digest.hex(), "iterations": iterations}
-
-
-def verify_manager_password(password: str, record: dict) -> bool:
-    """Constant-time verification for stored manager credentials."""
-    try:
-        if len(password) != 4 or not isinstance(record, dict):
-            return False
-        salt = bytes.fromhex(str(record.get("salt", "")))
-        expected = bytes.fromhex(str(record.get("hash", "")))
-        iterations = int(record.get("iterations", 0))
-        if len(salt) < 16 or len(expected) != 32 or not 100000 <= iterations <= 1000000:
-            return False
-        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
-        return hmac.compare_digest(actual, expected)
-    except (TypeError, ValueError):
-        return False
-
-
 class ManagerInviteRevokePayload(BaseModel):
     code: str = Field(min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
 
@@ -3138,23 +3104,6 @@ async def remove_manager(username: str, auth=Depends(require_admin)):
     log_admin_action("panel_manager_removed", f"username={key}")
     save_admin_data()
     return {"message": f"دسترسی مدیر «{key}» لغو شد."}
-
-
-@app.post("/admin/api/managers/{username}/password")
-async def reset_manager_password(username: str, payload: dict, auth=Depends(require_admin)):
-    if auth.get("auth_type") != "owner":
-        raise HTTPException(status_code=403, detail="تغییر رمز مدیران فقط در اختیار مالک است.")
-    key = username.strip().lower()
-    record = admin_data.get("panel_managers", {}).get(key)
-    if not isinstance(record, dict):
-        raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
-    password = str(payload.get("password", ""))
-    if len(password) != 4:
-        raise HTTPException(status_code=422, detail="رمز جدید باید دقیقاً ۴ کاراکتر باشد.")
-    record.update({**hash_manager_password(password), "session_version": int(record.get("session_version", 1)) + 1})
-    log_admin_action("panel_manager_password_reset", f"username={key}")
-    save_admin_data()
-    return {"message": f"رمز مدیر «{key}» تغییر کرد."}
 
 
 @app.get("/admin/api/managers/{username}/permissions")
