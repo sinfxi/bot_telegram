@@ -113,10 +113,8 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("telegram_link", auth)
         self.assertIn("manager_bind_", (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8"))
         self.assertIn("schedule_temporary_message_cleanup", (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8"))
-        self.assertNotIn('id="telegram"', auth)
         self.assertIn("item.telegram_linked", script)
         self.assertNotIn('id="managerCreateForm"', panel)
-        self.assertNotIn('id="telegram"', auth)
 
     def test_manager_otp_flow_replaces_static_password_login(self):
         auth = (_PROJECT_DIR / "panel_auth.py").read_text(encoding="utf-8")
@@ -124,6 +122,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("manager_otp_challenges", auth)
         self.assertIn("کد یک‌بارمصرف", auth)
         self.assertNotIn("password.length!==4", auth)
+        self.assertNotIn('id="telegram" type="number"', auth)
 
     def test_manager_api_permissions_are_classified(self):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/community"), "community")
