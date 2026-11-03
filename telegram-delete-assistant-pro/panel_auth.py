@@ -220,13 +220,14 @@ resend.addEventListener('click',()=>{clearInterval(clock);verify.hidden=true;req
             telegram_bot = getattr(bot, "bot", None)
             if telegram_bot is None:
                 raise RuntimeError("Telegram bot is not initialized")
-            await telegram_bot.send_message(
+            sent_code = await telegram_bot.send_message(
                 telegram_id,
                 "🔐 <b>کد ورود پنل مدیر FXI</b>\n\n"
                 f"<code>{code}</code>\n\n"
                 "⏳ این کد فقط ۶۰ ثانیه معتبر است و پس از ورود موفق باطل می‌شود. آن را در اختیار هیچ‌کس نگذار.",
                 parse_mode="HTML",
             )
+            bot.schedule_temporary_message_cleanup(sent_code, 60)
         except Exception as exc:
             challenges.pop(username, None)
             bot.save_admin_data()
@@ -335,7 +336,7 @@ resend.addEventListener('click',()=>{verify.hidden=true;req.hidden=false;reqBtn.
             telegram_bot = getattr(bot, "bot", None)
             if telegram_bot is None:
                 raise RuntimeError("Telegram bot is not initialized")
-            await telegram_bot.send_message(
+            sent_code = await telegram_bot.send_message(
                 owner_id,
                 "🔐 <b>کد ورود مالک پنل FXI</b>\n\n"
                 f"<code>{code}</code>\n\n"
@@ -344,6 +345,7 @@ resend.addEventListener('click',()=>{verify.hidden=true;req.hidden=false;reqBtn.
                 "🛡 آن را برای هیچ‌کس ارسال نکن.",
                 parse_mode="HTML",
             )
+            bot.schedule_temporary_message_cleanup(sent_code, 60)
         except Exception as exc:
             bot.admin_data.pop("owner_otp_challenge", None)
             bot.save_admin_data()
