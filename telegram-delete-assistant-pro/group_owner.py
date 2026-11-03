@@ -541,22 +541,38 @@ def install_group_owner(app, bot):
 
     # Owner-bot-panel endpoints: same group data, but destructive actions are owner-only.
     @app.get("/admin/api/community/{chat_id}/messages")
-    async def owner_panel_group_messages(chat_id: int, auth=Depends(bot.require_admin)):
+    async def owner_panel_group_messages(chat_id: int, limit: int = 50,
+                                         before_message_id: int | None = None,
+                                         q: str = "", sender: str = "",
+                                         auth=Depends(bot.require_admin)):
         if auth.get("auth_type") != "owner":
             raise HTTPException(403, "فقط مالک ربات اجازه مشاهده متن پیام‌های گروه را دارد.")
         record = bot.admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
         if not isinstance(record, dict):
             raise HTTPException(404, "گروه ثبت نشده است.")
+        limit = max(1, min(100, limit))
+        q, sender = q.strip()[:100], sender.strip()[:80]
         if bot.DATABASE_READY:
             items, has_more = await __import__("asyncio").to_thread(
-                bot._list_community_messages_sync, chat_id, 50, None, "", "")
+                bot._list_community_messages_sync, chat_id, limit, before_message_id, q, sender)
             return {"items": items, "total": None,
                     "next_before_message_id": items[-1]["message_id"] if items and has_more else None,
                     "has_more": has_more, "storage": "postgresql"}
         rows = list(reversed(record.get("message_log", [])))
-        return {"items": rows[:50], "total": len(rows),
-                "next_before_message_id": rows[49].get("message_id") if len(rows) > 50 else None,
-                "has_more": len(rows) > 50, "storage": "json"}
+        if q:
+            rows = [item for item in rows if q.casefold() in str(item.get("text", "")).casefold()]
+        if sender:
+            rows = [item for item in rows if sender.casefold() in str(item.get("sender_name", "")).casefold()
+                    or sender.casefold() in str(item.get("username", "")).casefold()
+                    or sender in str(item.get("sender_id", ""))]
+        if before_message_id is not None:
+            rows = [item for item in rows if int(item.get("message_id", 0)) < before_message_id]
+        selected = rows[:limit + 1]
+        has_more = len(selected) > limit
+        selected = selected[:limit]
+        return {"items": selected, "total": len(rows),
+                "next_before_message_id": selected[-1].get("message_id") if selected and has_more else None,
+                "has_more": has_more, "storage": "json"}
 
     @app.post("/admin/api/community/{chat_id}/messages/{message_id}/delete")
     async def owner_panel_delete_group_message(chat_id: int, message_id: int, request: Request, auth=Depends(bot.require_admin)):
