@@ -496,6 +496,8 @@ class BroadcastPayload(BaseModel):
 class CommunitySettingsPayload(BaseModel):
     settings: dict[str, bool] = Field(default_factory=dict)
     warn_limit: int | None = Field(default=None, ge=2, le=5)
+    flood_limit: int | None = Field(default=None, ge=3, le=20)
+    welcome_message: str | None = Field(default=None, max_length=500)
     blocked_words: list[str] | None = None
 
 
@@ -1170,7 +1172,10 @@ def community_chat(chat_id: int) -> dict:
     settings.setdefault("conversational_ai", False)
     settings.setdefault("link_guard_enabled", False)
     settings.setdefault("keyword_filter_enabled", False)
+    settings.setdefault("media_guard_enabled", False)
     settings.setdefault("warn_limit", 3)
+    settings.setdefault("flood_limit", COMMUNITY_MAX_MESSAGES)
+    settings.setdefault("welcome_message", "")
     record.setdefault("blocked_words", [])
     record.setdefault("warnings", {})
     return record
@@ -1204,6 +1209,7 @@ def community_settings_keyboard(chat_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=("💬 گفت‌وگوی رفاقتی: روشن" if settings.get("conversational_ai", False) else "💬 گفت‌وگوی رفاقتی: خاموش"), callback_data="community_settings:toggle:conversational_ai")],
         [InlineKeyboardButton(text=("🔗 کنترل لینک‌ها: روشن" if settings.get("link_guard_enabled", False) else "🔗 کنترل لینک‌ها: خاموش"), callback_data="community_settings:toggle:link_guard_enabled")],
         [InlineKeyboardButton(text=("🚫 فیلتر کلمات: روشن" if settings.get("keyword_filter_enabled", False) else "🚫 فیلتر کلمات: خاموش"), callback_data="community_settings:toggle:keyword_filter_enabled")],
+        [InlineKeyboardButton(text=("🖼 محدودیت رسانه: روشن" if settings.get("media_guard_enabled", False) else "🖼 محدودیت رسانه: خاموش"), callback_data="community_settings:toggle:media_guard_enabled")],
         [InlineKeyboardButton(text="📜 راهنمای قوانین گروه", callback_data="community_settings:rules_help")],
         [InlineKeyboardButton(text="🔄 تازه‌سازی فهرست", callback_data="community_settings:refresh")]
     ]
@@ -1239,7 +1245,7 @@ async def community_settings_action(callback: CallbackQuery):
         await callback.answer("برای ثبت قوانین بنویس: ثبت قوانین متن دلخواه", show_alert=True)
         return
     if len(action) >= 2 and action[1] == "toggle":
-        if len(action) != 3 or action[2] not in {"ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled"}:
+        if len(action) != 3 or action[2] not in {"ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled", "media_guard_enabled"}:
             await callback.answer("گزینه تنظیمات معتبر نیست.", show_alert=True)
             return
         settings = community_chat(chat_id).setdefault("settings", {})
@@ -1614,6 +1620,16 @@ async def collect_community_message(message: Message):
     data["type"] = message.chat.type
     data["message_count"] = int(data.get("message_count", 0)) + 1
     text_value = (message.text or message.caption or "").strip()
+    if message.chat.type in {"group", "supergroup"} and message.from_user:
+        media_guard_on = bool(data.setdefault("settings", {}).get("media_guard_enabled", False))
+        has_media = any((message.photo, message.video, message.animation, message.document, message.audio, message.voice, message.sticker))
+        if media_guard_on and has_media and not await community_is_admin(message.chat.id, message.from_user.id):
+            try:
+                await bot.delete_message(message.chat.id, message.message_id)
+                await message.answer("🖼 ارسال فایل و رسانه در این گروه محدود شده است.")
+            except Exception:
+                log.warning("Media guard could not remove media in chat=%s", message.chat.id)
+            return
     if message.chat.type in {"group", "supergroup"} and message.from_user and text_value:
         sender_is_admin = await community_is_admin(message.chat.id, message.from_user.id)
         settings = data.setdefault("settings", {})
@@ -1688,7 +1704,8 @@ async def collect_community_message(message: Message):
         bucket = [t for t in buckets.get(bucket_key, []) if now - t < COMMUNITY_WINDOW_SECONDS]
         bucket.append(now)
         buckets[bucket_key] = bucket[-20:]
-        if len(bucket) > COMMUNITY_MAX_MESSAGES:
+        flood_limit = max(3, min(20, int(data.setdefault("settings", {}).get("flood_limit", COMMUNITY_MAX_MESSAGES))))
+        if len(bucket) > flood_limit:
             try:
                 await bot.delete_message(message.chat.id, message.message_id)
                 strikes = admin_data.setdefault("community_flood_strikes", {})
@@ -1848,7 +1865,12 @@ async def community_member_update(event: ChatMemberUpdated):
             and data.setdefault("settings", {}).get("welcome_enabled", True)):
         if bot:
             try:
-                await bot.send_message(event.chat.id, f"👋 خوش اومدی {event.new_chat_member.user.full_name}! قوانین گروه رو با نوشتن «قوانین» بخون.")
+                settings = data.setdefault("settings", {})
+                template = str(settings.get("welcome_message") or "").strip()
+                if not template:
+                    template = "👋 خوش اومدی {name} به {group}! قوانین گروه رو با نوشتن «قوانین» بخون."
+                welcome_text = template.replace("{name}", event.new_chat_member.user.full_name).replace("{group}", event.chat.title or "گروه")
+                await bot.send_message(event.chat.id, welcome_text[:500])
             except Exception:
                 log.info("Welcome message unavailable for chat=%s", event.chat.id)
     save_admin_data()
@@ -2566,7 +2588,10 @@ async def admin_community(_: str = Depends(require_admin)):
             "conversational_ai": bool(record.get("settings", {}).get("conversational_ai", False)),
             "link_guard_enabled": bool(record.get("settings", {}).get("link_guard_enabled", False)),
             "keyword_filter_enabled": bool(record.get("settings", {}).get("keyword_filter_enabled", False)),
+            "media_guard_enabled": bool(record.get("settings", {}).get("media_guard_enabled", False)),
             "warn_limit": max(2, min(5, int(record.get("settings", {}).get("warn_limit", 3)))),
+            "flood_limit": max(3, min(20, int(record.get("settings", {}).get("flood_limit", COMMUNITY_MAX_MESSAGES)))),
+            "welcome_message": str(record.get("settings", {}).get("welcome_message", ""))[:500],
             "blocked_words": list(record.get("blocked_words", []))[:100],
             "last_activity": record.get("last_activity") or record.get("last_message_at", ""),
         })
@@ -2581,15 +2606,19 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
     record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
     if not record:
         raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
-    allowed = {"bot_enabled", "ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled"}
+    allowed = {"bot_enabled", "ai_enabled", "welcome_enabled", "anti_flood_enabled", "conversational_ai", "link_guard_enabled", "keyword_filter_enabled", "media_guard_enabled"}
     if any(key not in allowed or not isinstance(value, bool) for key, value in payload.settings.items()):
         raise HTTPException(status_code=422, detail="فقط کلیدهای مجاز با مقدار روشن/خاموش قابل تغییر هستند.")
-    if not payload.settings and payload.warn_limit is None and payload.blocked_words is None:
+    if not payload.settings and payload.warn_limit is None and payload.flood_limit is None and payload.welcome_message is None and payload.blocked_words is None:
         raise HTTPException(status_code=422, detail="هیچ تغییری برای ذخیره ارسال نشده است.")
     settings = record.setdefault("settings", {})
     settings.update(payload.settings)
     if payload.warn_limit is not None:
         settings["warn_limit"] = payload.warn_limit
+    if payload.flood_limit is not None:
+        settings["flood_limit"] = payload.flood_limit
+    if payload.welcome_message is not None:
+        settings["welcome_message"] = payload.welcome_message.strip()[:500]
     if payload.blocked_words is not None:
         if len(payload.blocked_words) > 100:
             raise HTTPException(status_code=422, detail="حداکثر ۱۰۰ واژه می‌توان ثبت کرد.")
