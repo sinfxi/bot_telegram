@@ -75,6 +75,29 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             zeus_bot.CommunitySettingsPayload(warn_limit=6)
 
+    def test_ephemeral_admin_state_is_pruned_before_persist(self):
+        state = zeus_bot.admin_data
+        original = dict(state)
+        try:
+            now = 2_000_000_000.0
+            state["manager_otp_challenges"] = {
+                "expired": {"expires_at": now - 1},
+                "valid": {"expires_at": now + 60},
+            }
+            state["owner_otp_challenge"] = {"expires_at": now - 1}
+            state["manager_invite_attempts"] = {"ip-a": [now - 61, now - 5], "ip-b": [now - 90]}
+            state["manager_invite_global_attempts"] = [now - 61, now - 1]
+            state["audit_log"] = [{"n": i} for i in range(510)]
+            zeus_bot.prune_ephemeral_admin_state(now)
+            self.assertEqual(list(state["manager_otp_challenges"]), ["valid"])
+            self.assertNotIn("owner_otp_challenge", state)
+            self.assertEqual(state["manager_invite_attempts"], {"ip-a": [now - 5]})
+            self.assertEqual(state["manager_invite_global_attempts"], [now - 1])
+            self.assertEqual(len(state["audit_log"]), 500)
+        finally:
+            state.clear()
+            state.update(original)
+
     def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
         payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
         self.assertEqual(payload.username, "ali_manager")
