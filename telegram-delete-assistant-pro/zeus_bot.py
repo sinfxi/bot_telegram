@@ -3020,6 +3020,24 @@ async def submit_manager_request(payload: ManagerRequestPayload, request: Reques
         if not isinstance(value, dict) or value.get("used") or float(value.get("expires_at", 0)) <= now:
             links.pop(key, None)
     save_admin_data()
+    # Notify the configured owner without broadcasting the applicant's details elsewhere.
+    owner_raw = os.getenv("ZEUS_ADMIN_ID", "").strip() or os.getenv("OWNER_TELEGRAM_ID", "").strip()
+    owner_id = int(owner_raw) if owner_raw.isdigit() and int(owner_raw) > 0 else 0
+    if owner_id <= 0 and len(ADMIN_IDS) == 1:
+        owner_id = next(iter(ADMIN_IDS))
+    if owner_id > 0 and bot:
+        try:
+            await send_bot_message_and_log(
+                owner_id,
+                "📥 <b>درخواست جدید مدیریت ربات</b>\n\n"
+                f"👤 نام کاربری درخواستی: <code>{username}</code>\n"
+                "حساب تلگرام هنوز باید از طریق لینک اختصاصی متصل شود؛ پس از اتصال، می‌توانی درخواست را از پنل بررسی و تأیید کنی.\n"
+                f"🔗 پنل مالک: {ADMIN_PANEL_URL.rstrip('/')}/owner",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception as exc:
+            log.warning("Manager request owner notification failed (%s)", type(exc).__name__)
     telegram_link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start=manager_bind_{raw_token}"
     return {
         "message": "درخواست ثبت شد. برای اتصال حساب تلگرام، دکمه زیر را بزن؛ سپس منتظر تأیید مالک بمان.",
