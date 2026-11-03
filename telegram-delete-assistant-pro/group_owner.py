@@ -494,6 +494,8 @@ def install_group_owner(app, bot):
     # Owner-bot-panel endpoints: same group data, but destructive actions are owner-only.
     @app.get("/admin/api/community/{chat_id}/messages")
     async def owner_panel_group_messages(chat_id: int, auth=Depends(bot.require_admin)):
+        if auth.get("auth_type") != "owner":
+            raise HTTPException(403, "فقط مالک ربات اجازه مشاهده متن پیام‌های گروه را دارد.")
         record = bot.admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
         if not isinstance(record, dict):
             raise HTTPException(404, "گروه ثبت نشده است.")
