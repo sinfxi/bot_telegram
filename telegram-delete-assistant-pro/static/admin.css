@@ -523,3 +523,127 @@ body:before{display:none}
 
 /* Friendly manager onboarding card */
 .manager-help{margin:12px 0 15px;padding:14px 16px;border:1px solid #42634f;border-radius:14px;background:#172a25;color:#d8f1e2;line-height:1.95}.manager-help b{font-size:12px}.manager-help p{margin:5px 0;color:#c1d9ca;font-size:11px}.manager-help small{display:block;color:#a8c8b5;font-size:10px}.manager-help+ .muted{margin-top:10px}
+
+
+/* FXI Motion Layer — subtle, accessible dashboard animation */
+@keyframes fxiAmbientDrift {
+  0%,100% { transform: translate3d(0,0,0) scale(1); opacity:.42; }
+  50% { transform: translate3d(2.5vw,1.5vh,0) scale(1.08); opacity:.72; }
+}
+@keyframes fxiPanelEnter {
+  from { opacity:0; transform:translateY(12px) scale(.995); }
+  to { opacity:1; transform:translateY(0) scale(1); }
+}
+@keyframes fxiPageEnter {
+  from { opacity:0; transform:translateY(10px); filter:blur(2px); }
+  to { opacity:1; transform:translateY(0); filter:blur(0); }
+}
+@keyframes fxiCardEnter {
+  from { opacity:0; transform:translateY(13px); }
+  to { opacity:1; transform:translateY(0); }
+}
+@keyframes fxiSoftPulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(85,240,176,0); }
+  50% { box-shadow:0 0 0 5px rgba(85,240,176,.055); }
+}
+@keyframes fxiLogoHalo {
+  0%,100% { opacity:.28; transform:scale(.96); }
+  50% { opacity:.72; transform:scale(1.08); }
+}
+@keyframes fxiHeroSweep {
+  0% { transform:translateX(120%) skewX(-18deg); opacity:0; }
+  18% { opacity:.42; }
+  55%,100% { transform:translateX(-160%) skewX(-18deg); opacity:0; }
+}
+@keyframes fxiNavIn {
+  from { opacity:0; transform:translateX(8px); }
+  to { opacity:1; transform:translateX(0); }
+}
+.layout{position:relative;isolation:isolate}
+.layout:before{
+ content:"";position:fixed;z-index:0;pointer-events:none;top:-18vh;right:-8vw;
+ width:42vw;height:42vw;max-width:620px;max-height:620px;border-radius:50%;
+ background:radial-gradient(circle,rgba(90,220,177,.10),rgba(107,119,255,.055) 38%,transparent 70%);
+ filter:blur(12px);animation:fxiAmbientDrift 16s ease-in-out infinite;
+}
+.layout>.side,.layout>.main{position:relative;z-index:1;animation:fxiPanelEnter .55s cubic-bezier(.2,.75,.25,1) both}
+.layout>.main{animation-delay:.07s}
+.brand .logo{isolation:isolate}
+.brand .logo:after{
+ display:block;content:"";position:absolute;inset:-5px;border:1px solid rgba(85,240,176,.35);
+ border-radius:inherit;pointer-events:none;animation:fxiLogoHalo 3.8s ease-in-out infinite;
+}
+.nav button{overflow:hidden;transition:color .22s ease,background .22s ease,border-color .22s ease,transform .22s ease,box-shadow .22s ease}
+.nav button:before{
+ display:block;content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;
+ background:linear-gradient(105deg,rgba(139,124,255,.13),rgba(78,231,255,.075),transparent 78%);
+ opacity:0;transition:opacity .25s ease;
+}
+.nav button:hover{transform:translateX(-3px);border-color:rgba(139,124,255,.2)}
+.nav button:hover:before,.nav button.active:before{opacity:1}
+.nav button.active{box-shadow:inset -3px 0 0 var(--mint),0 5px 18px rgba(0,0,0,.12)}
+.top{position:relative;overflow:hidden}
+.top:after{
+ content:"";position:absolute;top:0;bottom:0;left:-35%;width:24%;
+ background:linear-gradient(90deg,transparent,rgba(255,255,255,.035),transparent);
+ transform:skewX(-18deg);pointer-events:none;animation:fxiHeroSweep 9s ease-in-out infinite;
+}
+.panel-identity{transition:transform .22s ease,box-shadow .22s ease}
+.panel-identity:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.16)}
+.status{animation:fxiSoftPulse 3.4s ease-in-out infinite}
+.hero{isolation:isolate}
+.hero:before{
+ display:block;content:"";position:absolute;inset:-1px;z-index:-1;pointer-events:none;
+ background:radial-gradient(ellipse at 12% 0%,rgba(78,231,255,.13),transparent 48%),
+ linear-gradient(110deg,transparent 25%,rgba(255,255,255,.035) 48%,transparent 68%);
+ background-size:100% 100%,220% 100%;animation:fxiHeroSweep 12s ease-in-out infinite;
+}
+.hero:after{
+ display:block;content:"FXI";position:absolute;left:18px;bottom:-48px;z-index:-1;
+ color:rgba(178,196,255,.045);font-size:clamp(90px,12vw,150px);font-weight:900;
+ letter-spacing:-10px;line-height:1;pointer-events:none;
+}
+.page.active{animation:fxiPageEnter .34s cubic-bezier(.2,.7,.25,1) both}
+.page.active .hero{animation:fxiCardEnter .42s ease both}
+.page.active .grid>.card,.page.active>.card,.page.active .section.card,.page.active .providers>.provider{
+ animation:fxiCardEnter .42s cubic-bezier(.2,.7,.25,1) both;
+}
+.page.active .grid>.card:nth-child(1){animation-delay:.035s}
+.page.active .grid>.card:nth-child(2){animation-delay:.075s}
+.page.active .grid>.card:nth-child(3){animation-delay:.115s}
+.page.active .grid>.card:nth-child(4){animation-delay:.155s}
+.page.active .grid>.card:nth-child(n+5){animation-delay:.19s}
+.card,.provider,.listitem,.community-item,.mini-stat{
+ transition:transform .24s cubic-bezier(.2,.7,.25,1),border-color .24s ease,box-shadow .24s ease,background .24s ease;
+}
+.card{overflow:hidden}
+.card:after{
+ content:"";position:absolute;top:0;right:14%;width:34%;height:1px;pointer-events:none;
+ background:linear-gradient(90deg,transparent,rgba(78,231,255,.42),transparent);opacity:0;transition:opacity .25s ease;
+}
+.card:hover:after{opacity:1}
+.grid>.card:hover,.provider:hover,.community-item:hover{transform:translateY(-3px);border-color:rgba(139,124,255,.34);box-shadow:0 14px 30px rgba(0,0,0,.18)}
+.btn{transition:transform .2s cubic-bezier(.2,.7,.25,1),filter .2s ease,box-shadow .2s ease,border-color .2s ease}
+.btn:hover{transform:translateY(-2px);filter:brightness(1.07);box-shadow:0 9px 22px rgba(0,0,0,.2)}
+.btn:active{transform:translateY(0) scale(.985)}
+.field{transition:border-color .2s ease,box-shadow .2s ease,background .2s ease}
+.field:focus{transform:translateY(-1px)}
+.listitem,.manager-request-card{animation:fxiCardEnter .3s ease both}
+.empty{transition:border-color .2s ease,background .2s ease}
+.empty:hover{border-color:rgba(139,124,255,.38);background:rgba(139,124,255,.035)}
+@media(max-width:900px){
+ .layout:before{width:72vw;height:72vw;top:-12vh;right:-22vw}
+ .side{animation:none!important}
+ .nav button:hover{transform:none}
+ .top:after{display:none}
+}
+@media(hover:none){
+ .grid>.card:hover,.provider:hover,.community-item:hover,.btn:hover{transform:none;box-shadow:none}
+}
+@media(prefers-reduced-motion:reduce){
+ .layout:before,.layout>.side,.layout>.main,.brand .logo:after,.status,.top:after,.hero:before,
+ .page.active,.page.active .hero,.page.active .grid>.card,.page.active>.card,
+ .page.active .section.card,.page.active .providers>.provider,.listitem,.manager-request-card{animation:none!important}
+ .nav button,.panel-identity,.card,.provider,.listitem,.community-item,.btn,.field{transition:none!important}
+ .grid>.card:hover,.provider:hover,.community-item:hover,.btn:hover{transform:none!important}
+}
