@@ -107,6 +107,32 @@ def install_group_owner(app, bot):
             record["message_log"] = []
         return record
 
+    async def find_message(chat_id: int, message_id: int):
+        if bot.DATABASE_READY:
+            return await __import__("asyncio").to_thread(bot._get_community_message_sync, chat_id, message_id)
+        record = record_for(chat_id)
+        return next((item for item in record.get("message_log", [])
+                     if int(item.get("message_id", 0)) == int(message_id)), None)
+
+    async def remove_message_record(chat_id: int, message_id: int):
+        if bot.DATABASE_READY:
+            return await __import__("asyncio").to_thread(bot._delete_community_message_sync, chat_id, message_id)
+        record = record_for(chat_id)
+        before = len(record.get("message_log", []))
+        record["message_log"] = [item for item in record.get("message_log", [])
+                                 if int(item.get("message_id", 0)) != int(message_id)]
+        save()
+        return len(record["message_log"]) < before
+
+    async def update_message_record(chat_id: int, message_id: int, text: str):
+        if bot.DATABASE_READY:
+            return await __import__("asyncio").to_thread(bot._edit_community_message_sync, chat_id, message_id, text)
+        row = await find_message(chat_id, message_id)
+        if not row:
+            return False
+        await update_message_record(auth["chat_id"], message_id, text)
+        return True
+
     @app.get("/group-owner", response_class=HTMLResponse)
     async def group_owner_login_page(request: Request):
         session = decode_session(request)
@@ -266,13 +292,38 @@ def install_group_owner(app, bot):
         }
 
     @app.get("/group-owner/api/messages")
-    async def group_owner_messages(limit: int = 80, offset: int = 0, auth=Depends(require_group_owner)):
+    async def group_owner_messages(limit: int = 50, offset: int = 0,
+                                   before_message_id: int | None = None,
+                                   q: str = "", sender: str = "",
+                                   auth=Depends(require_group_owner)):
         record = record_for(auth["chat_id"])
-        rows = record.get("message_log", [])
         limit = max(1, min(100, limit))
+        q, sender = q.strip()[:100], sender.strip()[:80]
+        if bot.DATABASE_READY:
+            items, has_more = await __import__("asyncio").to_thread(
+                bot._list_community_messages_sync, auth["chat_id"], limit,
+                before_message_id, q, sender)
+            return {"items": items, "total": None, "limit": limit,
+                    "next_before_message_id": items[-1]["message_id"] if items and has_more else None,
+                    "has_more": has_more, "storage": "postgresql",
+                    "history_note": "تاریخچه صفحه‌بندی‌شده؛ فقط پیام‌های دریافت‌شده پس از اتصال ربات نمایش داده می‌شوند."}
+        rows = record.get("message_log", [])
+        filtered = list(reversed(rows))
+        if q:
+            filtered = [item for item in filtered if q.casefold() in str(item.get("text", "")).casefold()]
+        if sender:
+            filtered = [item for item in filtered if sender.casefold() in str(item.get("sender_name", "")).casefold()
+                        or sender.casefold() in str(item.get("username", "")).casefold()
+                        or sender in str(item.get("sender_id", ""))]
+        if before_message_id is not None:
+            filtered = [item for item in filtered if int(item.get("message_id", 0)) < before_message_id]
         offset = max(0, min(10000, offset))
-        selected = list(reversed(rows)) [offset:offset + limit]
-        return {"items": selected, "total": len(rows), "limit": limit, "offset": offset,
+        selected = filtered[offset:offset + limit + 1]
+        has_more = len(selected) > limit
+        selected = selected[:limit]
+        return {"items": selected, "total": len(filtered), "limit": limit, "offset": offset,
+                "next_before_message_id": selected[-1].get("message_id") if selected and has_more else None,
+                "has_more": has_more, "storage": "json",
                 "history_note": "فقط پیام‌هایی نمایش داده می‌شوند که پس از فعال‌شدن ثبت پیام توسط ربات دریافت شده‌اند."}
 
     @app.get("/group-owner/api/members")
@@ -337,7 +388,7 @@ def install_group_owner(app, bot):
         if not origin_ok(request):
             raise HTTPException(403, "درخواست بین‌مبدأیی مجاز نیست.")
         record = record_for(auth["chat_id"])
-        row = next((item for item in record.get("message_log", []) if int(item.get("message_id", 0)) == message_id), None)
+        row = await find_message(auth["chat_id"], message_id)
         if row is None:
             raise HTTPException(404, "این پیام در تاریخچه ثبت‌شده پیدا نشد.")
         try:
@@ -345,8 +396,7 @@ def install_group_owner(app, bot):
         except Exception as exc:
             bot.log.info("Group owner delete failed chat=%s message=%s: %s", auth["chat_id"], message_id, type(exc).__name__)
             raise HTTPException(409, "حذف پیام ممکن نشد؛ پیام قدیمی است یا ربات مجوز حذف پیام ندارد.")
-        record["message_log"] = [item for item in record.get("message_log", []) if int(item.get("message_id", 0)) != message_id]
-        save()
+        await remove_message_record(auth["chat_id"], message_id)
         bot.log_admin_action("group_owner_message_deleted", f"chat={auth['chat_id']}; message={message_id}; owner={auth['user_id']}")
         return {"message": "پیام حذف شد."}
 
@@ -362,7 +412,7 @@ def install_group_owner(app, bot):
         if not text or len(text) > 4000:
             raise HTTPException(422, "متن جدید باید بین ۱ تا ۴۰۰۰ نویسه باشد.")
         record = record_for(auth["chat_id"])
-        row = next((item for item in record.get("message_log", []) if int(item.get("message_id", 0)) == message_id), None)
+        row = await find_message(auth["chat_id"], message_id)
         if row is None:
             raise HTTPException(404, "پیام در تاریخچه ثبت‌شده پیدا نشد.")
         if not row.get("is_bot") or int(row.get("sender_id") or 0) != int(tg().id):
@@ -372,9 +422,7 @@ def install_group_owner(app, bot):
         except Exception as exc:
             bot.log.info("Group owner edit failed chat=%s message=%s: %s", auth["chat_id"], message_id, type(exc).__name__)
             raise HTTPException(409, "ویرایش پیام ممکن نشد؛ شاید پیام حذف یا ویرایش‌ناپذیر شده باشد.")
-        row["text"] = text
-        row["edited_at"] = datetime.now(timezone.utc).isoformat()
-        save()
+        await update_message_record(chat_id, message_id, text)
         bot.log_admin_action("group_owner_bot_message_edited", f"chat={auth['chat_id']}; message={message_id}; owner={auth['user_id']}")
         return {"message": "پیام ربات ویرایش شد."}
 
@@ -499,8 +547,16 @@ def install_group_owner(app, bot):
         record = bot.admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
         if not isinstance(record, dict):
             raise HTTPException(404, "گروه ثبت نشده است.")
+        if bot.DATABASE_READY:
+            items, has_more = await __import__("asyncio").to_thread(
+                bot._list_community_messages_sync, chat_id, 50, None, "", "")
+            return {"items": items, "total": None,
+                    "next_before_message_id": items[-1]["message_id"] if items and has_more else None,
+                    "has_more": has_more, "storage": "postgresql"}
         rows = list(reversed(record.get("message_log", [])))
-        return {"items": rows[:100], "total": len(rows)}
+        return {"items": rows[:50], "total": len(rows),
+                "next_before_message_id": rows[49].get("message_id") if len(rows) > 50 else None,
+                "has_more": len(rows) > 50, "storage": "json"}
 
     @app.post("/admin/api/community/{chat_id}/messages/{message_id}/delete")
     async def owner_panel_delete_group_message(chat_id: int, message_id: int, request: Request, auth=Depends(bot.require_admin)):
@@ -509,14 +565,13 @@ def install_group_owner(app, bot):
         if auth.get("auth_type") != "owner":
             raise HTTPException(403, "فقط مالک ربات اجازه این عملیات را دارد.")
         record = bot.admin_data.get("community", {}).get("chats", {}).get(str(chat_id), {})
-        if not any(int(item.get("message_id", 0)) == message_id for item in record.get("message_log", [])):
+        if not await find_message(chat_id, message_id):
             raise HTTPException(404, "پیام در تاریخچه ثبت‌شده نیست.")
         try:
             await tg().delete_message(chat_id, message_id)
         except Exception:
             raise HTTPException(409, "حذف پیام ممکن نشد؛ مجوز یا محدودیت زمانی تلگرام را بررسی کن.")
-        record["message_log"] = [item for item in record.get("message_log", []) if int(item.get("message_id", 0)) != message_id]
-        save()
+        await remove_message_record(chat_id, message_id)
         bot.log_admin_action("owner_panel_group_message_deleted", f"chat={chat_id}; message={message_id}")
         return {"message": "پیام حذف شد."}
 
@@ -531,7 +586,7 @@ def install_group_owner(app, bot):
         if not text or len(text) > 4000:
             raise HTTPException(422, "متن جدید باید بین ۱ تا ۴۰۰۰ نویسه باشد.")
         record = bot.admin_data.get("community", {}).get("chats", {}).get(str(chat_id), {})
-        row = next((item for item in record.get("message_log", []) if int(item.get("message_id", 0)) == message_id), None)
+        row = await find_message(chat_id, message_id)
         if not row or not row.get("is_bot") or int(row.get("sender_id") or 0) != int(tg().id):
             raise HTTPException(403, "فقط پیام‌های خود FXI قابل ویرایش هستند.")
         try:
