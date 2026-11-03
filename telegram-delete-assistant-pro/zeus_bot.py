@@ -3658,6 +3658,34 @@ async def admin_payment_action(payment_id: str, action: str, _: str = Depends(re
     return {"message": "حمایت تأیید شد و پیام تشکر برای حامی ارسال شد.", "status": "confirmed"}
 
 
+def _community_storage_diagnostics_sync() -> dict:
+    """Return aggregate archive diagnostics without exposing message contents."""
+    if DATABASE_URL and DATABASE_READY:
+        with _db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_database_size(current_database())")
+                database_size = int(cur.fetchone()[0] or 0)
+                cur.execute("""SELECT COUNT(*), MIN(created_at), MAX(created_at)
+                               FROM fxi_community_messages""")
+                count, oldest, newest = cur.fetchone()
+        return {
+            "storage_backend": "postgresql",
+            "database_size_bytes": database_size,
+            "archive_messages": int(count or 0),
+            "oldest_message_at": oldest.isoformat() if oldest else None,
+            "newest_message_at": newest.isoformat() if newest else None,
+        }
+    chats = admin_data.get("community", {}).get("chats", {})
+    count = sum(len(item.get("message_log", [])) for item in chats.values() if isinstance(item, dict))
+    return {
+        "storage_backend": "json_fallback",
+        "database_size_bytes": None,
+        "archive_messages": count,
+        "oldest_message_at": None,
+        "newest_message_at": None,
+    }
+
+
 @app.get("/admin/api/metrics")
 async def admin_metrics(auth=Depends(require_admin)):
     permissions = set(auth.get("permissions", []))
@@ -3691,6 +3719,17 @@ async def admin_metrics(auth=Depends(require_admin)):
             "community_members_seen": sum(len(item.get("members_seen", {})) for item in chats.values()),
             "community_top_posts": sum(len(item.get("top_posts", [])) for item in chats.values()),
         })
+    if "system" in permissions:
+        try:
+            result["operations"] = await asyncio.to_thread(_community_storage_diagnostics_sync)
+        except Exception as exc:
+            log.exception("Could not collect storage diagnostics")
+            result["operations"] = {
+                "storage_backend": "unavailable",
+                "archive_messages": None,
+                "database_size_bytes": None,
+                "diagnostics_error": type(exc).__name__,
+            }
     return result
 
 @app.get("/health")
