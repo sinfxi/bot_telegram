@@ -2499,7 +2499,8 @@ async def admin_panel(auth=Depends(require_admin)):
     html = ADMIN_PANEL_HTML.replace(
         "</head>",
         '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '">'
-        '<meta name="fxi-panel-role" content="manager"></head>',
+        '<meta name="fxi-panel-role" content="manager">'
+        '<meta name="fxi-panel-user" content="' + str(auth.get("manager", "مدیر")).replace('"', '&quot;') + '"></head>',
     )
     return HTMLResponse(html)
 
