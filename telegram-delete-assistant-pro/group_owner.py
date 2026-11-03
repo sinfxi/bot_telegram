@@ -130,7 +130,9 @@ def install_group_owner(app, bot):
         row = await find_message(chat_id, message_id)
         if not row:
             return False
-        await update_message_record(auth["chat_id"], message_id, text)
+        row["text"] = text
+        row["edited_at"] = datetime.now(timezone.utc).isoformat()
+        save()
         return True
 
     @app.get("/group-owner", response_class=HTMLResponse)
