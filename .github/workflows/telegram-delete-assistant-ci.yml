@@ -42,17 +42,7 @@ jobs:
           SESSION_SECRET: "ci-session-secret-not-for-production"
         run: python -m unittest discover -s tests -p "test_fxi_core.py" -v
       - name: Check admin dashboard JavaScript
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          source = Path("telegram-delete-assistant-pro/static/admin.html").read_text(encoding="utf-8")
-          scripts = re.findall(r"<script>(.*?)</script>", source, flags=re.S)
-          if not scripts:
-              raise SystemExit("Admin dashboard script was not found")
-          Path("/tmp/fxi-admin.js").write_text("\\n".join(scripts), encoding="utf-8")
-          PY
-          node --check /tmp/fxi-admin.js
+        run: node --check telegram-delete-assistant-pro/static/admin.js
       - name: Check login page JavaScript
         run: |
           python - <<'PY'
