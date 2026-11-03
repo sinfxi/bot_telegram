@@ -2361,6 +2361,9 @@ async def _send_inactivity_reminders() -> None:
             continue
         try:
             user_id = int(profile.get("user_id") or key)
+            # Reminders are intentionally restricted to the explicitly selected account.
+            if user_id != 6384557276:
+                continue
             last_seen = datetime.fromisoformat(str(profile.get("last_seen", "")).replace("Z", "+00:00"))
             if last_seen.tzinfo is None:
                 last_seen = last_seen.replace(tzinfo=timezone.utc)
