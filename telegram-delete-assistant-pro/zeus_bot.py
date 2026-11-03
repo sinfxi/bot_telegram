@@ -2738,22 +2738,35 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
 
     notification_sent = False
     notification_error = ""
+    login_url = ADMIN_PANEL_URL + "/admin/login"
+    permission_labels = "، ".join(ADMIN_PERMISSIONS[item] for item in permissions)
+    onboarding_message = (
+        "🎉 دسترسی مدیریت FXI برای شما فعال شد.\n\n"
+        f"👤 نام کاربری: {username}\n"
+        f"🔗 صفحه ورود: {login_url}\n\n"
+        "🔐 روش ورود:\n"
+        "۱) صفحه ورود مدیر را باز کن.\n"
+        "۲) نام کاربری بالا را وارد و درخواست کد ورود را بزن.\n"
+        "۳) کد یک‌بارمصرف ۶ رقمی برای همین حساب تلگرام ارسال می‌شود.\n"
+        "۴) کد را در صفحه وارد کن تا وارد پنل شوی.\n\n"
+        "⏳ کد ورود فقط ۲ دقیقه اعتبار دارد و فقط یک بار قابل استفاده است.\n"
+        "🛡 کد را برای هیچ‌کس نفرست؛ حتی اگر خودش را پشتیبانی معرفی کرد.\n\n"
+        f"🧩 دسترسی‌های فعال: {permission_labels}\n"
+        "اگر ربات را هنوز Start نکرده‌ای، ابتدا وارد ربات شو و /start را بزن."
+    )
     if bot:
         try:
-            await bot.send_message(
-                payload.telegram_id,
-                "✅ حساب شما به‌عنوان مدیر پنل FXI ثبت شد. برای دریافت کد ورود، ربات را Start کنید."
-            )
+            await bot.send_message(payload.telegram_id, onboarding_message, disable_web_page_preview=True)
             notification_sent = True
         except Exception as exc:
             notification_error = type(exc).__name__
-            log.warning("Manager %s was created but Telegram notification failed (%s)", username, notification_error)
+            log.warning("Manager %s was created but Telegram onboarding notification failed (%s)", username, notification_error)
 
-    message = f"مدیر پنل «{username}» با موفقیت ثبت شد."
+    message = f"✅ مدیر «{username}» ثبت شد."
     if notification_sent:
-        message += " پیام اطلاع‌رسانی هم ارسال شد."
+        message += " راهنمای ورود و لینک پنل به‌صورت خصوصی برای او ارسال شد."
     else:
-        message += " برای دریافت کد ورود، مدیر باید ربات را Start کند؛ سپس می‌تواند از صفحه ورود مدیر کد بگیرد."
+        message += " ارسال پیام خصوصی انجام نشد؛ مدیر باید ربات را Start کند و بعد از صفحه ورود، کد یک‌بارمصرف بگیرد."
     return {
         "message": message,
         "username": username,
