@@ -451,7 +451,7 @@ def _list_community_messages_sync(chat_id: int, limit: int = 50,
                        media_type, is_bot, created_at
                 FROM fxi_community_messages
                 WHERE chat_id = %s
-                  AND (%s IS NULL OR message_id < %s)
+                  AND (%s::BIGINT IS NULL OR message_id < %s::BIGINT)
                   AND (%s = '' OR body ILIKE %s)
                   AND (%s = '' OR sender_name ILIKE %s OR COALESCE(username,'') ILIKE %s
                        OR COALESCE(sender_id::text,'') ILIKE %s)
