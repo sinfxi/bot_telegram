@@ -482,8 +482,6 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
 class ManagerRequestPayload(BaseModel):
     invite_code: str = Field(min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    telegram_id: int = Field(gt=0)
-    permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
 
 class ManagerAccountPayload(BaseModel):
@@ -737,7 +735,32 @@ async def start(message: Message):
     ]
     keyboard = InlineKeyboardMarkup(inline_keyboard=menu_rows)
     if message.chat.type == "private" and user:
-        await answer_and_log(message, f"🆔 شناسه تلگرام شما: <code>{user_id}</code>\nاگر قرار است مدیر پنل شوید، این شناسه را برای مالک ربات بفرستید.", parse_mode="HTML")
+        start_payload = (message.text or "").partition(" ")[2].strip()
+        if start_payload.startswith("manager_bind_"):
+            raw_token = start_payload[len("manager_bind_"):]
+            token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            link_record = admin_data.setdefault("manager_link_tokens", {}).get(token_hash)
+            now = time.time()
+            if isinstance(link_record, dict) and not link_record.get("used") and now < float(link_record.get("expires_at", 0)):
+                request_record = admin_data.setdefault("manager_requests", {}).get(str(link_record.get("request_id", "")))
+                if isinstance(request_record, dict) and request_record.get("status") == "pending":
+                    already_linked = int(request_record.get("telegram_id", 0) or 0)
+                    if already_linked not in {0, user_id}:
+                        await answer_and_log(message, "این درخواست قبلاً به یک حساب تلگرام دیگر متصل شده است.")
+                        return
+                    request_record.update({
+                        "telegram_id": user_id,
+                        "telegram_username": user.username,
+                        "telegram_linked_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    link_record["used"] = True
+                    link_record["used_at"] = now
+                    save_admin_data()
+                    await answer_and_log(message, "✅ حساب تلگرام شما به درخواست مدیریت متصل شد. بعد از تأیید مالک، از صفحه ورود کد یک‌بارمصرف بگیر.")
+                    return
+            await answer_and_log(message, "⏳ لینک اتصال نامعتبر یا منقضی شده است. از صفحه درخواست مدیریت، درخواست تازه ثبت کن.")
+            return
+        await answer_and_log(message, f"🆔 شناسه تلگرام شما: <code>{user_id}</code>\nبرای اتصال به درخواست مدیریت، لینک اختصاصی صفحه درخواست را باز کن.", parse_mode="HTML")
     await answer_and_log(message, 
         f"سلام {name}! 👋 به FXI خوش اومدی.\n\n"
         "من دستیار مدیریت و تعامل جامعه تلگرام هستم؛ می‌تونم به مدیرها در مدیریت گروه، "
@@ -2861,7 +2884,8 @@ async def admin_status(auth=Depends(require_admin)):
                 "request_id": request_id,
                 "username": record.get("username", ""),
                 "telegram_id": int(record.get("telegram_id", 0)),
-                "permissions": sorted(set(record.get("permissions", ["dashboard"])).intersection(ADMIN_PERMISSIONS) - {"admins"}),
+                "telegram_username": record.get("telegram_username"),
+                "telegram_linked": bool(int(record.get("telegram_id", 0) or 0)),
                 "requested_at": record.get("requested_at", ""),
             }
             for request_id, record in admin_data.get("manager_requests", {}).items()
@@ -3015,7 +3039,7 @@ async def submit_manager_request(payload: ManagerRequestPayload, request: Reques
     attempts = admin_data.setdefault("manager_invite_attempts", {})
     recent = [stamp for stamp in attempts.get(address, []) if now - float(stamp) < 900]
     if len(recent) >= 5:
-        raise HTTPException(status_code=429, detail="بیش از ۵ تلاش ناموفق/درخواست در ۱۵ دقیقه مجاز نیست؛ بعداً دوباره امتحان کن.")
+        raise HTTPException(status_code=429, detail="بیش از ۵ درخواست در ۱۵ دقیقه مجاز نیست؛ بعداً دوباره امتحان کن.")
     global_recent = [stamp for stamp in admin_data.get("manager_invite_global_attempts", []) if now - float(stamp) < 900]
     if len(global_recent) >= 30:
         raise HTTPException(status_code=429, detail="محدودیت امنیتی سراسری فعال است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
@@ -3029,33 +3053,42 @@ async def submit_manager_request(payload: ManagerRequestPayload, request: Reques
     if username in admin_data.setdefault("panel_managers", {}):
         raise HTTPException(status_code=409, detail="این نام کاربری قبلاً مدیر پنل است.")
     requests = admin_data.setdefault("manager_requests", {})
-    if any(
-        isinstance(item, dict) and item.get("status") == "pending"
-        and (str(item.get("username", "")).lower() == username or int(item.get("telegram_id", 0)) == payload.telegram_id)
-        for item in requests.values()
-    ):
-        raise HTTPException(status_code=409, detail="برای این نام کاربری یا شناسه تلگرام درخواست در انتظار وجود دارد.")
+    if any(isinstance(item, dict) and item.get("status") == "pending"
+           and str(item.get("username", "")).lower() == username for item in requests.values()):
+        raise HTTPException(status_code=409, detail="برای این نام کاربری درخواست در انتظار وجود دارد.")
     invite_code = payload.invite_code.strip()
     invite_hash = hashlib.sha256(invite_code.encode("utf-8")).hexdigest()
     invite = admin_data.setdefault("manager_invites", {}).get(invite_hash)
     if not isinstance(invite, dict) or invite.get("status") != "active" or now >= float(invite.get("expires_at", 0)):
         raise HTTPException(status_code=401, detail="کد دعوت نامعتبر، منقضی یا قبلاً استفاده شده است.")
-    permissions = sorted(set(payload.permissions) | {"dashboard"})
-    unknown = set(permissions) - set(ADMIN_PERMISSIONS)
-    if unknown or "admins" in permissions:
-        raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
     invite["status"] = "used"
     invite["used_at"] = datetime.now(timezone.utc).isoformat()
     request_id = secrets.token_hex(8)
     requests[request_id] = {
         "username": username,
-        "telegram_id": payload.telegram_id,
-        "permissions": permissions,
+        "telegram_id": 0,
+        "permissions": ["dashboard"],
         "requested_at": datetime.now(timezone.utc).isoformat(),
         "status": "pending",
     }
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    admin_data.setdefault("manager_link_tokens", {})[token_hash] = {
+        "request_id": request_id, "expires_at": now + 600, "used": False,
+    }
+    # Keep only active, unexpired binding tokens to prevent unbounded state growth.
+    links = admin_data["manager_link_tokens"]
+    for key, value in list(links.items()):
+        if not isinstance(value, dict) or value.get("used") or float(value.get("expires_at", 0)) <= now:
+            links.pop(key, None)
     save_admin_data()
-    return {"message": "درخواست مدیریت ثبت شد و برای تأیید به مالک ارسال شد.", "request_id": request_id}
+    telegram_link = f"https://t.me/{TELEGRAM_BOT_USERNAME}?start=manager_bind_{raw_token}"
+    return {
+        "message": "درخواست ثبت شد. برای اتصال حساب تلگرام، دکمه زیر را بزن؛ سپس منتظر تأیید مالک بمان.",
+        "request_id": request_id,
+        "telegram_link": telegram_link,
+        "expires_in": 600,
+    }
 
 
 @app.post("/admin/api/manager-requests/{request_id}/approve")
@@ -3067,12 +3100,13 @@ async def approve_manager_request(request_id: str, auth=Depends(require_admin)):
     if not isinstance(item, dict) or item.get("status") != "pending":
         raise HTTPException(status_code=404, detail="درخواست در انتظار پیدا نشد.")
     username = str(item.get("username", "")).strip().lower()
-    telegram_id = int(item.get("telegram_id", 0))
+    telegram_id = int(item.get("telegram_id", 0) or 0)
     managers = admin_data.setdefault("panel_managers", {})
-    if username in managers or telegram_id <= 0:
-        raise HTTPException(status_code=409, detail="نام کاربری تکراری یا شناسه تلگرام نامعتبر است.")
-    permissions = sorted(set(item.get("permissions", ["dashboard"])) | {"dashboard"})
-    permissions = [key for key in permissions if key in ADMIN_PERMISSIONS and key != "admins"]
+    if username in managers:
+        raise HTTPException(status_code=409, detail="این نام کاربری قبلاً مدیر شده است.")
+    if telegram_id <= 0:
+        raise HTTPException(status_code=409, detail="متقاضی هنوز حساب تلگرامش را متصل نکرده است؛ ابتدا باید لینک اتصال را باز کند.")
+    permissions = ["dashboard"]
     managers[username] = {
         "telegram_id": telegram_id,
         "permissions": permissions,
@@ -3093,9 +3127,8 @@ async def approve_manager_request(request_id: str, auth=Depends(require_admin)):
             "🎉 درخواست مدیریت FXI تأیید شد.\n\n"
             f"👤 نام کاربری: <b>{username}</b>\n"
             f"🔗 ورود به پنل: {ADMIN_PANEL_URL.rstrip('/')}/admin/login\n\n"
-            "مالک باید ابتدا یک رمز ۴ کاراکتری برای حساب شما تعیین کند؛ سپس با نام کاربری و همان رمز وارد پنل شو.\n"
-            f"🧩 دسترسی‌ها: {labels}\n\n"
-            "اگر هنوز ربات را Start نکرده‌ای، ابتدا /start را بزن.",
+            "برای ورود، نام کاربری را در صفحه وارد کن و گزینه «دریافت کد ورود» را بزن؛ کد یک‌بارمصرف به همین حساب تلگرام ارسال می‌شود.\n"
+            f"🧩 دسترسی اولیه: {labels}",
             parse_mode="HTML",
             disable_web_page_preview=True,
         )
@@ -3103,6 +3136,7 @@ async def approve_manager_request(request_id: str, auth=Depends(require_admin)):
     except Exception as exc:
         log.warning("Manager approval notification failed (%s)", type(exc).__name__)
     save_admin_data()
+    admin_data.setdefault("manager_otp_challenges", {}).pop(username, None)
     return {"message": f"درخواست «{username}» تأیید شد و حساب مدیر ساخته شد.", "notification_sent": notification_sent}
 
 
