@@ -2671,6 +2671,7 @@ async def admin_status(auth=Depends(require_admin)):
                 "telegram_id": int(record.get("telegram_id", 0)),
                 "permissions": sorted(set(record.get("permissions", ["dashboard"])).intersection(ADMIN_PERMISSIONS) - {"admins"}),
                 "created_at": record.get("created_at"),
+                "last_login_at": record.get("last_login_at"),
             }
             for name, record in admin_data.get("panel_managers", {}).items()
             if isinstance(record, dict)
