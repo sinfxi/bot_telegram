@@ -1519,7 +1519,15 @@ async def record_community_bot_message(chat_id: int, sent_message: Message, text
             "is_bot": True,
         }
         if DATABASE_READY:
-            await asyncio.to_thread(_save_community_message_sync, chat_id, row)
+            try:
+                await asyncio.to_thread(_save_community_message_sync, chat_id, row)
+            except Exception:
+                global DATABASE_READY
+                DATABASE_READY = False
+                log.exception("PostgreSQL archive unavailable; switching community history to bounded JSON fallback")
+                rows = record.setdefault("message_log", [])
+                rows.append(row)
+                record["message_log"] = rows[-120:]
         else:
             rows = record.setdefault("message_log", [])
             rows.append(row)
@@ -1961,6 +1969,7 @@ async def community_suggestions(message: Message):
 
 @dp.message(F.chat.type.in_({"group", "supergroup", "channel"}))
 async def collect_community_message(message: Message):
+    global DATABASE_READY
     # Channel posts may not have from_user; group posts normally do.
     if not bot_enabled:
         return
@@ -2028,7 +2037,8 @@ async def collect_community_message(message: Message):
             try:
                 await asyncio.to_thread(_save_community_message_sync, message.chat.id, archive_row)
             except Exception:
-                log.exception("PostgreSQL community archive write failed; retaining bounded JSON fallback")
+                DATABASE_READY = False
+                log.exception("PostgreSQL community archive unavailable; switching to bounded JSON fallback")
                 message_log = data.setdefault("message_log", [])
                 message_log.append(archive_row)
                 data["message_log"] = message_log[-120:]
