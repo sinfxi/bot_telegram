@@ -118,6 +118,18 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("loadOlderCommunityMessages", admin_js)
         self.assertIn("filterCommunityMessages", admin_js)
 
+    def test_storage_diagnostics_are_aggregate_and_visible_to_system_admins(self):
+        source = (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8")
+        html = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
+        script = (_PROJECT_DIR / "static" / "admin.js").read_text(encoding="utf-8")
+        self.assertIn("_community_storage_diagnostics_sync", source)
+        self.assertIn("pg_database_size(current_database())", source)
+        self.assertIn('if "system" in permissions:', source)
+        self.assertIn('id="archiveStoredMessages"', html)
+        self.assertIn('id="databaseSize"', html)
+        self.assertIn("op.storage_backend", script)
+        self.assertIn("هیچ پاک‌سازی خودکاری", html)
+
     def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
         payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
         self.assertEqual(payload.username, "ali_manager")
