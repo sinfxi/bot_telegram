@@ -2717,11 +2717,8 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
         raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
     if not bot:
         raise HTTPException(status_code=503, detail="ربات تلگرام در دسترس نیست.")
-    try:
-        await bot.send_message(payload.telegram_id,
-            "✅ حساب شما به‌عنوان مدیر پنل FXI ثبت شد. از این پس برای ورود، کد یک‌بارمصرف به همین گفت‌وگوی خصوصی ارسال می‌شود.")
-    except Exception:
-        raise HTTPException(status_code=422, detail="ارسال پیام به این شناسه ممکن نشد؛ مدیر باید ابتدا ربات را Start کند و شناسه تلگرام صحیح باشد.")
+    # Persist the manager account before attempting Telegram notification. A failed
+    # notification must never roll back account creation.
     admin_data["panel_managers"][username] = {
         "telegram_id": payload.telegram_id,
         "permissions": permissions, "enabled": True, "session_version": 1,
@@ -2729,7 +2726,32 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
     }
     log_admin_action("panel_manager_created", f"username={username}; permissions={','.join(permissions)}")
     save_admin_data()
-    return {"message": f"مدیر پنل «{username}» ثبت شد.", "username": username, "permissions": permissions}
+
+    notification_sent = False
+    notification_error = ""
+    if bot:
+        try:
+            await bot.send_message(
+                payload.telegram_id,
+                "✅ حساب شما به‌عنوان مدیر پنل FXI ثبت شد. برای دریافت کد ورود، ربات را Start کنید."
+            )
+            notification_sent = True
+        except Exception as exc:
+            notification_error = type(exc).__name__
+            log.warning("Manager %s was created but Telegram notification failed (%s)", username, notification_error)
+
+    message = f"مدیر پنل «{username}» با موفقیت ثبت شد."
+    if notification_sent:
+        message += " پیام اطلاع‌رسانی هم ارسال شد."
+    else:
+        message += " برای دریافت کد ورود، مدیر باید ربات را Start کند؛ سپس می‌تواند از صفحه ورود مدیر کد بگیرد."
+    return {
+        "message": message,
+        "username": username,
+        "permissions": permissions,
+        "notification_sent": notification_sent,
+        "notification_error": notification_error or None,
+    }
 
 
 @app.delete("/admin/api/managers/{username}")
