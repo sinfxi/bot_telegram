@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ورود مالک گروه · FXI</title><link rel="stylesheet" href="/group-owner/static/group-owner.css?v=1"></head>
+<body class="login-body"><div class="ambient"></div><main class="login-shell">
+<div class="brand-mark">FXI<span>GROUP</span></div><div class="eyebrow">COMMUNITY CONTROL CENTER</div>
+<h1>پنل اختصاصی مالک گروه</h1><p class="muted">گروهت رو دقیق‌تر مدیریت کن؛ فقط مالک اصلی گروه می‌تونه وارد این پنل بشه.</p>
+<form id="requestForm" class="glass-card">
+<label>شناسه عددی گروه</label><input id="chatId" inputmode="numeric" autocomplete="off" placeholder="-1001234567890" required>
+<label>شناسه عددی تلگرام خودت</label><input id="userId" inputmode="numeric" autocomplete="off" placeholder="123456789" required>
+<div class="hint">شناسه گروه معمولاً با <bdi>-100</bdi> شروع می‌شه. برای دریافت کد، باید ربات رو قبلاً در خصوصی Start کرده باشی و ربات در گروه مدیر باشه.</div>
+<button class="primary" id="requestBtn">🔐 بررسی مالکیت و ارسال کد</button>
+</form>
+<form id="verifyForm" class="glass-card" hidden>
+<div class="verified-chip">✓ گروه شناسایی شد</div><label>کد یک‌بارمصرف تلگرام</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required>
+<div class="timer" id="timer">02:00</div><button class="primary" id="verifyBtn">ورود به پنل گروه</button><button class="ghost" id="resendBtn" type="button">ارسال کد تازه</button>
+</form><div id="message" role="alert" class="notice"></div><footer>امنیت گروه با تأیید مالکیت واقعی محافظت می‌شه · FXI</footer>
+</main><script src="/group-owner/static/group-owner.js?v=1"></script></body></html>
