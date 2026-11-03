@@ -454,14 +454,23 @@ def install_group_owner(app, bot):
         try:
             chat = await tg().get_chat(chat_id)
         except Exception:
-            raise HTTPException(404, "گروه با این شناسه پیدا نشد یا ربات به آن دسترسی ندارد.")
+            return {
+                "chat_id": chat_id,
+                "title": str(chat_id),
+                "type": "unknown",
+                "bot_member_status": "not_accessible",
+                "registered": False,
+                "add_url": f"https://t.me/{bot.TELEGRAM_BOT_USERNAME}?startgroup=true",
+                "note": "ربات هنوز به این گروه دسترسی ندارد یا شناسه اشتباه است. لینک افزودن را باز کن، ربات را به گروه اضافه و مدیر کن؛ سپس شناسه را دوباره بررسی کن."
+            }
         bot_member_status = "unknown"
         try:
             member = await tg().get_chat_member(chat_id, tg().id)
             bot_member_status = member.status
         except Exception:
             pass
-        is_present = bot_member_status in {"administrator", "creator", "member"}
+        is_present = bot_member_status in {"administrator", "creator", "member", "restricted"}
+        has_admin_rights = bot_member_status in {"administrator", "creator"}
         if is_present:
             record = bot.community_chat(chat_id)
             record["title"] = chat.title or str(chat_id)
@@ -475,8 +484,10 @@ def install_group_owner(app, bot):
             "type": chat.type,
             "bot_member_status": bot_member_status,
             "registered": is_present,
+            "has_admin_rights": has_admin_rights,
             "add_url": f"https://t.me/{bot.TELEGRAM_BOT_USERNAME}?startgroup=true",
-            "note": ("گروه بررسی و در فهرست پنل ثبت شد." if is_present else
+            "note": ("گروه بررسی و در فهرست پنل ثبت شد؛ ربات دسترسی مدیر دارد." if has_admin_rights else
+                     "ربات عضو گروه است اما مدیر نیست؛ آن را مدیر کن تا پنل مالک گروه و ابزارهای مدیریتی کار کنند." if is_present else
                      "ربات هنوز عضو گروه نیست. افزودن مستقیم با شناسه از طریق Bot API ممکن نیست؛ لینک افزودن را باز کن و ربات را دستی اضافه کن.")
         }
 
