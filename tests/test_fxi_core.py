@@ -104,6 +104,14 @@ class ConfigurationTests(unittest.TestCase):
                 password="1234",
             )
 
+    def test_manager_creation_form_is_connected_to_owner_api(self):
+        panel = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
+        script = (_PROJECT_DIR / "static" / "admin.js").read_text(encoding="utf-8")
+        self.assertIn('id="managerCreateForm"', panel)
+        self.assertIn("createManagerAccount(event)", panel)
+        self.assertIn("api('managers','POST',payload)", script)
+        self.assertIn("initManagerCreatePermissions();", script)
+
     def test_manager_api_permissions_are_classified(self):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/community"), "community")
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/users/123/block"), "users")
