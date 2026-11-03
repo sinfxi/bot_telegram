@@ -16,7 +16,7 @@
 <div class="row"><button class="btn" type="button" id="createManagerInviteBtn" onclick="createManagerInvite()">✨ ایجاد کد برای مدیر</button></div>
 <div id="managerInviteResult" class="manager-invite-result" hidden aria-live="polite">
 <b>کد دعوت ساخته شد</b><div class="invite-code" id="managerInviteCode"></div>
-<div class="row"><button class="btn secondary" type="button" onclick="copyManagerInvite()">کپی کد</button><a class="btn secondary" id="managerRequestLink" href="/admin/request" target="_blank" rel="noopener">صفحه ثبت درخواست مدیر</a></div>
+<div class="row"><button class="btn secondary" type="button" onclick="copyManagerInvite()">کپی کد</button><a class="btn secondary" id="managerRequestLink" href="/admin/request" target="_blank" rel="noopener">صفحه ثبت درخواست مدیر</a><button class="btn danger" type="button" id="revokeManagerInviteBtn" onclick="revokeManagerInvite()">لغو و حذف کد</button></div>
 <small class="muted">این کد را فقط برای فرد موردنظر بفرست. بعد از ثبت درخواست دیگر قابل استفاده نیست.</small>
 </div>
 <div class="manager-help"><b>روند کار</b><p>۱) کد را بساز و برای فرد بفرست. ۲) او در صفحه درخواست مدیریت، کد و مشخصات تلگرامش را ثبت می‌کند. ۳) درخواست در همین پنل ظاهر می‌شود. ۴) فقط پس از تأیید تو، حساب مدیر ساخته و لینک ورود برای او ارسال می‌شود.</p></div>
@@ -34,4 +34,4 @@
 <section id="page-prompt" class="page" data-page-permission="prompt"><div class="hero"><small>ASSISTANT PERSONALITY</small><h2>شخصیت و دستورالعمل دستیار</h2><p>رفتار پایهٔ مدل‌ها را از این بخش تنظیم کن. این دستورالعمل به سرویس‌هایی که پشتیبانی می‌کنند ارسال می‌شود.</p></div><div class="card"><textarea class="field textarea" id="prompt" placeholder="دستورالعمل اصلی…"></textarea><button class="btn" onclick="savePrompt()">ذخیره دستورالعمل</button></div></section>
 </div><div id="permissionsModal" class="modal-backdrop" hidden><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="permissionsTitle"><div class="section-head"><h3 id="permissionsTitle">مدیریت دسترسی ادمین</h3><button class="btn secondary" type="button" onclick="closePermissions()">بستن</button></div><p id="permissionsSubtitle" class="muted"></p><div id="permissionsChoices" class="permission-grid"></div><div class="row" style="margin-top:18px"><button class="btn" type="button" onclick="savePermissions()">ذخیره دسترسی‌ها</button><span class="muted" id="permissionsStatus"></span></div></div></div>
 </main></div>
-<script src="/static/admin.js?v=20261103-manager-approval-v2"></script></body></html>
+<script src="/static/admin.js?v=20261103-manager-invite-revoke"></script></body></html>
