@@ -153,6 +153,40 @@ const box=$('managerPermissionChoices');if(!box||box.dataset.ready==='1')return;
 Object.entries(managerPermissionLabels).forEach(([key,label])=>{const wrap=document.createElement('label');const input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=key==='dashboard';if(key==='dashboard')input.disabled=true;const span=document.createElement('span');span.textContent=label;wrap.append(input,span);box.append(wrap)});
 box.dataset.ready='1';
 }
+function initManagerCreatePermissions(){
+ const box=$('managerCreatePermissions');if(!box||box.dataset.ready==='1')return;
+ Object.entries(managerPermissionLabels).forEach(([key,label])=>{
+  const wrap=document.createElement('label');wrap.className='permission-option';
+  const input=document.createElement('input');input.type='checkbox';input.value=key;input.checked=key==='dashboard';input.disabled=key==='dashboard';
+  const span=document.createElement('span');span.textContent=label;
+  wrap.append(input,span);box.append(wrap);
+ });
+ box.dataset.ready='1';
+}
+async function createManagerAccount(event){
+ event?.preventDefault();
+ const button=$('createManagerAccountBtn'),status=$('managerCreateStatus');
+ const username=$('newManagerUsername').value.trim(),password=$('newManagerPassword').value,setup_code=$('managerSetupCode').value.trim();
+ const telegramRaw=$('newManagerTelegramId').value.trim();
+ if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username))return note('نام کاربری باید ۳ تا ۶۴ کاراکتر معتبر باشد.');
+ if(password.length!==4)return note('رمز مدیر باید دقیقاً ۴ کاراکتر باشد.');
+ if(setup_code.length<8)return note('کد ساخت مدیر را کامل وارد کن.');
+ if(telegramRaw&&!/^[1-9][0-9]{0,14}$/.test(telegramRaw))return note('شناسه تلگرام معتبر نیست.');
+ const permissions=[...$('managerCreatePermissions').querySelectorAll('input:checked')].map(x=>x.value);
+ if(!permissions.includes('dashboard'))permissions.push('dashboard');
+ button.disabled=true;button.textContent='در حال ساخت حساب…';status.textContent='';
+ try{
+  const payload={username,password,setup_code,permissions};
+  if(telegramRaw)payload.telegram_id=Number(telegramRaw);
+  const d=await api('managers','POST',payload);
+  status.textContent=d.message+(telegramRaw?(d.notification_sent?' · پیام تلگرام ارسال شد.':' · حساب ساخته شد؛ پیام تلگرام ارسال نشد.'):'');
+  note(status.textContent);
+  $('managerCreateForm').reset();
+  initManagerCreatePermissions();
+  await refresh();
+ }catch(e){status.textContent=e.message;note('ساخت حساب مدیر ناموفق بود: '+e.message)}
+ finally{button.disabled=false;button.textContent='ساخت حساب و ارسال اطلاع‌رسانی'}
+}
 async function createManagerInvite(){
  const button=$('createManagerInviteBtn');
  try{
@@ -229,7 +263,7 @@ async function loadAudit(){return withViewLoading(['audit'],loadAuditRequest)}
 async function refresh(){return withViewLoading(['overview'],refreshRequest)}
 
 applyPermissions();
-initManagerPermissionChoices();
+initManagerPermissionChoices();\ninitManagerCreatePermissions();
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$('page-'+b.dataset.page).classList.add('active');$('title').textContent=b.textContent.trim();if(b.dataset.page==='conversations')loadConversations();if(b.dataset.page==='payments')loadPayments();if(b.dataset.page==='system')loadMetrics();if(b.dataset.page==='overview')loadMetrics();if(b.dataset.page==='community')loadCommunity();if(b.dataset.page==='audit')loadAudit();if(b.dataset.page==='users')refresh()});refresh();loadMetrics();setInterval(()=>{if(document.getElementById('page-users')?.classList.contains('active'))refresh()},20000);
 
 let activeCommunityChat=null;
