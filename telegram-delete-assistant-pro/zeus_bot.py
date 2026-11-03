@@ -478,14 +478,14 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
 
 
 class ManagerRequestPayload(BaseModel):
-    invite_code: str = Field(min_length=8, max_length=64)
+    invite_code: str = Field(min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     telegram_id: int = Field(gt=0)
     permissions: list[str] = Field(default_factory=lambda: ["dashboard"], min_length=1, max_length=len(ADMIN_PERMISSIONS))
 
 
 class ManagerInviteRevokePayload(BaseModel):
-    code: str = Field(min_length=8, max_length=64)
+    code: str = Field(min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
 
 
 class BroadcastPayload(BaseModel):
@@ -2744,16 +2744,26 @@ async def create_manager_invite(auth=Depends(require_admin)):
     for key, record in list(invites.items()):
         if not isinstance(record, dict) or record.get("status") != "active" or float(record.get("expires_at", 0)) <= now:
             invites.pop(key, None)
-    code = secrets.token_urlsafe(12)
-    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    # Four-digit numeric codes have low entropy: keep them short-lived and
+    # enforce both per-IP and global verification limits below.
+    code = None
+    code_hash = None
+    for _ in range(100):
+        candidate = f"{secrets.randbelow(10000):04d}"
+        candidate_hash = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        if candidate_hash not in invites:
+            code, code_hash = candidate, candidate_hash
+            break
+    if code is None:
+        raise HTTPException(status_code=503, detail="فعلاً امکان ساخت کد جدید نیست؛ کدهای فعال را لغو و دوباره تلاش کن.")
     invites[code_hash] = {
         "status": "active",
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": now + 86400,
+        "expires_at": now + 600,
     }
     save_admin_data()
-    log_admin_action("manager_invite_created", "one-time invitation created; expires in 24h")
-    return {"code": code, "expires_in": 86400, "request_url": ADMIN_PANEL_URL.rstrip("/") + "/admin/request"}
+    log_admin_action("manager_invite_created", "one-time 4-digit invitation created; expires in 10 minutes")
+    return {"code": code, "expires_in": 600, "request_url": ADMIN_PANEL_URL.rstrip("/") + "/admin/request"}
 
 
 @app.post("/admin/api/manager-invites/revoke")
@@ -2778,10 +2788,15 @@ async def submit_manager_request(payload: ManagerRequestPayload, request: Reques
     now = time.time()
     attempts = admin_data.setdefault("manager_invite_attempts", {})
     recent = [stamp for stamp in attempts.get(address, []) if now - float(stamp) < 900]
-    if len(recent) >= 8:
-        raise HTTPException(status_code=429, detail="تعداد تلاش‌ها زیاد است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
+    if len(recent) >= 5:
+        raise HTTPException(status_code=429, detail="بیش از ۵ تلاش ناموفق/درخواست در ۱۵ دقیقه مجاز نیست؛ بعداً دوباره امتحان کن.")
+    global_recent = [stamp for stamp in admin_data.get("manager_invite_global_attempts", []) if now - float(stamp) < 900]
+    if len(global_recent) >= 30:
+        raise HTTPException(status_code=429, detail="محدودیت امنیتی سراسری فعال است؛ ۱۵ دقیقه دیگر دوباره امتحان کن.")
     recent.append(now)
+    global_recent.append(now)
     attempts[address] = recent
+    admin_data["manager_invite_global_attempts"] = global_recent
     username = payload.username.strip().lower()
     if username in {"owner", "admin", "root"}:
         raise HTTPException(status_code=400, detail="این نام کاربری قابل استفاده نیست.")
