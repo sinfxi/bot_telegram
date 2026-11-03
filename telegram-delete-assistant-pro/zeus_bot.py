@@ -528,6 +528,8 @@ class ChatPayload(BaseModel):
 
 
 ADMIN_PANEL_HTML = (Path(__file__).parent / "static" / "admin.html").read_text(encoding="utf-8")
+ADMIN_PANEL_CSS = STATIC_DIR / "admin.css"
+ADMIN_PANEL_JS = STATIC_DIR / "admin.js"
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=15, sock_read=60)
 HTTP_SESSION: aiohttp.ClientSession | None = None
 
@@ -2491,6 +2493,16 @@ async def admin_logout():
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("fxi_admin_session", path="/")
     return response
+
+
+@app.get("/static/admin.css")
+async def admin_panel_css():
+    return FileResponse(ADMIN_PANEL_CSS, media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/static/admin.js")
+async def admin_panel_js():
+    return FileResponse(ADMIN_PANEL_JS, media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/admin", response_class=HTMLResponse)
