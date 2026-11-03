@@ -67,7 +67,7 @@ jobs:
           python - <<'PY'
           import app
           paths = {route.path for route in app.app.routes}
-          required = {"/login", "/owner", "/admin", "/admin/login", "/auth/owner-login", "/auth/manager-request-code", "/auth/manager-login", "/admin/api/manager-requests", "/admin/api/manager-requests/{request_id}/approve", "/admin/api/manager-requests/{request_id}/reject", "/admin/api/managers/{username}", "/admin/api/managers/{username}/permissions", "/auth/logout", "/admin/api/users/{user_id}/block", "/admin/api/users/{user_id}/unblock", "/admin/api/community", "/admin/api/community/{chat_id}/settings"}
+          required = {"/login", "/owner", "/owner/api/backup", "/admin", "/admin/login", "/auth/owner-login", "/auth/manager-request-code", "/auth/manager-login", "/admin/api/manager-requests", "/admin/api/manager-requests/{request_id}/approve", "/admin/api/manager-requests/{request_id}/reject", "/admin/api/managers/{username}", "/admin/api/managers/{username}/permissions", "/auth/logout", "/admin/api/users/{user_id}/block", "/admin/api/users/{user_id}/unblock", "/admin/api/community", "/admin/api/community/{chat_id}/settings"}
           missing = required - paths
           if missing:
               raise SystemExit(f"Missing auth routes: {sorted(missing)}")
