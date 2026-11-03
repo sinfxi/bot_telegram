@@ -12,7 +12,7 @@
 <section id="page-providers" class="page" data-page-permission="providers"><div class="hero"><small>AI PROVIDERS</small><h2>سرویس‌های متصل</h2><p>وضعیت پیکربندی را بررسی کن. کلیدهای API فقط از طریق متغیرهای محیطی سرور مدیریت می‌شوند و در این پنل نمایش داده نمی‌شوند.</p></div><div class="providers" id="providerList"></div><div class="notice section">برای فعال‌کردن سرویس قفل‌شده، متغیر API مربوطه را در Render تنظیم و سرویس را دوباره Deploy کن.</div></section>
 <section id="page-users" class="page" data-page-permission="users"><div class="hero"><small>ACCESS MANAGEMENT</small><h2>کاربران و مدیران</h2><p>کاربران ربات را جست‌وجو کن، دسترسی‌شان را مسدود یا دوباره فعال کن و مدیران را مدیریت کن.</p></div><div class="card" data-area-permission="admins">
 <div class="section-head"><h3>🔐 دعوت مدیر جدید</h3></div>
-<p class="muted">برای مدیر موردنظر یک کد دعوت یک‌بارمصرف بساز. کد فقط یک بار قابل ثبت است و پس از ۲۴ ساعت منقضی می‌شود.</p>
+<p class="muted">برای مدیر موردنظر یک کد دعوت یک‌بارمصرف بساز. کد عددی ۴ رقمی، یک‌بارمصرف است و پس از ۱۰ دقیقه منقضی می‌شود.</p>
 <div class="row"><button class="btn" type="button" id="createManagerInviteBtn" onclick="createManagerInvite()">✨ ایجاد کد برای مدیر</button></div>
 <div id="managerInviteResult" class="manager-invite-result" hidden aria-live="polite">
 <b>کد دعوت ساخته شد</b><div class="invite-code" id="managerInviteCode"></div>
@@ -34,4 +34,4 @@
 <section id="page-prompt" class="page" data-page-permission="prompt"><div class="hero"><small>ASSISTANT PERSONALITY</small><h2>شخصیت و دستورالعمل دستیار</h2><p>رفتار پایهٔ مدل‌ها را از این بخش تنظیم کن. این دستورالعمل به سرویس‌هایی که پشتیبانی می‌کنند ارسال می‌شود.</p></div><div class="card"><textarea class="field textarea" id="prompt" placeholder="دستورالعمل اصلی…"></textarea><button class="btn" onclick="savePrompt()">ذخیره دستورالعمل</button></div></section>
 </div><div id="permissionsModal" class="modal-backdrop" hidden><div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="permissionsTitle"><div class="section-head"><h3 id="permissionsTitle">مدیریت دسترسی ادمین</h3><button class="btn secondary" type="button" onclick="closePermissions()">بستن</button></div><p id="permissionsSubtitle" class="muted"></p><div id="permissionsChoices" class="permission-grid"></div><div class="row" style="margin-top:18px"><button class="btn" type="button" onclick="savePermissions()">ذخیره دسترسی‌ها</button><span class="muted" id="permissionsStatus"></span></div></div></div>
 </main></div>
-<script src="/static/admin.js?v=20261103-manager-invite-revoke"></script></body></html>
+<script src="/static/admin.js?v=20261103-four-digit-invite"></script></body></html>
