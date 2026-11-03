@@ -487,6 +487,30 @@ input[type=file].field{padding:10px;min-height:48px}
 .btn.danger{box-shadow:none}
 .field{border-radius:13px}
 @media(max-width:700px){.community-advanced{grid-template-columns:1fr}.community-advanced .words-field,.community-advanced .btn{grid-column:1}.community-advanced .btn{width:100%}.community-info{align-items:flex-start;flex-direction:column}.community-item{padding:12px}}
+/* FXI visual refresh: clearer role identity, calmer surfaces, stronger focus states. */
+body{letter-spacing:-.12px}
+.side,.main{backdrop-filter:blur(16px);transition:border-color .2s,box-shadow .2s}
+.card,.community-item,.section{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+.card:hover,.community-item:hover{border-color:#47675d;box-shadow:0 14px 34px #0003}
+button,.btn,a{transition:transform .16s ease,filter .16s ease,background .16s ease}
+button:hover,.btn:hover{filter:brightness(1.08)}
+button:active,.btn:active{transform:translateY(1px)}
+:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
+.panel-identity{display:flex;align-items:center;gap:11px;margin-bottom:12px;padding:10px 13px;border:1px solid var(--line);border-radius:15px;background:#14232a}
+.panel-identity-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;background:#243b34;font-size:19px}
+.panel-identity small{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.8}
+.owner-panel{--mint:#f0d69a;--green:#d5b66f;--line:#514632}
+.owner-panel .side,.owner-panel .main{border-color:#65563a}
+.owner-panel .logo,.owner-panel .panel-identity-icon{background:linear-gradient(145deg,#f4e2b5,#c5a45d);color:#2a2111}
+.owner-panel .nav button:hover,.owner-panel .nav button.active{background:#3b3323;color:#f0d69a}
+.owner-panel .hero{background:linear-gradient(110deg,#3b3323,#242b2b);border-color:#65563a}
+.manager-panel .panel-identity-icon{background:#203b35;color:#a8e7c7}
+.community-presets{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 2px}
+.community-presets .btn{font-size:11px;padding:8px 12px}
+.community-presets .btn.strict{border-color:#714b4b;color:#ffc0b8}
+.community-presets .btn.relaxed{border-color:#3d6272;color:#b8dff1}
+@media(max-width:700px){.panel-identity{margin-bottom:8px}.top{align-items:flex-start}.panel-shortcuts{width:100%;flex-wrap:wrap}.community-presets .btn{flex:1 1 30%}}
+@media(prefers-reduced-motion:reduce){.side,.main,.card,.community-item,button,.btn,a{transition:none}}
 
 </style></head><body><div class="layout"><aside class="side"><div class="brand"><div class="logo">F</div><div><b>FXI CONTROL</b><small>ADMINISTRATION SUITE</small></div></div><div class="navlabel">مدیریت سیستم</div><nav class="nav"><button class="active" data-page="overview">◫ نمای کلی</button><button data-page="providers">✦ سرویس‌های هوش مصنوعی</button><button data-page="users">♙ کاربران و مدیران</button><button data-page="community">◉ گروه‌ها و کانال‌ها</button><button data-page="conversations">▤ تاریخچه مکالمات</button><button data-page="audit">▣ گزارش فعالیت‌ها</button><button data-page="payments">▣ بررسی پرداخت‌ها</button><button data-page="broadcast">◉ پیام همگانی</button><button data-page="prompt">⌘ دستورالعمل دستیار</button><button data-page="system">⚙ سلامت و تنظیمات</button><button data-page="features">🎛 قابلیت‌های ربات</button></nav><div class="sidefoot">کنترل دقیق، تجربه بهتر<p>پنل مدیریت FXI · نسخه بازطراحی‌شده</p></div></aside>
 <main class="main"><header class="top"><div class="top-heading"><div class="panel-identity" id="panelIdentity"><span class="panel-identity-icon" id="panelIdentityIcon">🛡</span><span><b id="panelIdentityTitle">پنل مدیر ربات</b><small id="panelIdentitySubtitle">دسترسی مدیریتی محدودشده</small></span></div><h1 id="title">نمای کلی</h1><p>مرکز مدیریت و پایش ربات هوشمند FXI</p></div><div class="row panel-shortcuts"><a class="btn secondary" href="/admin/login">🛡 پنل مدیر ربات</a><a class="btn secondary" id="ownerPanelShortcut" href="/owner" hidden>👑 پنل مالک</a><button class="btn secondary" id="autoRefreshBtn" type="button" onclick="toggleAutoRefresh()">⏱ به‌روزرسانی خودکار: روشن</button><div class="status" id="status">● در حال اتصال</div></div></header><div class="content"><div id="notice" class="notice">در حال دریافت اطلاعات از سرور…</div>
@@ -509,7 +533,7 @@ const permissionNames={dashboard:'نمای کلی',providers:'سرویس‌ها�
 let featureDraft={};
 const currentPermissions=new Set((document.querySelector('meta[name="fxi-permissions"]')?.content||'dashboard').split(',').filter(Boolean));
 let editingAdminId=null;
-function applyPermissions(){if($('providerOverviewCard'))$('providerOverviewCard').hidden=!currentPermissions.has('providers');if($('communityOverviewCard'))$('communityOverviewCard').hidden=!currentPermissions.has('community');document.querySelectorAll('.nav button[data-page]').forEach(b=>{if(!currentPermissions.has(b.dataset.page)&&!(b.dataset.page==='features'&&currentPermissions.has('system'))&&!(b.dataset.page==='users'&&(currentPermissions.has('admins')||currentPermissions.has('users'))))b.hidden=true});document.querySelectorAll('[data-page-permission]').forEach(el=>{el.hidden=!(currentPermissions.has(el.dataset.pagePermission)||(el.dataset.pagePermission==='users'&&currentPermissions.has('admins')))});document.querySelectorAll('[data-area-permission]').forEach(el=>{el.hidden=!currentPermissions.has(el.dataset.areaPermission)});document.querySelectorAll('[data-required-permission]').forEach(el=>{el.hidden=!currentPermissions.has(el.dataset.requiredPermission)});}
+function applyPermissions(){if($('providerOverviewCard'))$('providerOverviewCard').hidden=!currentPermissions.has('providers');if($('communityOverviewCard'))$('communityOverviewCard').hidden=!currentPermissions.has('community');document.querySelectorAll('.nav button[data-page]').forEach(b=>{const key=b.dataset.page==='overview'?'dashboard':b.dataset.page;if(!currentPermissions.has(key)&&!(key==='features'&&currentPermissions.has('system'))&&!(key==='users'&&(currentPermissions.has('admins')||currentPermissions.has('users'))))b.hidden=true});document.querySelectorAll('[data-page-permission]').forEach(el=>{el.hidden=!(currentPermissions.has(el.dataset.pagePermission)||(el.dataset.pagePermission==='users'&&currentPermissions.has('admins')))});document.querySelectorAll('[data-area-permission]').forEach(el=>{el.hidden=!currentPermissions.has(el.dataset.areaPermission)});document.querySelectorAll('[data-required-permission]').forEach(el=>{el.hidden=!currentPermissions.has(el.dataset.requiredPermission)});}
 
 async function api(path,method='GET',body){const r=await fetch('/admin/api/'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.detail||'درخواست ناموفق بود');return d}
 let activeConversation=null;let conversationItems=[];let userItems=[];let communityItems=[];
@@ -517,15 +541,16 @@ const panelRole=document.querySelector('meta[name="fxi-panel-role"]')?.content||
 const identityTitle=document.getElementById('panelIdentityTitle');
 const identitySubtitle=document.getElementById('panelIdentitySubtitle');
 const identityIcon=document.getElementById('panelIdentityIcon');
+const panelUser=document.querySelector('meta[name="fxi-panel-user"]')?.content||'';
 if(panelRole==='owner'){
-if(identityTitle)identityTitle.textContent='پنل مالک ربات';
-if(identitySubtitle)identitySubtitle.textContent='دسترسی کامل مالک اصلی';
+if(identityTitle)identityTitle.textContent='پنل اختصاصی مالک';
+if(identitySubtitle)identitySubtitle.textContent='👑 مالک اصلی'+(panelUser?' · '+panelUser:'')+' · دسترسی کامل و غیرقابل واگذاری';
 if(identityIcon)identityIcon.textContent='👑';
 document.body.classList.add('owner-panel');
 const ownerLink=document.getElementById('ownerPanelShortcut');if(ownerLink)ownerLink.hidden=false;
 }else{
-if(identityTitle)identityTitle.textContent='پنل مدیر ربات';
-if(identitySubtitle)identitySubtitle.textContent='دسترسی مدیریتی بر اساس مجوزها';
+if(identityTitle)identityTitle.textContent='پنل مدیر اجرایی';
+if(identitySubtitle)identitySubtitle.textContent='🛡 حساب: '+(panelUser||'مدیر')+' · دسترسی فقط بر اساس مجوز مالک';
 if(identityIcon)identityIcon.textContent='🛡';
 document.body.classList.add('manager-panel');
 }
@@ -545,6 +570,8 @@ async function loadAudit(){try{const d=await api('audit');const box=$('auditList
 async function loadCommunity(){try{const d=await api('community');communityItems=d.items||[];renderCommunity()}catch(e){$('communityList').textContent=e.message;note(e.message)}}
 function renderCommunity(){const box=$('communityList');if(!box)return;box.replaceChildren();const q=($('communitySearch')?.value||'').trim().toLocaleLowerCase('fa');const items=communityItems.filter(x=>String(x.chat_id).includes(q)||String(x.title||'').toLocaleLowerCase('fa').includes(q));$('communityCount').textContent=items.length+' از '+communityItems.length+' فضا';if(!items.length){box.innerHTML='<div class="empty">فضایی با این جست‌وجو پیدا نشد.</div>';return}items.forEach(x=>{const el=document.createElement('div');el.className='community-item';const info=document.createElement('div');info.className='community-info';const title=document.createElement('b');title.textContent=(x.type==='channel'?'📣 ':'👥 ')+(x.title||x.chat_id);const meta=document.createElement('small');meta.className='muted';meta.textContent='شناسه: '+x.chat_id+' · '+x.type+' · '+Number(x.message_count||0).toLocaleString('fa-IR')+' پیام · '+Number(x.members_seen||0).toLocaleString('fa-IR')+' عضو مشاهده‌شده';info.append(title,meta);el.append(info);const controls=document.createElement('div');controls.className='community-controls';const toggles=[['bot_enabled','فعالیت ربات',x.bot_enabled!==false]];if(['group','supergroup'].includes(x.type))toggles.push(['ai_enabled','پاسخ هوشمند',x.ai_enabled],['conversational_ai','گفت‌وگوی رفاقتی',x.conversational_ai],['welcome_enabled','خوشامدگویی',x.welcome_enabled],['anti_flood_enabled','ضداسپم و محدودسازی تکرار',x.anti_flood_enabled],['link_guard_enabled','کنترل لینک',x.link_guard_enabled],['keyword_filter_enabled','فیلتر کلمات',x.keyword_filter_enabled],['media_guard_enabled','محدودیت رسانه',x.media_guard_enabled]);for(const [key,label,checked] of toggles){const wrap=document.createElement('label');wrap.className='community-toggle';const input=document.createElement('input');input.type='checkbox';input.checked=Boolean(checked);input.setAttribute('aria-label',label+' '+(x.title||x.chat_id));input.addEventListener('change',()=>saveCommunitySetting(x.chat_id,key,input.checked,input));const caption=document.createElement('span');caption.textContent=label;wrap.append(input,caption);controls.append(wrap)}el.append(controls);
 if(['group','supergroup'].includes(x.type)){
+const presets=document.createElement('div');presets.className='community-presets';
+[['balanced','متعادل','secondary'],['strict','سخت‌گیرانه','danger'],['relaxed','آزادتر','secondary']].forEach(([mode,label,cls])=>{const b=document.createElement('button');b.type='button';b.className='btn '+cls+(mode==='strict'?' strict':mode==='relaxed'?' relaxed':'');b.textContent='⚙ '+label;b.addEventListener('click',()=>saveCommunityPreset(x.chat_id,mode,b));presets.append(b)});el.append(presets);
 const advanced=document.createElement('div');advanced.className='community-advanced';
 const warnLabel=document.createElement('label');warnLabel.className='community-config-field';warnLabel.textContent='سقف اخطار';
 const warnInput=document.createElement('input');warnInput.type='number';warnInput.min='2';warnInput.max='5';warnInput.value=String(x.warn_limit||3);warnInput.className='field';warnInput.setAttribute('aria-label','سقف اخطار '+(x.title||x.chat_id));warnLabel.append(warnInput);
@@ -556,6 +583,19 @@ const save=document.createElement('button');save.type='button';save.className='b
 advanced.append(warnLabel,floodLabel,welcomeLabel,wordsLabel,save);el.append(advanced);
 }
 box.append(el)})}
+async function saveCommunityPreset(chatId,mode,button){
+const presets={
+balanced:{settings:{bot_enabled:true,ai_enabled:false,conversational_ai:false,welcome_enabled:true,anti_flood_enabled:true,link_guard_enabled:false,keyword_filter_enabled:false,media_guard_enabled:false},warn_limit:3,flood_limit:7},
+strict:{settings:{bot_enabled:true,ai_enabled:false,conversational_ai:false,welcome_enabled:true,anti_flood_enabled:true,link_guard_enabled:true,keyword_filter_enabled:true,media_guard_enabled:true},warn_limit:2,flood_limit:5},
+relaxed:{settings:{bot_enabled:true,ai_enabled:false,conversational_ai:false,welcome_enabled:true,anti_flood_enabled:false,link_guard_enabled:false,keyword_filter_enabled:false,media_guard_enabled:false},warn_limit:5,flood_limit:12}
+};
+const preset=presets[mode];if(!preset)return;
+const labels={balanced:'متعادل',strict:'سخت‌گیرانه',relaxed:'آزادتر'};
+if(!confirm('تنظیمات گروه با الگوی «'+labels[mode]+'» جایگزین شود؟'))return;
+button.disabled=true;const old=button.textContent;button.textContent='در حال اعمال…';
+try{const d=await api('community/'+encodeURIComponent(chatId)+'/settings','POST',preset);note(d.message||'الگوی تنظیمات اعمال شد.');await loadCommunity()}
+catch(e){note(e.message)}finally{button.disabled=false;button.textContent=old}
+}
 async function saveCommunitySetting(chatId,key,value,input){input.disabled=true;try{const d=await api('community/'+encodeURIComponent(chatId)+'/settings','POST',{settings:{[key]:value}});const item=communityItems.find(x=>String(x.chat_id)===String(chatId));if(item)item[key]=value;note(d.message)}catch(e){input.checked=!value;note(e.message)}finally{input.disabled=false}}
 async function saveCommunityAdvanced(chatId,warnInput,floodInput,welcomeInput,wordsInput,button){
 const warnLimit=Math.max(2,Math.min(5,Number.parseInt(warnInput.value,10)||3));
