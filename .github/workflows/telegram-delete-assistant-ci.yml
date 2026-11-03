@@ -49,15 +49,12 @@ jobs:
           from pathlib import Path
           import re
           source = Path("telegram-delete-assistant-pro/panel_auth.py").read_text(encoding="utf-8")
-          match = re.search(r'page = """(.*?)"""', source, flags=re.S)
-          if not match:
-              raise SystemExit("Login page template was not found")
-          scripts = re.findall(r"<script>(.*?)</script>", match.group(1), flags=re.S)
+          scripts = re.findall(r"<script>(.*?)</script>", source, flags=re.S)
           if not scripts:
-              raise SystemExit("Login page script was not found")
-          Path("/tmp/fxi-login.js").write_text("\n".join(scripts), encoding="utf-8")
+              raise SystemExit("No inline authentication scripts were found")
+          Path("/tmp/fxi-auth-pages.js").write_text("\\n".join(scripts), encoding="utf-8")
           PY
-          node --check /tmp/fxi-login.js
+          node --check /tmp/fxi-auth-pages.js
       - name: Import app and verify authentication routes
         working-directory: telegram-delete-assistant-pro
         env:
