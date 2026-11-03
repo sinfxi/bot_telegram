@@ -133,7 +133,7 @@ if($('managerRequests')){
   const actions=document.createElement('div');actions.className='manager-request-actions';
   const approve=document.createElement('button');approve.className='btn';approve.textContent=item.telegram_linked?'تأیید و ایجاد مدیر':'ابتدا اتصال تلگرام لازم است';approve.disabled=!item.telegram_linked;approve.onclick=()=>approveManagerRequest(item.request_id);
   const reject=document.createElement('button');reject.className='btn danger';reject.textContent='رد درخواست';reject.onclick=()=>rejectManagerRequest(item.request_id);
-  actions.append(approve,reject);card.append(title,meta,perms,actions);$('managerRequests').appendChild(card);
+  actions.append(approve,reject);card.append(title,meta,actions);$('managerRequests').appendChild(card);
  });
 }
 userItems=(data.recent_user_profiles||[]).slice().reverse();renderUsers();
@@ -229,7 +229,7 @@ async function loadAudit(){return withViewLoading(['audit'],loadAuditRequest)}
 async function refresh(){return withViewLoading(['overview'],refreshRequest)}
 
 applyPermissions();
-initManagerPermissionChoices();
+
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$('page-'+b.dataset.page).classList.add('active');$('title').textContent=b.textContent.trim();if(b.dataset.page==='conversations')loadConversations();if(b.dataset.page==='payments')loadPayments();if(b.dataset.page==='system')loadMetrics();if(b.dataset.page==='overview')loadMetrics();if(b.dataset.page==='community')loadCommunity();if(b.dataset.page==='audit')loadAudit();if(b.dataset.page==='users')refresh()});refresh();loadMetrics();setInterval(()=>{if(document.getElementById('page-users')?.classList.contains('active'))refresh()},20000);
 
 let activeCommunityChat=null;
