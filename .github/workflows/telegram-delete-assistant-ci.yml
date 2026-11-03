@@ -52,9 +52,10 @@ jobs:
           scripts = re.findall(r"<script>(.*?)</script>", source, flags=re.S)
           if not scripts:
               raise SystemExit("No inline authentication scripts were found")
-          Path("/tmp/fxi-auth-pages.js").write_text("\n".join(scripts), encoding="utf-8")
+          for index, script in enumerate(scripts):
+              Path(f"/tmp/fxi-auth-{index}.js").write_text(script, encoding="utf-8")
           PY
-          node --check /tmp/fxi-auth-pages.js
+          for file in /tmp/fxi-auth-*.js; do node --check "$file"; done
       - name: Import app and verify authentication routes
         working-directory: telegram-delete-assistant-pro
         env:
