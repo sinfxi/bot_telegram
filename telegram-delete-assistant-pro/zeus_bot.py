@@ -1212,7 +1212,8 @@ def schedule_temporary_message_cleanup(message: Message, delay: int = 60) -> Non
 
 
 async def answer_temporary_and_log(message: Message, *args, **kwargs):
-    sent = await answer_and_log(message, *args, **kwargs)
+    """Send a short-lived notice without persisting it in the community message archive."""
+    sent = await message.answer(*args, **kwargs)
     schedule_temporary_message_cleanup(sent, 60)
     return sent
 
