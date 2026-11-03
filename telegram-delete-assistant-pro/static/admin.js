@@ -161,7 +161,7 @@ async function createManagerInvite(){
   $('managerInviteCode').textContent=d.code;
   $('managerRequestLink').href=location.origin+'/admin/request';
   $('managerInviteResult').hidden=false;
-  note('کد دعوت ساخته شد. همین حالا آن را کپی و برای مدیر موردنظر ارسال کن؛ کد فقط یک بار قابل استفاده است.');
+  note('کد دعوت ۴ رقمی ساخته شد. آن را سریع برای مدیر بفرست؛ فقط یک بار و تا ۱۰ دقیقه قابل استفاده است.');
  }catch(e){note('ساخت کد دعوت انجام نشد: '+e.message)}
  finally{if(button){button.disabled=false;button.textContent='✨ ایجاد کد برای مدیر'}}
 }
