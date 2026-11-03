@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from html import escape
 import os
 import re
 import secrets
@@ -153,7 +154,7 @@ def install_group_owner(app, bot):
             await tg().send_message(
                 user_id,
                 "🔐 <b>کد ورود پنل مالک گروه FXI</b>\n\n"
-                f"گروه: <b>{(chat.title or 'گروه')[:120]}</b>\n"
+                f"گروه: <b>{escape((chat.title or 'گروه')[:120])}</b>\n"
                 f"<code>{code}</code>\n\n"
                 "⏳ این کد ۲ دقیقه اعتبار دارد و فقط یک‌بار قابل استفاده است.\n"
                 "🛡 کد را در اختیار هیچ‌کس قرار نده.",
