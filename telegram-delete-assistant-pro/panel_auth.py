@@ -1,4 +1,4 @@
-"""Admin-only username/password authentication for the FXI control panel."""
+"""Owner and manager authentication using Telegram one-time codes."""
 import hashlib
 import hmac
 import os
