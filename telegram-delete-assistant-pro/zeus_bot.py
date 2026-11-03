@@ -2715,8 +2715,6 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
     unknown = set(permissions) - set(ADMIN_PERMISSIONS)
     if unknown or "admins" in permissions:
         raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
-    if not bot:
-        raise HTTPException(status_code=503, detail="ربات تلگرام در دسترس نیست.")
     # Persist the manager account before attempting Telegram notification. A failed
     # notification must never roll back account creation.
     admin_data["panel_managers"][username] = {
@@ -2725,7 +2723,6 @@ async def add_manager(payload: ManagerAccountPayload, auth=Depends(require_admin
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     log_admin_action("panel_manager_created", f"username={username}; permissions={','.join(permissions)}")
-    save_admin_data()
 
     notification_sent = False
     notification_error = ""
