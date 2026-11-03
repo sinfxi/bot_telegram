@@ -1506,6 +1506,7 @@ def community_chat(chat_id: int) -> dict:
 
 async def record_community_bot_message(chat_id: int, sent_message: Message, text_value: str) -> None:
     """Persist bot-authored community messages without growing the JSON state."""
+    global DATABASE_READY
     try:
         record = community_chat(chat_id)
         row = {
@@ -1522,7 +1523,6 @@ async def record_community_bot_message(chat_id: int, sent_message: Message, text
             try:
                 await asyncio.to_thread(_save_community_message_sync, chat_id, row)
             except Exception:
-                global DATABASE_READY
                 DATABASE_READY = False
                 log.exception("PostgreSQL archive unavailable; switching community history to bounded JSON fallback")
                 rows = record.setdefault("message_log", [])
