@@ -370,6 +370,8 @@ def remember_user(user_id: int, *, username: str | None = None,
         profile["last_name"] = last_name
     profile["display_name"] = " ".join(part for part in [profile.get("first_name"), profile.get("last_name")] if part).strip()
     profile["last_seen"] = datetime.now(timezone.utc).isoformat()
+    # New activity starts a fresh inactivity period; a later reminder is allowed.
+    profile.pop("inactivity_reminder_sent_for", None)
     try:
         save_admin_data()
     except OSError:
@@ -554,6 +556,7 @@ bot = None
 dp = Dispatcher()
 polling_task = None
 watchdog_task = None
+inactivity_reminder_task = None
 WATCHDOG_INTERVAL_SECONDS = max(60, int(os.getenv("WATCHDOG_INTERVAL_SECONDS", "600")))
 
 
@@ -685,6 +688,13 @@ async def start(message: Message):
     user_id = user.id if user else 0
     if user and feature_enabled("user_tracking"):
         remember_user(user_id, username=user.username, first_name=user.first_name, last_name=user.last_name)
+        if message.chat.type == "private":
+            profile = admin_data.setdefault("user_profiles", {}).setdefault(str(user_id), {"user_id": user_id})
+            profile["private_started"] = True
+            try:
+                save_admin_data()
+            except Exception:
+                log.exception("Could not persist private bot start for user %s", user_id)
     name = (user.first_name or "دوست من") if user else "دوست من"
     menu_rows = [
         [InlineKeyboardButton(text="📘 راهنمای کامل", callback_data="menu:help"),
@@ -2335,6 +2345,63 @@ async def _telegram_watchdog() -> None:
             log.info("Watchdog: polling task is running")
 
 
+INACTIVITY_REMINDER_AFTER = timedelta(days=3)
+INACTIVITY_REMINDER_SCAN_SECONDS = 60 * 60
+
+
+async def _send_inactivity_reminders() -> None:
+    """Send at most one friendly reminder per inactive period to private users."""
+    if not bot:
+        return
+    profiles = admin_data.get("user_profiles", {})
+    now = datetime.now(timezone.utc)
+    changed = False
+    for key, profile in list(profiles.items()):
+        if not isinstance(profile, dict) or not profile.get("private_started"):
+            continue
+        try:
+            user_id = int(profile.get("user_id") or key)
+            last_seen = datetime.fromisoformat(str(profile.get("last_seen", "")).replace("Z", "+00:00"))
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if now - last_seen < INACTIVITY_REMINDER_AFTER:
+            continue
+        last_reminded_for = profile.get("inactivity_reminder_sent_for")
+        if last_reminded_for == profile.get("last_seen"):
+            continue
+        # Mark before sending to avoid duplicate reminders if Telegram/network fails mid-loop.
+        profile["inactivity_reminder_sent_for"] = profile.get("last_seen")
+        changed = True
+        try:
+            await bot.send_message(
+                user_id,
+                "سلام رفیق! 😊\n\n"
+                "چند روزیه ازت خبری نداریم، گفتم یه سلامی بکنم و یادآوری کنم که FXI هنوز اینجاست. 💚\n"
+                "هر وقت فرصت داشتی برگرد؛ می‌تونی ازم سؤال بپرسی یا برای مدیریت گروه و کانالت کمک بگیری.\n\n"
+                "منتظرتیم، بدون هیچ عجله‌ای! 🌱"
+            )
+        except Exception as exc:
+            log.info("Inactivity reminder could not be delivered to user %s: %s", user_id, exc)
+    if changed:
+        try:
+            save_admin_data()
+        except Exception:
+            log.exception("Could not persist inactivity reminder delivery markers")
+
+
+async def _inactivity_reminder_loop() -> None:
+    while True:
+        try:
+            await _send_inactivity_reminders()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Inactivity reminder scan failed")
+        await asyncio.sleep(INACTIVITY_REMINDER_SCAN_SECONDS)
+
+
 def enable_default_community_ai() -> None:
     """Enable mention-based AI replies in existing and newly registered groups."""
     chats = admin_data.get("community", {}).get("chats", {})
@@ -2351,7 +2418,7 @@ def enable_default_community_ai() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot, polling_task, watchdog_task, DATABASE_READY, HTTP_SESSION
+    global bot, polling_task, watchdog_task, DATABASE_READY, HTTP_SESSION, inactivity_reminder_task
     enable_default_community_ai()
     if DATABASE_URL:
         try:
@@ -2376,6 +2443,7 @@ async def lifespan(app: FastAPI):
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
         watchdog_task = asyncio.create_task(_telegram_watchdog())
+        inactivity_reminder_task = asyncio.create_task(_inactivity_reminder_loop())
         log.info("FXI Telegram polling started; watchdog interval=%ss; configured AI provider=%s",
                  WATCHDOG_INTERVAL_SECONDS,
                  [name for name in PROVIDERS if provider_ready(name)])
@@ -2384,6 +2452,14 @@ async def lifespan(app: FastAPI):
     if not any(provider_ready(name) for name in PROVIDERS):
         log.warning("No AI providers are configured; AI replies are disabled")
     yield
+    if inactivity_reminder_task:
+        inactivity_reminder_task.cancel()
+        try:
+            await inactivity_reminder_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("Error stopping inactivity reminder task")
     if watchdog_task:
         watchdog_task.cancel()
         try:
