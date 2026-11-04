@@ -37,3 +37,64 @@ jobs:
         run: python -m compileall -q .
       - name: Run panel security tests
         run: pytest -q
+
+      - name: Check panel and redeploy automatically when offline
+        if: github.event_name != 'pull_request'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: srv-dbhkdtmc6qcc73flckgg
+          PANEL_URL: https://telegram-delete-assistant-pro.onrender.com
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          check_panel() {
+            local health login
+            health="$(curl -sSL --max-time 15 -o /dev/null -w '%{http_code}' "$PANEL_URL/health" || true)"
+            login="$(curl -sSL --max-time 15 -o /dev/null -w '%{http_code}' "$PANEL_URL/login" || true)"
+            echo "health=$health login=$login"
+            [[ "$health" == "200" && "$login" == "200" ]]
+          }
+
+          if check_panel; then
+            echo "FXI Control is online; no redeploy required."
+            exit 0
+          fi
+
+          echo "::warning::FXI Control is unavailable. Requesting Render redeploy."
+          if [[ -z "${RENDER_API_KEY:-}" ]]; then
+            echo "::error::Add the RENDER_API_KEY repository secret to enable automatic recovery."
+            exit 1
+          fi
+
+          response="$(curl --fail-with-body -sS --max-time 30 -X POST \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json" -H "Content-Type: application/json" \
+            -d '{"clearCache":false}')"
+          deploy_id="$(echo "$response" | jq -r '.id // empty')"
+          [[ -n "$deploy_id" ]] || { echo "::error::Render returned no deployment ID"; echo "$response"; exit 1; }
+          echo "Started Render deployment: $deploy_id"
+
+          deadline=$((SECONDS + 900))
+          while (( SECONDS < deadline )); do
+            status="$(curl --fail -sS --max-time 20 \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$deploy_id" \
+              -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" \
+              | jq -r '.status // "unknown"')"
+            echo "Deployment status: $status"
+            case "$status" in
+              live)
+                if check_panel; then
+                  echo "FXI Control recovered successfully."
+                  exit 0
+                fi
+                ;;
+              build_failed|update_failed|canceled)
+                echo "::error::Render deployment failed: $status"
+                exit 1
+                ;;
+            esac
+            sleep 15
+          done
+          echo "::error::FXI Control did not recover within 15 minutes."
+          exit 1
