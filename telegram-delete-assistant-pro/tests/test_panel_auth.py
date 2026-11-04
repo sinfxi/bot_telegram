@@ -1,10 +1,14 @@
 import hashlib
+import sys
 import time
+from pathlib import Path
 
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from itsdangerous import URLSafeTimedSerializer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from panel_auth import install_panel_auth
 
