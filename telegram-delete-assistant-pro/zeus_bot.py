@@ -722,7 +722,9 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
         admin_auth_failures.pop(client_ip, None)
         raise HTTPException(status_code=403, detail="نام کاربری پنل یا آیدی مدیر معتبر نیست.")
     admin_auth_failures.pop(client_ip, None)
-    return {"user_id": login_user_id, "auth_type": "root_basic", "permissions": sorted(_admin_permissions_for(login_user_id))}
+    # The configured panel username is the owner credential; Telegram-ID sessions remain delegated admins.
+    auth_type = "owner" if submitted_username == ADMIN_PANEL_USERNAME else "telegram"
+    return {"user_id": login_user_id, "auth_type": auth_type, "permissions": sorted(_admin_permissions_for(login_user_id))}
 
 
 class ManagerRequestPayload(BaseModel):
@@ -2957,7 +2959,7 @@ async def admin_panel(auth=Depends(require_admin)):
     html = ADMIN_PANEL_HTML.replace(
         "</head>",
         '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '">'
-        '<meta name="fxi-panel-role" content="manager">'
+        '<meta name="fxi-panel-role" content="' + ("owner" if auth.get("auth_type") == "owner" else "manager") + '">'
         '<meta name="fxi-panel-user" content="' + str(auth.get("manager", "مدیر")).replace('"', '&quot;') + '"></head>',
     )
     return HTMLResponse(html)
