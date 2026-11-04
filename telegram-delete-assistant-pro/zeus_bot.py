@@ -2798,7 +2798,7 @@ def enable_default_community_ai() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot, polling_task, watchdog_task, DATABASE_READY, HTTP_SESSION, inactivity_reminder_task
+    global bot, polling_task, watchdog_task, DATABASE_READY, HTTP_SESSION, inactivity_reminder_task, TELEGRAM_BOT_USERNAME
     enable_default_community_ai()
     if DATABASE_URL:
         try:
@@ -2822,6 +2822,15 @@ async def lifespan(app: FastAPI):
     )
     if BOT_TOKEN:
         bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
+        # Resolve the actual Telegram username from Bot API instead of relying only
+        # on a possibly stale deployment environment variable.
+        try:
+            me = await asyncio.wait_for(bot.get_me(), timeout=15)
+            if me.username:
+                TELEGRAM_BOT_USERNAME = me.username.lstrip("@")
+                log.info("Resolved Telegram bot username from Bot API")
+        except Exception as exc:
+            log.warning("Could not resolve Telegram bot username at startup (%s); using configured fallback", type(exc).__name__)
         polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
         watchdog_task = asyncio.create_task(_telegram_watchdog())
         inactivity_reminder_task = asyncio.create_task(_inactivity_reminder_loop())
