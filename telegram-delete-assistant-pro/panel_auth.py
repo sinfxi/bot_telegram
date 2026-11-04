@@ -45,7 +45,7 @@ def install_panel_auth(app, bot):
 
     def decode(token):
         try:
-            return signer.loads(token, max_age=43200) if signer and token else {}
+            return signer.loads(token, max_age=30 * 24 * 60 * 60) if signer and token else {}
         except Exception:
             return {}
 
@@ -96,9 +96,30 @@ def install_panel_auth(app, bot):
 
     app.dependency_overrides[bot.require_admin] = require_admin
 
+    def active_manager_name(request):
+        session = decode(request.cookies.get("fxi_admin_session", ""))
+        if session.get("role") != "manager":
+            return ""
+        manager_name = str(session.get("manager", "")).strip().lower()
+        record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
+        try:
+            valid_version = int(session.get("version", 0)) == int(record.get("session_version", 1))
+        except (TypeError, ValueError, AttributeError):
+            return ""
+        if manager_name and isinstance(record, dict) and record.get("enabled", True) and valid_version:
+            return manager_name
+        return ""
+
     @app.middleware("http")
     async def panel_login_guard(request, call_next):
         path = request.url.path
+        # Keep an authenticated owner/manager on their own dashboard when they
+        # open a saved login URL or the generic panel link again.
+        if path in {"/login", "/admin/login"}:
+            if is_root(request):
+                return RedirectResponse("/owner", status_code=303)
+            if active_manager_name(request):
+                return RedirectResponse("/admin", status_code=303)
         if path == "/owner" and not is_root(request):
             token = request.cookies.get("fxi_admin_session", "")
             manager = decode(token)
@@ -362,7 +383,7 @@ resend.addEventListener('click',()=>{clearInterval(clock);verify.hidden=true;req
         login_attempts.pop(address, None)
         response = JSONResponse({"redirect": "/admin"})
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
-        response.set_cookie("fxi_admin_session", signer.dumps({"role": "manager", "manager": username, "version": int(record.get("session_version", 1))}), max_age=43200, httponly=True, secure=secure, samesite="strict", path="/")
+        response.set_cookie("fxi_admin_session", signer.dumps({"role": "manager", "manager": username, "version": int(record.get("session_version", 1))}), max_age=30 * 24 * 60 * 60, httponly=True, secure=secure, samesite="strict", path="/")
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -478,7 +499,7 @@ resend.addEventListener('click',()=>{verify.hidden=true;req.hidden=false;reqBtn.
         response.set_cookie(
             "fxi_admin_session",
             signer.dumps({"role": "owner", "owner_id": owner_id, "session_version": version}),
-            max_age=43200, httponly=True, secure=secure, samesite="strict", path="/",
+            max_age=30 * 24 * 60 * 60, httponly=True, secure=secure, samesite="strict", path="/",
         )
         return response
 
