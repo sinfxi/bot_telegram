@@ -78,13 +78,6 @@ def install_panel_auth(app, bot):
             manager_name = str(session.get("manager", "")).strip().lower()
             record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
             if manager_name and isinstance(record, dict) and record.get("enabled", True) and int(session.get("version", 0)) == int(record.get("session_version", 1)):
-                try:
-                    session_version = int(session.get("version", 0))
-                    current_version = int(record.get("session_version", 1))
-                except (TypeError, ValueError):
-                    raise HTTPException(401, "نشست مدیر معتبر نیست؛ دوباره وارد شو.")
-                if session_version != current_version:
-                    raise HTTPException(401, "نشست مدیر منقضی شده است؛ دوباره وارد شو.")
                 perms = set(record.get("permissions", ["dashboard"])).intersection(bot.ADMIN_PERMISSIONS) - {"admins"}
                 needed = bot._permission_for_path(request.url.path)
                 if needed not in perms:
@@ -121,46 +114,10 @@ def install_panel_auth(app, bot):
             manager = decode(token)
             manager_name = str(manager.get("manager", "")).strip().lower() if manager.get("role") == "manager" else ""
             manager_record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-            try:
-                manager_session_valid = (
-                    manager_name
-                    and isinstance(manager_record, dict)
-                    and manager_record.get("enabled", True)
-                    and int(manager.get("version", 0)) == int(manager_record.get("session_version", 1))
-                )
-            except (TypeError, ValueError):
-                manager_session_valid = False
-            if manager_session_valid:
+            if manager_name and isinstance(manager_record, dict) and manager_record.get("enabled", True) and int(manager.get("version", 0)) == int(manager_record.get("session_version", 1)):
                 return await call_next(request)
             return RedirectResponse("/admin/login", status_code=303)
         return await call_next(request)
-
-    @app.middleware("http")
-    async def panel_security_headers_and_csrf(request, call_next):
-        path = request.url.path
-        unsafe_method = request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
-        protected_path = (
-            path.startswith("/admin")
-            or path.startswith("/owner")
-            or path.startswith("/auth/")
-        )
-        if unsafe_method and protected_path:
-            origin = request.headers.get("origin")
-            fetch_site = request.headers.get("sec-fetch-site", "").strip().lower()
-            if origin and not bot._admin_origin_allowed(request):
-                return JSONResponse({"detail": "مبدأ درخواست مجاز نیست."}, status_code=403)
-            if not origin and fetch_site == "cross-site":
-                return JSONResponse({"detail": "درخواست بین‌سایتی مسدود شد."}, status_code=403)
-
-        response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-        if path.startswith(("/admin", "/owner", "/auth/")) or path == "/login":
-            response.headers["Cache-Control"] = "no-store, max-age=0"
-            response.headers["Pragma"] = "no-cache"
-        return response
 
     @app.get("/owner", response_class=HTMLResponse)
     async def owner_panel(auth=Depends(require_owner)):
@@ -502,7 +459,7 @@ resend.addEventListener('click',()=>{verify.hidden=true;req.hidden=false;reqBtn.
         if int(challenge.get("attempts", 0)) >= 5:
             bot.admin_data.pop("owner_otp_challenge", None)
             bot.save_admin_data()
-            raise HTTPException(429, "پس از ۵ تلاش ناموفق، کد باطل شد. کد تازه درخواست بده.")
+            raise HTTPException(429, "پس از ۱۰ تلاش ناموفق، کد باطل شد. کد تازه درخواست بده.")
         expected = hashlib.sha256(f"owner:{owner_id}:{challenge.get('salt','')}:{code}".encode()).hexdigest()
         if not hmac.compare_digest(expected, str(challenge.get("hash", ""))):
             challenge["attempts"] = int(challenge.get("attempts", 0)) + 1
