@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi import Request
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from pydantic import BaseModel, Field
+from panel_security import install_admin_security
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -2876,31 +2877,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="FXI Telegram Community Manager", version="6.1.0", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def security_headers_and_admin_origin_guard(request: Request, call_next):
-    # Protect state-changing admin API calls while supporting explicitly trusted panel origins.
-    if request.url.path.startswith("/admin/api/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-        if not _admin_origin_allowed(request):
-            return JSONResponse(status_code=403, content={"detail": "درخواست بین‌مبدأیی مجاز نیست."})
-    response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; "
-        "connect-src 'self'; object-src 'none'; base-uri 'self'; "
-        "form-action 'self'; frame-ancestors 'none'"
-    )
-    if request.url.path == "/admin" or request.url.path.startswith("/admin/api/") or request.url.path.startswith("/admin/invite/"):
-        response.headers["Cache-Control"] = "no-store, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-    if request.url.scheme == "https":
-        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    return response
+install_admin_security(app, _admin_origin_allowed)
 
 
 @app.get("/")
