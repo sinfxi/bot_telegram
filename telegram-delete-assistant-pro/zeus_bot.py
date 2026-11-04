@@ -3042,6 +3042,7 @@ async def admin_community(_: str = Depends(require_admin)):
             "chat_id": chat_id,
             "title": record.get("title") or record.get("username") or str(chat_id),
             "type": record.get("type", "unknown"),
+            "bot_left": bool(record.get("bot_left_at")),
             "message_count": int(record.get("message_count", 0)),
             "members_seen": len(record.get("members_seen", {})),
             "bot_enabled": bool(record.get("settings", {}).get("bot_enabled", True)),
@@ -3107,27 +3108,34 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
 
 @app.post("/admin/api/community/{chat_id}/leave")
 async def leave_community_chat(chat_id: int, request: Request, auth=Depends(require_admin)):
-    """Leave a registered Telegram group/channel after explicit owner confirmation."""
     if not _admin_origin_allowed(request):
         raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
     if auth.get("auth_type") != "owner":
-        raise HTTPException(status_code=403, detail="برای خارج‌کردن ربات از گروه یا کانال، دسترسی مالک لازم است.")
+        raise HTTPException(status_code=403, detail="فقط مالک پنل می‌تواند ربات را از گروه یا کانال خارج کند.")
+    if chat_id >= 0:
+        raise HTTPException(status_code=422, detail="شناسه گروه یا کانال معتبر نیست.")
     record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
     if not isinstance(record, dict):
-        raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
+        raise HTTPException(status_code=404, detail="این گروه یا کانال ثبت نشده است.")
     chat_type = str(record.get("type", "")).lower()
     if chat_type not in {"group", "supergroup", "channel"}:
-        raise HTTPException(status_code=422, detail="این شناسه به یک گروه یا کانال معتبر ثبت‌شده تعلق ندارد.")
+        raise HTTPException(status_code=422, detail="نوع فضای انتخاب‌شده معتبر نیست.")
+    if record.get("bot_left_at"):
+        return {"message": "ربات قبلاً از این فضا خارج شده است.", "chat_id": chat_id, "left": True, "already_left": True}
     try:
-        await bot.leave_chat(chat_id)
+        result = await bot.leave_chat(chat_id=chat_id)
+        if result is not True:
+            raise RuntimeError("Telegram did not confirm leaveChat")
     except Exception as exc:
-        log.warning("Could not leave community chat=%s (%s)", chat_id, type(exc).__name__)
-        raise HTTPException(status_code=502, detail="تلگرام اجازه خروج ربات از این فضا را نداد؛ دسترسی ربات و شناسه گروه را بررسی کن.")
+        log.exception("Telegram leaveChat failed for chat=%s", chat_id)
+        raise HTTPException(status_code=502, detail="خروج در تلگرام تأیید نشد؛ عضویت ربات و شناسه فضا را بررسی کن.") from exc
+    left_at = datetime.now(timezone.utc).isoformat()
     record.setdefault("settings", {})["bot_enabled"] = False
-    record["bot_left_at"] = datetime.now(timezone.utc).isoformat()
+    record["bot_left_at"] = left_at
+    record["bot_left_by"] = str(auth.get("user_id", "owner"))
     save_admin_data()
     log_admin_action("community_bot_left", f"chat={chat_id}; type={chat_type}; by={auth.get('user_id', 0)}")
-    return {"message": "ربات با موفقیت از گروه یا کانال خارج شد.", "chat_id": chat_id, "left": True}
+    return {"message": "ربات با موفقیت از این گروه/کانال خارج شد.", "chat_id": chat_id, "left": True, "left_at": left_at}
 
 
 @app.get("/admin/api/status")
