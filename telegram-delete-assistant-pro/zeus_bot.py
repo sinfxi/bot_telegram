@@ -3105,6 +3105,31 @@ async def update_community_settings(chat_id: int, payload: CommunitySettingsPayl
     }
 
 
+@app.post("/admin/api/community/{chat_id}/leave")
+async def leave_community_chat(chat_id: int, request: Request, auth=Depends(require_admin)):
+    """Leave a registered Telegram group/channel after explicit owner confirmation."""
+    if not _admin_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="درخواست بین‌مبدأیی مجاز نیست.")
+    if auth.get("auth_type") != "owner":
+        raise HTTPException(status_code=403, detail="برای خارج‌کردن ربات از گروه یا کانال، دسترسی مالک لازم است.")
+    record = admin_data.get("community", {}).get("chats", {}).get(str(chat_id))
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=404, detail="این گروه یا کانال در فهرست ثبت‌شده پیدا نشد.")
+    chat_type = str(record.get("type", "")).lower()
+    if chat_type not in {"group", "supergroup", "channel"}:
+        raise HTTPException(status_code=422, detail="این شناسه به یک گروه یا کانال معتبر ثبت‌شده تعلق ندارد.")
+    try:
+        await bot.leave_chat(chat_id)
+    except Exception as exc:
+        log.warning("Could not leave community chat=%s (%s)", chat_id, type(exc).__name__)
+        raise HTTPException(status_code=502, detail="تلگرام اجازه خروج ربات از این فضا را نداد؛ دسترسی ربات و شناسه گروه را بررسی کن.")
+    record.setdefault("settings", {})["bot_enabled"] = False
+    record["bot_left_at"] = datetime.now(timezone.utc).isoformat()
+    save_admin_data()
+    log_admin_action("community_bot_left", f"chat={chat_id}; type={chat_type}; by={auth.get('user_id', 0)}")
+    return {"message": "ربات با موفقیت از گروه یا کانال خارج شد.", "chat_id": chat_id, "left": True}
+
+
 @app.get("/admin/api/status")
 async def admin_status(auth=Depends(require_admin)):
     permissions = set(auth.get("permissions", []))
