@@ -110,6 +110,26 @@ def install_panel_auth(app, bot):
             return manager_name
         return ""
 
+    def manager_record_for_request(request):
+        session = decode(request.cookies.get("fxi_admin_session", ""))
+        if session.get("role") != "manager":
+            return None, None
+        manager_name = str(session.get("manager", "")).strip().lower()
+        record = bot.admin_data.get("panel_managers", {}).get(manager_name)
+        if not manager_name or not isinstance(record, dict) or not record.get("enabled", True):
+            return None, None
+        try:
+            if int(session.get("version", 0)) != int(record.get("session_version", 1)):
+                return None, None
+        except (TypeError, ValueError):
+            return None, None
+        raw_permissions = record.get("permissions", ["dashboard"])
+        if not isinstance(raw_permissions, (list, tuple, set)):
+            raw_permissions = ["dashboard"]
+        permissions = set(raw_permissions).intersection(bot.ADMIN_PERMISSIONS) - {"admins"}
+        permissions.add("dashboard")
+        return manager_name, permissions
+
     @app.middleware("http")
     async def panel_login_guard(request, call_next):
         path = request.url.path
@@ -121,23 +141,30 @@ def install_panel_auth(app, bot):
             if active_manager_name(request):
                 return RedirectResponse("/admin", status_code=303)
         if path == "/owner" and not is_root(request):
-            token = request.cookies.get("fxi_admin_session", "")
-            manager = decode(token)
-            manager_name = str(manager.get("manager", "")).strip().lower() if manager.get("role") == "manager" else ""
-            record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-            if manager_name and isinstance(record, dict) and record.get("enabled", True):
+            manager_name, _ = manager_record_for_request(request)
+            if manager_name:
                 return RedirectResponse("/admin", status_code=303)
             return RedirectResponse("/login", status_code=303)
         if path == "/admin":
             if is_root(request):
                 return RedirectResponse("/owner", status_code=303)
-            token = request.cookies.get("fxi_admin_session", "")
-            manager = decode(token)
-            manager_name = str(manager.get("manager", "")).strip().lower() if manager.get("role") == "manager" else ""
-            manager_record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-            if manager_name and isinstance(manager_record, dict) and manager_record.get("enabled", True) and int(manager.get("version", 0)) == int(manager_record.get("session_version", 1)):
+            manager_name, permissions = manager_record_for_request(request)
+            if manager_name:
+                if "dashboard" not in permissions:
+                    return JSONResponse(status_code=403, content={"detail": "دسترسی نمای کلی برای این حساب فعال نیست."})
                 return await call_next(request)
             return RedirectResponse("/admin/login", status_code=303)
+
+        # Enforce permissions centrally for EVERY manager API request, even if a
+        # future endpoint accidentally omits Depends(require_admin). Unknown API
+        # paths are denied by _permission_for_path's fail-closed default.
+        if path.startswith("/admin/api/") and not is_root(request):
+            manager_name, permissions = manager_record_for_request(request)
+            if not manager_name:
+                return JSONResponse(status_code=401, content={"detail": "نشست مدیر معتبر نیست؛ دوباره وارد شو."})
+            needed = bot._permission_for_path(path)
+            if needed == "__unmapped__" or needed not in permissions:
+                return JSONResponse(status_code=403, content={"detail": "این عملیات در سطح دسترسی فعلی شما مجاز نیست."})
         return await call_next(request)
 
     @app.get("/owner", response_class=HTMLResponse)
