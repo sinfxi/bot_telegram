@@ -598,29 +598,58 @@ def get_web_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="نشست شما منقضی شده؛ دوباره وارد شو.")
 
 
-def remember_user(user_id: int, *, username: str | None = None,
-                  first_name: str | None = None, last_name: str | None = None) -> None:
-    """Persist Telegram identity fields when Telegram supplies them."""
+USER_PROFILE_SAVE_INTERVAL_SECONDS = 300
+_user_profile_persisted_at: dict[int, float] = {}
+
+
+async def remember_user(user_id: int, *, username: str | None = None,
+                        first_name: str | None = None, last_name: str | None = None) -> None:
+    """Update activity in memory and persist user profiles at a bounded rate.
+
+    New users and identity changes are saved immediately. Routine last-seen
+    updates are flushed at most once every five minutes to avoid writing the
+    entire admin-state document for every incoming Telegram message.
+    """
+    now = time.time()
     users = admin_data.setdefault("users", [])
-    if user_id not in users:
+    is_new_user = user_id not in users
+    if is_new_user:
         users.append(user_id)
+
     profiles = admin_data.setdefault("user_profiles", {})
     key = str(user_id)
-    profile = profiles.setdefault(key, {"user_id": user_id, "first_seen": datetime.now(timezone.utc).isoformat()})
-    # Telegram usernames and display names are optional and can change over time.
-    if username is not None:
-        profile["username"] = username
-    if first_name is not None:
-        profile["first_name"] = first_name
-    if last_name is not None:
-        profile["last_name"] = last_name
-    profile["display_name"] = " ".join(part for part in [profile.get("first_name"), profile.get("last_name")] if part).strip()
+    is_new_profile = key not in profiles
+    profile = profiles.setdefault(
+        key, {"user_id": user_id, "first_seen": datetime.now(timezone.utc).isoformat()}
+    )
+    identity_changed = False
+
+    for field, value in (("username", username), ("first_name", first_name), ("last_name", last_name)):
+        if value is not None and profile.get(field) != value:
+            profile[field] = value
+            identity_changed = True
+
+    display_name = " ".join(
+        part for part in [profile.get("first_name"), profile.get("last_name")] if part
+    ).strip()
+    if profile.get("display_name") != display_name:
+        profile["display_name"] = display_name
+        identity_changed = True
+
     profile["last_seen"] = datetime.now(timezone.utc).isoformat()
-    # New activity starts a fresh inactivity period; a later reminder is allowed.
-    profile.pop("inactivity_reminder_sent_for", None)
+    reminder_was_cleared = profile.pop("inactivity_reminder_sent_for", None) is not None
+    last_persisted = _user_profile_persisted_at.get(user_id, 0.0)
+    should_persist = (
+        is_new_user or is_new_profile or identity_changed or reminder_was_cleared
+        or now - last_persisted >= USER_PROFILE_SAVE_INTERVAL_SECONDS
+    )
+    if not should_persist:
+        return
+
     try:
-        save_admin_data()
-    except OSError:
+        await asyncio.to_thread(save_admin_data)
+        _user_profile_persisted_at[user_id] = now
+    except Exception:
         log.exception("Could not persist Telegram user registry/profile")
 
 
@@ -933,7 +962,7 @@ async def start(message: Message):
     user = message.from_user
     user_id = user.id if user else 0
     if user and feature_enabled("user_tracking"):
-        remember_user(user_id, username=user.username, first_name=user.first_name, last_name=user.last_name)
+        await remember_user(user_id, username=user.username, first_name=user.first_name, last_name=user.last_name)
         if message.chat.type == "private":
             profile = admin_data.setdefault("user_profiles", {}).setdefault(str(user_id), {"user_id": user_id})
             profile["private_started"] = True
@@ -2574,7 +2603,7 @@ async def community_voice(message: Message):
         await answer_and_log(message, "پردازش پیام صوتی توسط مدیر غیرفعال شده است.")
         return
     if message.from_user:
-        remember_user(message.from_user.id, username=message.from_user.username,
+        await remember_user(message.from_user.id, username=message.from_user.username,
                       first_name=message.from_user.first_name, last_name=message.from_user.last_name)
     if message.chat.type not in {"group", "supergroup"}:
         await answer_and_log(message, "🎙 ویس رو داخل گروهی که ربات عضو شده بفرست. برای تشخیص صدا، کلید Groq یا OpenAI باید در سرور تنظیم شده باشه.")
@@ -2612,7 +2641,7 @@ async def community_voice(message: Message):
 @dp.message()
 async def chat(message: Message):
     if message.from_user and feature_enabled("user_tracking"):
-        remember_user(message.from_user.id, username=message.from_user.username,
+        await remember_user(message.from_user.id, username=message.from_user.username,
                       first_name=message.from_user.first_name, last_name=message.from_user.last_name)
     if message.chat.type == "private":
         if message.text:
