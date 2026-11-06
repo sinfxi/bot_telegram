@@ -12,14 +12,14 @@
 <section id="page-providers" class="page" data-page-permission="providers"><div class="hero"><small>AI PROVIDERS</small><h2>سرویس‌های متصل</h2><p>وضعیت پیکربندی را بررسی کن. کلیدهای API فقط از طریق متغیرهای محیطی سرور مدیریت می‌شوند و در این پنل نمایش داده نمی‌شوند.</p></div><div class="providers" id="providerList"></div><div class="notice section">برای فعال‌کردن سرویس قفل‌شده، متغیر API مربوطه را در Render تنظیم و سرویس را دوباره Deploy کن.</div></section>
 <section id="page-users" class="page" data-page-permission="users"><div class="hero"><small>ACCESS MANAGEMENT</small><h2>کاربران و مدیران</h2><p>کاربران ربات را جست‌وجو کن، دسترسی‌شان را مسدود یا دوباره فعال کن و مدیران را مدیریت کن.</p></div><div class="card" data-area-permission="admins">
 <div class="section-head"><h3>🔐 دعوت مدیر جدید</h3></div>
-<p class="muted">برای مدیر موردنظر یک کد دعوت یک‌بارمصرف بساز. کد عددی ۴ رقمی، یک‌بارمصرف است و پس از ۱۰ دقیقه منقضی می‌شود.</p>
+<p class="muted">یک لینک اختصاصی با توکن تصادفی ۲۵۶ بیتی بساز. لینک ۱۵ دقیقه اعتبار دارد، فقط یک‌بار مصرف می‌شود و توکن خام در دیتابیس ذخیره نمی‌شود.</p>
 <div class="row"><button class="btn" type="button" id="createManagerInviteBtn" onclick="createManagerInvite()">✨ ایجاد کد برای مدیر</button></div>
 <div id="managerInviteResult" class="manager-invite-result" hidden aria-live="polite">
 <b>کد دعوت ساخته شد</b><div class="invite-code" id="managerInviteCode"></div>
-<div class="row"><button class="btn secondary" type="button" onclick="copyManagerInvite()">کپی کد</button><a class="btn secondary" id="managerRequestLink" href="/admin/request" target="_blank" rel="noopener">صفحه ثبت درخواست مدیر</a><button class="btn danger" type="button" id="revokeManagerInviteBtn" onclick="revokeManagerInvite()">لغو و حذف کد</button></div>
-<small class="muted">این کد را فقط برای فرد موردنظر بفرست. بعد از ثبت درخواست دیگر قابل استفاده نیست.</small>
+<div class="row"><button class="btn secondary" type="button" onclick="copyManagerInvite()">کپی لینک دعوت</button><a class="btn secondary" id="managerRequestLink" href="/admin/request" target="_blank" rel="noopener">بازکردن فرم دعوت</a><button class="btn danger" type="button" id="revokeManagerInviteBtn" onclick="revokeManagerInvite()">لغو لینک</button></div>
+<small class="muted">لینک را فقط برای همان فرد بفرست. با ثبت درخواست، توکن فوراً مصرف می‌شود و دیگر قابل استفاده نیست.</small>
 </div>
-<div class="manager-help"><b>روند کار</b><p>۱) کد ۴ رقمی را بساز و برای فرد بفرست. ۲) او فقط نام کاربری و کد را در صفحه درخواست وارد می‌کند. ۳) دکمه اتصال تلگرام را می‌زند تا کد ورود بعداً به حساب خودش برسد. ۴) تو درخواست را تأیید می‌کنی؛ بعد از آن فرد از صفحه ورود کد یک‌بارمصرف می‌گیرد.</p></div>
+<div class="manager-help"><b>روند امن و ساده</b><p>۱) لینک اختصاصی را بساز و فقط برای متقاضی بفرست. ۲) او لینک را باز می‌کند؛ توکن دعوت خودکار تکمیل می‌شود و فقط نام کاربری را وارد می‌کند. ۳) حساب تلگرامش را با لینک اتصال ربات پیوند می‌دهد. ۴) پس از بررسی و تأیید تو، مدیر می‌تواند کد ورود یک‌بارمصرف تلگرام را دریافت کند. تغییر سطح دسترسی یا لغو مدیریت، نشست قبلی را باطل می‌کند و به مدیر اطلاع داده می‌شود.</p></div>
 <div class="section-head section"><h3>📥 درخواست‌های ادمینی</h3><span class="muted">درخواست‌ها تا زمان تأیید یا رد در این قسمت می‌مانند.</span></div>
 <div class="list" id="managerRequests"><div class="empty">درخواست در انتظار تأییدی وجود ندارد.</div></div>
 <div class="section-head section"><h3>🛡 مدیران فعال پنل</h3></div>
