@@ -240,14 +240,14 @@ label{display:block;color:#c9ded4;font-size:12px;margin:14px 0 7px}input{width:1
 button,.link{display:block;text-align:center;width:100%;padding:14px;margin-top:16px;border:0;border-radius:12px;background:linear-gradient(110deg,#b8efd1,#72c99c);color:#10251b;font-weight:bold;cursor:pointer;text-decoration:none}
 button:disabled{opacity:.55;cursor:not-allowed}#msg{min-height:25px;margin-top:14px;color:#b8efd1;line-height:1.9;font-size:12px}.hint{color:#8ca99d;font-size:11px;line-height:1.9;margin-top:14px}#telegramLink{display:none}
 </style></head><body><main class="card"><h1>درخواست دسترسی مدیریت FXI</h1>
-<p class="sub">فقط نام کاربری و کد دعوتی را که مالک برایت فرستاده وارد کن. پس از ثبت درخواست، حساب تلگرامت را با دکمه اتصال پیوند بده تا بعد از تأیید مالک بتوانیم کد ورود را برایت بفرستیم.</p>
+<p class="sub">لینک دعوت اختصاصی مالک را باز کن؛ توکن خودکار تکمیل می‌شود. فقط نام کاربری دلخواهت را وارد کن و بعد حساب تلگرامت را به درخواست پیوند بده تا مالک بتواند آن را بررسی کند.</p>
 <form id="form">
 <label for="username">نام کاربری دلخواه</label><input id="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}" placeholder="مثلاً ali_manager">
 <label for="invite">توکن دعوت یک‌بارمصرف</label><input id="invite" type="text" autocomplete="off" required minlength="32" maxlength="128" pattern="[A-Za-z0-9_-]{32,128}" placeholder="با بازکردن لینک دعوت، خودکار تکمیل می‌شود">
 <button id="submit" type="submit">ثبت درخواست</button></form>
 <a id="telegramLink" class="link" target="_blank" rel="noopener">🔗 اتصال حساب تلگرام</a>
 <div id="msg" role="status" aria-live="polite"></div>
-<div class="hint">برای دریافت کد ورود، باید یک‌بار دکمه اتصال را بزنی و ربات را Start کنی. کد دعوت یک‌بارمصرف و دارای مهلت انقضاست. <a href="/admin/login" style="color:#b8efd1">قبلاً تأیید شده‌ای؟ ورود مدیر</a></div>
+<div class="hint">برای اتصال حساب، دکمه زیر را بزن و ربات را Start کن. لینک دعوت یک‌بارمصرف است و پس از ۱۵ دقیقه منقضی می‌شود. <a href="/admin/login" style="color:#b8efd1">قبلاً تأیید شده‌ای؟ ورود مدیر</a></div>
 </main><script>
 const form=document.getElementById('form'),msg=document.getElementById('msg'),btn=document.getElementById('submit'),link=document.getElementById('telegramLink'),inviteInput=document.getElementById('invite');
 const fragment=new URLSearchParams(location.hash.slice(1)),sharedInvite=fragment.get('invite')||'';
