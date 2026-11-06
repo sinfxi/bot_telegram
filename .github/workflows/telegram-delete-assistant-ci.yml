@@ -1,0 +1,79 @@
+name: Telegram assistant Python checks
+
+on:
+  push:
+    branches:
+      - feature/telegram-delete-assistant
+    paths:
+      - "telegram-delete-assistant-pro/**"
+      - "tests/test_fxi_core.py"
+      - ".github/workflows/telegram-delete-assistant-ci.yml"
+  pull_request:
+    branches:
+      - feature/telegram-delete-assistant
+    paths:
+      - "telegram-delete-assistant-pro/**"
+      - "tests/test_fxi_core.py"
+      - ".github/workflows/telegram-delete-assistant-ci.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: python -m pip install -r telegram-delete-assistant-pro/requirements.txt
+      - name: Compile Python sources
+        run: python -m compileall -q telegram-delete-assistant-pro
+      - name: Run offline FXI regression tests
+        env:
+          ZEUS_BOT_TOKEN: ""
+          OPENROUTER_API_KEY: ""
+          DATABASE_URL: ""
+          ADMIN_DATA_FILE: "/tmp/fxi-ci-admin-state.json"
+          ADMIN_PANEL_USERNAME: "ci-owner"
+          ADMIN_PANEL_PASSWORD: "ci-owner-password-only"
+          SESSION_SECRET: "ci-session-secret-not-for-production"
+        run: python -m unittest discover -s tests -p "test_fxi_core.py" -v
+      - name: Check admin dashboard JavaScript
+        run: node --check telegram-delete-assistant-pro/static/admin.js
+      - name: Check login page JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("telegram-delete-assistant-pro/panel_auth.py").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script>(.*?)</script>", source, flags=re.S)
+          if not scripts:
+              raise SystemExit("No inline authentication scripts were found")
+          for index, script in enumerate(scripts):
+              Path(f"/tmp/fxi-auth-{index}.js").write_text(script, encoding="utf-8")
+          PY
+          for file in /tmp/fxi-auth-*.js; do node --check "$file"; done
+      - name: Import app and verify authentication routes
+        working-directory: telegram-delete-assistant-pro
+        env:
+          ZEUS_BOT_TOKEN: "ci-placeholder-token"
+          ADMIN_PANEL_USERNAME: "ci-admin"
+          ADMIN_PANEL_PASSWORD: "ci-placeholder-password"
+          SESSION_SECRET: "ci-placeholder-session-secret"
+        run: |
+          python - <<'PY'
+          import app
+          paths = {route.path for route in app.app.routes}
+          required = {"/login", "/owner", "/owner/api/backup", "/admin", "/admin/login", "/auth/owner-login", "/auth/manager-request-code", "/auth/manager-login", "/admin/api/manager-requests", "/admin/api/manager-requests/{request_id}/approve", "/admin/api/manager-requests/{request_id}/reject", "/admin/api/managers/{username}", "/admin/api/managers/{username}/permissions", "/auth/logout", "/admin/api/users/{user_id}/block", "/admin/api/users/{user_id}/unblock", "/admin/api/community", "/admin/api/community/{chat_id}/settings"}
+          missing = required - paths
+          if missing:
+              raise SystemExit(f"Missing auth routes: {sorted(missing)}")
+          forbidden = {"/auth/register", "/auth/user-login", "/account"}
+          present_forbidden = forbidden & paths
+          if present_forbidden:
+              raise SystemExit(f"Public panel account routes must not exist: {sorted(present_forbidden)}")
+          print("Application import, owner/manager Telegram OTP, manager request approvals, and natural Telegram actions OK")
+          PY
