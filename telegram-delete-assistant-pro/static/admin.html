@@ -13,9 +13,9 @@
 <section id="page-users" class="page" data-page-permission="users"><div class="hero"><small>ACCESS MANAGEMENT</small><h2>کاربران و مدیران</h2><p>کاربران ربات را جست‌وجو کن، دسترسی‌شان را مسدود یا دوباره فعال کن و مدیران را مدیریت کن.</p></div><div class="card" data-area-permission="admins">
 <div class="section-head"><h3>🔐 دعوت مدیر جدید</h3></div>
 <p class="muted">یک لینک اختصاصی با توکن تصادفی ۲۵۶ بیتی بساز. لینک ۱۵ دقیقه اعتبار دارد، فقط یک‌بار مصرف می‌شود و توکن خام در دیتابیس ذخیره نمی‌شود.</p>
-<div class="row"><button class="btn" type="button" id="createManagerInviteBtn" onclick="createManagerInvite()">✨ ایجاد کد برای مدیر</button></div>
+<div class="row"><button class="btn" type="button" id="createManagerInviteBtn" onclick="createManagerInvite()">🔐 ساخت لینک امن مدیر</button></div>
 <div id="managerInviteResult" class="manager-invite-result" hidden aria-live="polite">
-<b>کد دعوت ساخته شد</b><div class="invite-code" id="managerInviteCode"></div>
+<b>لینک دعوت امن ساخته شد</b><div class="invite-code" id="managerInviteCode"></div>
 <div class="row"><button class="btn secondary" type="button" onclick="copyManagerInvite()">کپی لینک دعوت</button><a class="btn secondary" id="managerRequestLink" href="/admin/request" target="_blank" rel="noopener">بازکردن فرم دعوت</a><button class="btn danger" type="button" id="revokeManagerInviteBtn" onclick="revokeManagerInvite()">لغو لینک</button></div>
 <small class="muted">لینک را فقط برای همان فرد بفرست. با ثبت درخواست، توکن فوراً مصرف می‌شود و دیگر قابل استفاده نیست.</small>
 </div>
