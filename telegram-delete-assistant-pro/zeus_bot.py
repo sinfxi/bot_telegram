@@ -663,11 +663,13 @@ ADMIN_PERMISSIONS = {
 
 
 def _permission_for_path(path: str) -> str:
+    # Explicit, ordered route-to-permission mapping. Keep this fail-closed:
+    # delegated managers must never inherit access to a newly added endpoint.
     if path in {"/admin", "/admin/"}: return "dashboard"
+    if path.endswith("/status"): return "dashboard"
+    if path.endswith("/metrics"): return "dashboard"
+    if "/admins" in path or "/managers" in path or "/manager-" in path: return "admins"
     if "/users/" in path or path.endswith("/users"): return "users"
-    if path.endswith("/status") or path.endswith("/metrics"): return "dashboard"
-    if "/admins" in path or "/managers" in path: return "admins"
-    if "/users/export" in path or path.endswith("/users"): return "users"
     if "/community" in path: return "community"
     if "/conversations" in path: return "conversations"
     if "/audit" in path: return "audit"
@@ -675,8 +677,7 @@ def _permission_for_path(path: str) -> str:
     if "/broadcast" in path: return "broadcast"
     if "/prompt" in path: return "prompt"
     if "/bot-state" in path or "/features" in path: return "system"
-    # Fail closed: a newly added API route must receive an explicit permission
-    # mapping before delegated managers can access it.
+    # No implicit dashboard fallback for unknown API paths.
     return "__unmapped__"
 
 
