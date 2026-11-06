@@ -165,21 +165,21 @@ async function createManagerInvite(){
   if(button){button.disabled=true;button.textContent='در حال ساخت کد…'}
   const d=await api('manager-invites','POST',{});
   $('managerInviteCode').textContent=d.code;
-  $('managerRequestLink').href=location.origin+'/admin/request';
+  $('managerRequestLink').href=d.request_url;
   $('managerInviteResult').hidden=false;
-  note('کد دعوت ۴ رقمی ساخته شد. آن را سریع برای مدیر بفرست؛ فقط یک بار و تا ۱۰ دقیقه قابل استفاده است.');
+  note('لینک دعوت امن ساخته شد؛ آن را فقط برای متقاضی موردنظر بفرست. لینک یک‌بارمصرف و ۱۵ دقیقه‌ای است.');
  }catch(e){note('ساخت کد دعوت انجام نشد: '+e.message)}
  finally{if(button){button.disabled=false;button.textContent='✨ ایجاد کد برای مدیر'}}
 }
 async function copyManagerInvite(){
- const code=$('managerInviteCode')?.textContent||'';
- if(!code)return note('کدی برای کپی وجود ندارد');
- try{await navigator.clipboard.writeText(code);note('کد دعوت کپی شد.')}catch(e){note('کپی خودکار ممکن نشد؛ کد را دستی انتخاب و کپی کن.')}
+ const link=$('managerRequestLink')?.href||'';
+ if(!link||link.endsWith('/admin/request'))return note('لینک دعوت فعالی برای کپی وجود ندارد');
+ try{await navigator.clipboard.writeText(link);note('لینک دعوت کپی شد؛ فقط برای فرد موردنظر بفرست.')}catch(e){note('کپی خودکار ممکن نشد؛ لینک را از نوار آدرس فرم بردار.')}
 }
 async function revokeManagerInvite(){
  const code=$('managerInviteCode')?.textContent?.trim()||'';
- if(!code)return note('کد فعالی برای لغو وجود ندارد');
- if(!confirm('کد دعوت لغو شود؟ پس از لغو، دیگر قابل استفاده نخواهد بود و از پنل هم حذف می‌شود.'))return;
+ if(!code)return note('لینک فعالی برای لغو وجود ندارد');
+ if(!confirm('لینک دعوت لغو شود؟ پس از لغو، دیگر قابل استفاده نخواهد بود.'))return;
  const button=$('revokeManagerInviteBtn');
  try{
   if(button){button.disabled=true;button.textContent='در حال لغو…'}
@@ -188,7 +188,7 @@ async function revokeManagerInvite(){
   $('managerInviteResult').hidden=true;
   note(d.message||'کد دعوت لغو و حذف شد.');
  }catch(e){note('لغو کد انجام نشد: '+e.message)}
- finally{if(button){button.disabled=false;button.textContent='لغو و حذف کد'}}
+ finally{if(button){button.disabled=false;button.textContent='لغو لینک'}}
 }
 async function approveManagerRequest(id){
  if(!confirm('این درخواست تأیید و حساب ادمین ساخته شود؟'))return;
