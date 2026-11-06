@@ -757,12 +757,13 @@ def require_admin(request: Request, credentials: HTTPBasicCredentials | None = D
 
 
 class ManagerRequestPayload(BaseModel):
-    invite_code: str = Field(min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
+    # High-entropy bearer token; only its SHA-256 digest is persisted.
+    invite_code: str = Field(min_length=32, max_length=128, pattern=r"^[A-Za-z0-9_-]{32,128}$")
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
 
 
 class ManagerInviteRevokePayload(BaseModel):
-    code: str = Field(min_length=4, max_length=4, pattern=r"^[0-9]{4}$")
+    code: str = Field(min_length=32, max_length=128, pattern=r"^[A-Za-z0-9_-]{32,128}$")
 
 
 class BroadcastPayload(BaseModel):
@@ -3258,26 +3259,19 @@ async def create_manager_invite(auth=Depends(require_admin)):
     for key, record in list(invites.items()):
         if not isinstance(record, dict) or record.get("status") != "active" or float(record.get("expires_at", 0)) <= now:
             invites.pop(key, None)
-    # Four-digit numeric codes have low entropy: keep them short-lived and
-    # enforce both per-IP and global verification limits below.
-    code = None
-    code_hash = None
-    for _ in range(100):
-        candidate = f"{secrets.randbelow(10000):04d}"
-        candidate_hash = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
-        if candidate_hash not in invites:
-            code, code_hash = candidate, candidate_hash
-            break
-    if code is None:
-        raise HTTPException(status_code=503, detail="فعلاً امکان ساخت کد جدید نیست؛ کدهای فعال را لغو و دوباره تلاش کن.")
+    # Generate a high-entropy bearer secret; persist only its SHA-256 digest.
+    # Keep it in a URL fragment so it is never sent in HTTP requests or referrers.
+    code = secrets.token_urlsafe(32)
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
     invites[code_hash] = {
         "status": "active",
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": now + 600,
+        "expires_at": now + 900,
     }
     save_admin_data()
-    log_admin_action("manager_invite_created", "one-time 4-digit invitation created; expires in 10 minutes")
-    return {"code": code, "expires_in": 600, "request_url": ADMIN_PANEL_URL.rstrip("/") + "/admin/request"}
+    log_admin_action("manager_invite_created", "one-time 256-bit invitation link created; expires in 15 minutes")
+    request_url = ADMIN_PANEL_URL.rstrip("/") + "/admin/request#invite=" + code
+    return {"code": code, "expires_in": 900, "request_url": request_url}
 
 
 @app.post("/admin/api/manager-invites/revoke")
@@ -3442,12 +3436,22 @@ async def remove_manager(username: str, auth=Depends(require_admin)):
     if auth.get("auth_type") != "owner":
         raise HTTPException(status_code=403, detail="حذف مدیران پنل فقط در اختیار مالک است.")
     key = username.strip().lower()
-    if key not in admin_data.get("panel_managers", {}):
+    record = admin_data.get("panel_managers", {}).get(key)
+    if not isinstance(record, dict):
         raise HTTPException(status_code=404, detail="مدیر پنل پیدا نشد.")
+    telegram_id = int(record.get("telegram_id", 0) or 0)
     admin_data["panel_managers"].pop(key, None)
+    admin_data.setdefault("manager_otp_challenges", {}).pop(key, None)
     log_admin_action("panel_manager_removed", f"username={key}")
     save_admin_data()
-    return {"message": f"دسترسی مدیر «{key}» لغو شد."}
+    notification_sent = False
+    if telegram_id > 0 and bot:
+        try:
+            await bot.send_message(telegram_id, "🔒 دسترسی مدیریتی حساب شما در FXI توسط مالک لغو شد. نشست‌های قبلی دیگر معتبر نیستند.")
+            notification_sent = True
+        except Exception as exc:
+            log.warning("Manager revocation notification failed (%s)", type(exc).__name__)
+    return {"message": f"دسترسی مدیر «{key}» لغو شد.", "notification_sent": notification_sent}
 
 
 @app.get("/admin/api/managers/{username}/permissions")
@@ -3476,9 +3480,25 @@ async def set_manager_permissions(username: str, payload: dict, auth=Depends(req
     if set(permissions) - set(ADMIN_PERMISSIONS) or "admins" in permissions:
         raise HTTPException(status_code=422, detail="دسترسی انتخاب‌شده معتبر نیست.")
     record["permissions"] = permissions
+    # Revoke previously issued sessions whenever privileges change.
+    record["session_version"] = int(record.get("session_version", 1) or 1) + 1
     log_admin_action("panel_manager_permissions_updated", f"username={key}; permissions={','.join(permissions)}")
     save_admin_data()
-    return {"message": "دسترسی‌های مدیر ذخیره شد.", "permissions": permissions}
+    notification_sent = False
+    telegram_id = int(record.get("telegram_id", 0) or 0)
+    if telegram_id > 0 and bot:
+        try:
+            labels = "، ".join(ADMIN_PERMISSIONS[item] for item in permissions)
+            await bot.send_message(
+                telegram_id,
+                "🛡 سطح دسترسی شما در FXI توسط مالک تغییر کرد. نشست قبلی برای امنیت بیشتر لغو شده است.\n"
+                f"دسترسی‌های فعلی: {labels}\n"
+                "برای ورود دوباره، از صفحه ورود مدیر کد یک‌بارمصرف تازه بگیر."
+            )
+            notification_sent = True
+        except Exception as exc:
+            log.warning("Manager permission-change notification failed (%s)", type(exc).__name__)
+    return {"message": "دسترسی‌های مدیر ذخیره شد؛ نشست قبلی لغو شد.", "permissions": permissions, "notification_sent": notification_sent}
 
 
 
