@@ -1548,6 +1548,8 @@ async def record_community_bot_message(chat_id: int, sent_message: Message, text
     """Persist bot-authored community messages without growing the JSON state."""
     global DATABASE_READY
     try:
+        chats = community_store().setdefault("chats", {})
+        is_new_chat = str(chat_id) not in chats
         record = community_chat(chat_id)
         row = {
             "message_id": int(sent_message.message_id),
@@ -1572,7 +1574,11 @@ async def record_community_bot_message(chat_id: int, sent_message: Message, text
             rows = record.setdefault("message_log", [])
             rows.append(row)
             record["message_log"] = rows[-120:]
-        save_admin_data()
+        # The message itself is already stored in the indexed archive table.
+        # Persist the full admin-state document only for first-time chat metadata
+        # or when PostgreSQL is unavailable and the bounded JSON fallback is used.
+        if is_new_chat or not DATABASE_READY:
+            await asyncio.to_thread(save_admin_data)
     except Exception:
         log.exception("Could not record bot message for group %s", chat_id)
 
