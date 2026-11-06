@@ -243,21 +243,23 @@ button:disabled{opacity:.55;cursor:not-allowed}#msg{min-height:25px;margin-top:1
 <p class="sub">فقط نام کاربری و کد دعوتی را که مالک برایت فرستاده وارد کن. پس از ثبت درخواست، حساب تلگرامت را با دکمه اتصال پیوند بده تا بعد از تأیید مالک بتوانیم کد ورود را برایت بفرستیم.</p>
 <form id="form">
 <label for="username">نام کاربری دلخواه</label><input id="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.-]{3,64}" placeholder="مثلاً ali_manager">
-<label for="invite">کد دعوت ۴ رقمی</label><input id="invite" inputmode="numeric" autocomplete="one-time-code" required minlength="4" maxlength="4" pattern="[0-9]{4}" placeholder="کدی که مالک داده است">
+<label for="invite">توکن دعوت یک‌بارمصرف</label><input id="invite" type="text" autocomplete="off" required minlength="32" maxlength="128" pattern="[A-Za-z0-9_-]{32,128}" placeholder="با بازکردن لینک دعوت، خودکار تکمیل می‌شود">
 <button id="submit" type="submit">ثبت درخواست</button></form>
 <a id="telegramLink" class="link" target="_blank" rel="noopener">🔗 اتصال حساب تلگرام</a>
 <div id="msg" role="status" aria-live="polite"></div>
 <div class="hint">برای دریافت کد ورود، باید یک‌بار دکمه اتصال را بزنی و ربات را Start کنی. کد دعوت یک‌بارمصرف و دارای مهلت انقضاست. <a href="/admin/login" style="color:#b8efd1">قبلاً تأیید شده‌ای؟ ورود مدیر</a></div>
 </main><script>
-const form=document.getElementById('form'),msg=document.getElementById('msg'),btn=document.getElementById('submit'),link=document.getElementById('telegramLink');
-form.addEventListener('submit',async e=>{e.preventDefault();const username=document.getElementById('username').value.trim(),invite_code=document.getElementById('invite').value.trim();
+const form=document.getElementById('form'),msg=document.getElementById('msg'),btn=document.getElementById('submit'),link=document.getElementById('telegramLink'),inviteInput=document.getElementById('invite');
+const fragment=new URLSearchParams(location.hash.slice(1)),sharedInvite=fragment.get('invite')||'';
+if(/^[A-Za-z0-9_-]{32,128}$/.test(sharedInvite)){inviteInput.value=sharedInvite;history.replaceState(null,'',location.pathname+location.search);msg.textContent='لینک دعوت شناسایی شد؛ نام کاربری را وارد و درخواست را ثبت کن.'}
+form.addEventListener('submit',async e=>{e.preventDefault();const username=document.getElementById('username').value.trim(),invite_code=inviteInput.value.trim();
 if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username)){msg.textContent='نام کاربری باید ۳ تا ۶۴ کاراکتر معتبر باشد.';return}
-if(!/^[0-9]{4}$/.test(invite_code)){msg.textContent='کد دعوت باید دقیقاً ۴ رقم باشد.';return}
+if(!/^[A-Za-z0-9_-]{32,128}$/.test(invite_code)){msg.textContent='لینک دعوت معتبر را از مالک دریافت و باز کن.';return}
 btn.disabled=true;btn.textContent='در حال ثبت…';msg.textContent='';link.style.display='none';
 try{const r=await fetch('/admin/api/manager-requests',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({username,invite_code})});const d=await r.json();if(!r.ok)throw Error(d.detail||'ثبت درخواست ممکن نشد');msg.textContent='✅ '+d.message;link.href=d.telegram_link;link.style.display='block';form.reset();}
 catch(err){msg.textContent='❌ '+err.message}finally{btn.disabled=false;btn.textContent='ثبت درخواست'}});
 </script></body></html>"""
-        return HTMLResponse(page, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+        return HTMLResponse(page, headers={"Cache-Control": "no-store", "Pragma": "no-cache", "Referrer-Policy": "no-referrer"})
 
     @app.get("/admin/login", response_class=HTMLResponse)
     async def manager_login_page():
