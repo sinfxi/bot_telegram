@@ -1,0 +1,16 @@
+name = "fxi-telegram-community-manager"
+main = "src/index.ts"
+compatibility_date = "2026-11-07"
+
+# No deployment target or paid products are configured here.
+[[d1_databases]]
+binding = "DB"
+database_name = "fxi_bot_prod"
+database_id = "c31fe782-6cc2-41ff-a9a0-3e7504d3f319"
+migrations_dir = "migrations"
+
+[vars]
+APP_ENV = "development"
+
+[observability]
+enabled = true
