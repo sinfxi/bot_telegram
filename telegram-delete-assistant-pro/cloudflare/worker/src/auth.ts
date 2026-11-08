@@ -63,6 +63,15 @@ function clearCookie(): string {
 function clientAddress(request: Request): string {
   return request.headers.get("cf-connecting-ip") ?? "unknown";
 }
+async function readJson<T>(request: Request): Promise<T | null> {
+  const raw = await request.text();
+  if (raw.length > 4096) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 async function allowedOrigin(request: Request, env: AuthEnv): Promise<boolean> {
   if (!env.APP_ORIGIN) return false;
   const origin = request.headers.get("origin");
@@ -248,7 +257,7 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
     return createChallenge(env, "owner", ownerId, ownerId);
   }
   if (request.method === "POST" && url.pathname === "/auth/owner-login") {
-    const body = await request.json().catch(() => null) as { code?: string } | null;
+    const body = await readJson<{ code?: string }>(request);
     const code = String(body?.code ?? "");
     const ownerId = env.OWNER_TELEGRAM_ID ?? "";
     if (!/^\d{5,15}$/.test(ownerId) || !/^\d{6}$/.test(code) || !(await verifyOtp(env, "owner", ownerId, code))) {
@@ -264,7 +273,7 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
     return response;
   }
   if (request.method === "POST" && url.pathname === "/auth/manager-request-code") {
-    const body = await request.json().catch(() => null) as { username?: string } | null;
+    const body = await readJson<{ username?: string }>(request);
     const username = String(body?.username ?? "").trim().toLowerCase();
     if (!/^[a-z0-9_.-]{3,64}$/.test(username)) return json({ detail: "نام کاربری معتبر نیست." }, 400);
     const manager = await env.DB.prepare(
@@ -277,7 +286,7 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
     return createChallenge(env, "manager", String(manager.id), String(manager.telegram_user_id));
   }
   if (request.method === "POST" && url.pathname === "/auth/manager-login") {
-    const body = await request.json().catch(() => null) as { username?: string; code?: string } | null;
+    const body = await readJson<{ username?: string; code?: string }>(request);
     const username = String(body?.username ?? "").trim().toLowerCase();
     const code = String(body?.code ?? "");
     if (!/^[a-z0-9_.-]{3,64}$/.test(username) || !/^\d{6}$/.test(code)) {
