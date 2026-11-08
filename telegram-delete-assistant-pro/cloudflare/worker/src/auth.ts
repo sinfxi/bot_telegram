@@ -214,6 +214,7 @@ export async function resolveSession(request: Request, env: AuthEnv): Promise<Au
   ).bind(manager.id).all<{ permission_key: string }>();
   const permissions = [...new Set((rows.results ?? []).map((row) => row.permission_key))]
     .filter((permission) => MANAGER_PERMISSIONS.has(permission));
+  if (!permissions.includes("dashboard")) permissions.push("dashboard");
   return { role: "manager", subjectId: String(manager.id), username: manager.username, permissions, sessionIdHash: tokenHash };
 }
 export function permissionForPath(path: string): string {
