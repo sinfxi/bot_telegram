@@ -78,6 +78,7 @@ async function rateLimit(request: Request, env: AuthEnv, action: string): Promis
   const ipHash = await sha256(env.AUTH_PEPPER + ":" + clientAddress(request));
   const bucket = Math.floor(Date.now() / 60000);
   const key = await sha256(action + ":" + ipHash);
+  await env.DB.prepare("DELETE FROM auth_rate_limits WHERE window_started_at < ?").bind(bucket - 1440).run();
   await env.DB.prepare(
     `INSERT INTO auth_rate_limits(bucket_key, window_started_at, attempt_count)
      VALUES (?, ?, 1)
@@ -186,7 +187,11 @@ export async function resolveSession(request: Request, env: AuthEnv): Promise<Au
   ).bind(tokenHash).first<{ subject_type: string; subject_id: string; session_version: number }>();
   if (!session) return null;
   if (session.subject_type === "owner") {
-    if (session.subject_id !== env.OWNER_TELEGRAM_ID || session.session_version !== 1) return null;
+    if (session.subject_id !== env.OWNER_TELEGRAM_ID) return null;
+    const ownerState = await env.DB.prepare(
+      "SELECT session_version FROM owner_auth_state WHERE owner_telegram_id = ?",
+    ).bind(session.subject_id).first<{ session_version: number }>();
+    if (!ownerState || ownerState.session_version !== session.session_version) return null;
     return { role: "owner", subjectId: session.subject_id, permissions: ["*"], sessionIdHash: tokenHash };
   }
   if (session.subject_type !== "manager") return null;
@@ -247,7 +252,9 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
       await audit(env, "owner", ownerId || "unknown", "login_failed", request);
       return json({ detail: "کد ورود معتبر نیست یا منقضی شده است." }, 401);
     }
-    const session = await issueSession(env, "owner", ownerId, 1);
+    await env.DB.prepare("INSERT OR IGNORE INTO owner_auth_state(owner_telegram_id, session_version) VALUES (?, 1)").bind(ownerId).run();
+    const ownerState = await env.DB.prepare("SELECT session_version FROM owner_auth_state WHERE owner_telegram_id = ?").bind(ownerId).first<{ session_version: number }>();
+    const session = await issueSession(env, "owner", ownerId, ownerState?.session_version ?? 1);
     await audit(env, "owner", ownerId, "login_success", request);
     const response = json({ redirect: "/owner" });
     response.headers.append("set-cookie", cookieHeader(session.token, SESSION_SECONDS));
