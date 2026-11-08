@@ -59,3 +59,10 @@ input::placeholder{color:#64728b}
 footer{text-align:center;color:#65738b;font-size:11px;padding:12px}
 @media(max-width:680px){.shell{width:min(100% - 22px,560px);padding-top:18px}.login-wrap{margin-top:7vh;padding:25px}.topbar{align-items:flex-start}.topbar h1{font-size:24px}.stats-grid{gap:8px}.stat-card{padding:13px 11px}.stat-card strong{font-size:22px}.stat-card span{font-size:10px}.panel-card{padding:16px}.form-grid{grid-template-columns:1fr}.permissions-field,.form-submit{grid-column:auto}.permission-grid,.edit-area .permission-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.manager-head{align-items:flex-start}.manager-actions button{flex:1}}
 @media(max-width:360px){.permission-grid,.edit-area .permission-grid{grid-template-columns:1fr}.topbar{flex-direction:column}.topbar .ghost{width:100%}}
+
+.audit-list{display:grid;gap:9px}
+.audit-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px;border:1px solid #26334c;background:#0b1424;border-radius:12px}
+.audit-action{font-size:12px;font-weight:700}
+.audit-meta{font-size:10px;color:var(--muted);margin-top:4px;line-height:1.8}
+.audit-time{font-size:10px;color:#8fa0ba;white-space:nowrap;direction:ltr}
+@media(max-width:560px){.audit-item{grid-template-columns:1fr}.audit-time{text-align:right}}
