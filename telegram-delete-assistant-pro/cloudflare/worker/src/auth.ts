@@ -330,7 +330,7 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
     const body = await readJson<{ username?: string; code?: string }>(request);
     const username = String(body?.username ?? "").trim().toLowerCase();
     const code = String(body?.code ?? "");
-    if (!/^[a-z0-9_.-]{3,32}$/.test(username) || !/^\\d{6}$/.test(code)) {
+    if (!/^[a-z0-9_.-]{3,32}$/.test(username) || !/^\d{6}$/.test(code)) {
       return json({ detail: "نام کاربری یا کد یک‌بارمصرف معتبر نیست." }, 400);
     }
     const manager = await env.DB.prepare(
