@@ -129,6 +129,7 @@ async function updateManager(request: Request, env: AuthEnv, actor: AuthActor, m
   if (!current) return json({ detail: "مدیر پیدا نشد." }, 404);
   const sets: string[] = [];
   const values: (string|number)[] = [];
+  let changedPin: string | null = null;
   let username = current.username;
   let telegramId = current.telegram_user_id;
   if ("username" in body) {
@@ -144,6 +145,7 @@ async function updateManager(request: Request, env: AuthEnv, actor: AuthActor, m
   if ("password" in body || "pin" in body) {
     const pin = cleanPin(body.password ?? body.pin);
     if (!pin) return json({ detail: "رمز باید دقیقاً چهار رقم باشد." }, 400);
+    changedPin = pin;
     sets.push("password_hash = ?", "failed_login_attempts = 0", "locked_until = NULL", "session_version = session_version + 1");
     values.push(await hashPin(pin));
   }
@@ -168,7 +170,15 @@ async function updateManager(request: Request, env: AuthEnv, actor: AuthActor, m
     username, telegram_user_id: telegramId,
     changed_fields: Object.keys(body).filter((k) => ["username","telegram_user_id","password","pin","is_active","permissions"].includes(k)),
   });
-  return json({ ok: true, message: "اطلاعات مدیر به‌روزرسانی شد." });
+  let notificationSent: boolean | null = null;
+  if (changedPin && telegramId && env.TELEGRAM_BOT_TOKEN) {
+    const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/sendMessage", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: telegramId, text: "🔐 رمز ورود پنل FXI شما توسط مالک تغییر کرد.\\nنام کاربری: " + username + "\\nرمز جدید: " + changedPin }),
+    }).catch(() => null);
+    notificationSent = response?.ok === true;
+  }
+  return json({ ok: true, notification_sent: notificationSent, message: "اطلاعات مدیر به‌روزرسانی شد." });
 }
 async function revokeManager(env: AuthEnv, actor: AuthActor, managerId: number): Promise<Response> {
   const result = await env.DB.prepare(
