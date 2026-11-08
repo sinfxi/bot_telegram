@@ -94,19 +94,34 @@ async function telegramWebhook(request: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: "invalid_update_id" }, 400);
   }
   const inserted = await env.DB.prepare(
-    "INSERT OR IGNORE INTO telegram_updates (update_id, update_type, payload_json, processing_status) VALUES (?, ?, ?, 'processing')",
+    "INSERT OR IGNORE INTO telegram_updates (update_id, update_type, payload_json, processing_status, processing_started_at) VALUES (?, ?, ?, 'processing', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
   ).bind(update.update_id, classifyUpdate(update), JSON.stringify(update)).run();
-  if ((inserted.meta?.changes ?? 0) === 0) return json({ ok: true, duplicate: true });
+  if ((inserted.meta?.changes ?? 0) === 0) {
+    const existing = await env.DB.prepare(
+      "SELECT processing_status, processing_started_at FROM telegram_updates WHERE update_id = ?",
+    ).bind(update.update_id).first<{ processing_status: string; processing_started_at: string | null }>();
+    if (existing?.processing_status === "processed") return json({ ok: true, duplicate: true });
+    const reclaimed = await env.DB.prepare(
+      `UPDATE telegram_updates
+       SET processing_status = 'processing', processing_started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+           last_error_code = NULL
+       WHERE update_id = ? AND (
+         processing_status = 'failed' OR processing_started_at IS NULL OR
+         processing_started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-120 seconds')
+       )`,
+    ).bind(update.update_id).run();
+    if ((reclaimed.meta?.changes ?? 0) === 0) return json({ ok: true, duplicate: true, processing: true });
+  }
   try {
     await handleUpdate(update, env);
     await env.DB.prepare(
-      "UPDATE telegram_updates SET processing_status = 'processed', processed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE update_id = ?",
+      "UPDATE telegram_updates SET processing_status = 'processed', processed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), processing_started_at = NULL WHERE update_id = ?",
     ).bind(update.update_id).run();
     return json({ ok: true });
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 80) : "processing_failed";
     await env.DB.prepare(
-      "UPDATE telegram_updates SET processing_status = 'failed', last_error_code = ? WHERE update_id = ?",
+      "UPDATE telegram_updates SET processing_status = 'failed', processing_started_at = NULL, last_error_code = ? WHERE update_id = ?",
     ).bind(code, update.update_id).run();
     return json({ ok: false, error: "processing_failed" }, 500);
   }
