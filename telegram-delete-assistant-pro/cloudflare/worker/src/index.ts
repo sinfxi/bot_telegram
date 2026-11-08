@@ -1,7 +1,12 @@
+import { authorize, handleAuthRequest, permissionForPath } from "./auth";
+
 export interface Env {
   DB: D1Database;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  OWNER_TELEGRAM_ID?: string;
+  AUTH_PEPPER?: string;
+  APP_ORIGIN?: string;
   APP_ENV?: string;
 }
 interface TelegramUpdate {
@@ -102,9 +107,26 @@ async function telegramWebhook(request: Request, env: Env): Promise<Response> {
     return json({ ok: false, error: "processing_failed" }, 500);
   }
 }
+function sameOrigin(request: Request, env: Env): boolean {
+  if (!env.APP_ORIGIN) return false;
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).origin === new URL(env.APP_ORIGIN).origin;
+  } catch {
+    return false;
+  }
+}
+function isMutation(method: string): boolean {
+  return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/auth/")) {
+      const authResponse = await handleAuthRequest(request, env);
+      if (authResponse) return authResponse;
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       return json({ ok: true, service: "fxi-cloudflare-worker", environment: env.APP_ENV ?? "unknown" });
     }
@@ -118,8 +140,37 @@ export default {
         return json({ ok: false, database: "unavailable" }, 503);
       }
     }
+    if (url.pathname.startsWith("/admin/api/")) {
+      if (isMutation(request.method) && !sameOrigin(request, env)) {
+        return json({ detail: "درخواست مبدأ معتبر نیست." }, 403);
+      }
+      const required = permissionForPath(url.pathname);
+      const result = await authorize(request, env, required === "__unmapped__" ? undefined : required);
+      if (result.response) return result.response;
+      if (result.actor?.role === "manager" && required === "__unmapped__") {
+        return json({ detail: "این مسیر در سیاست دسترسی تعریف نشده است." }, 403);
+      }
+      return json({ detail: "این API هنوز در مرحله انتقال پیاده‌سازی نشده است." }, 501);
+    }
+    if (url.pathname.startsWith("/owner/api/")) {
+      if (isMutation(request.method) && !sameOrigin(request, env)) {
+        return json({ detail: "درخواست مبدأ معتبر نیست." }, 403);
+      }
+      const result = await authorize(request, env);
+      if (result.response) return result.response;
+      if (result.actor?.role !== "owner") return json({ detail: "فقط مالک اجازه این عملیات را دارد." }, 403);
+      return json({ detail: "این API هنوز در مرحله انتقال پیاده‌سازی نشده است." }, 501);
+    }
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
       return telegramWebhook(request, env);
+    }
+    if ((url.pathname === "/owner" || url.pathname === "/admin") && request.method === "GET") {
+      const result = await authorize(request, env, "dashboard");
+      if (result.response) return result.response;
+      if (url.pathname === "/owner" && result.actor?.role !== "owner") {
+        return json({ detail: "این صفحه فقط برای مالک است." }, 403);
+      }
+      return json({ detail: "رابط پنل هنوز به Worker منتقل نشده است." }, 501);
     }
     return json({ ok: false, error: "not_found" }, 404);
   },
