@@ -26,8 +26,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: telegram-delete-assistant-pro/cloudflare/worker/package-lock.json
       - run: npm install --no-audit --no-fund
       - run: npm run check
       - name: Apply D1 migrations locally
