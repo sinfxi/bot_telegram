@@ -206,14 +206,17 @@ export async function resolveSession(request: Request, env: AuthEnv): Promise<Au
   return { role: "manager", subjectId: String(manager.id), username: manager.username, permissions, sessionIdHash: tokenHash };
 }
 export function permissionForPath(path: string): string {
-  if (path === "/admin/api/dashboard" || path.startsWith("/admin/api/dashboard/")) return "dashboard";
-  if (path.startsWith("/admin/api/users")) return "users";
-  if (path.startsWith("/admin/api/broadcast")) return "broadcast";
-  if (path.startsWith("/admin/api/settings")) return "settings";
-  if (path.startsWith("/admin/api/community")) return "community";
-  if (path.startsWith("/admin/api/channels")) return "channels";
-  if (path.startsWith("/admin/api/logs")) return "logs";
-  if (path.startsWith("/admin/api/managers")) return "admins";
+  if (path === "/admin/api" || path === "/admin/api/" || path.endsWith("/status") || path.endsWith("/metrics")) return "dashboard";
+  if (path.includes("/admins") || path.includes("/managers") || path.includes("/manager-")) return "admins";
+  if (path.includes("/users/") || path.endsWith("/users")) return "users";
+  if (path.includes("/community")) return "community";
+  if (path.includes("/conversations")) return "conversations";
+  if (path.includes("/audit")) return "audit";
+  if (path.includes("/payments")) return "payments";
+  if (path.includes("/broadcast")) return "broadcast";
+  if (path.includes("/prompt")) return "prompt";
+  if (path.includes("/providers")) return "providers";
+  if (path.includes("/bot-state") || path.includes("/features")) return "system";
   return "__unmapped__";
 }
 export async function authorize(
