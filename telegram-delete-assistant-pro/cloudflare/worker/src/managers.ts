@@ -22,8 +22,10 @@ function cleanUsername(value: unknown): string | null {
   return /^[a-z0-9_.-]{3,32}$/.test(username) ? username : null;
 }
 function cleanTelegramId(value: unknown): number | null {
-  const id = typeof value === "string" ? Number(value) : value;
-  return Number.isSafeInteger(id) && Number(id) > 0 ? Number(id) : null;
+  const raw = typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "";
+  if (!/^\\d{5,15}$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) ? id : null;
 }
 function cleanPin(value: unknown): string | null {
   const pin = String(value ?? "");
