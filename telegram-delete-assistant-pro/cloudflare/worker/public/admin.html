@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020"><title>ورود مدیر FXI</title>
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main class="wrap">
+    <section id="login" class="login-card">
+      <div class="logo">FXI</div><p class="eyebrow">MANAGER ACCESS</p>
+      <h1>ورود مدیر</h1><p class="muted">ورود دومرحله‌ای با رمز اختصاصی و کد تلگرام</p>
+      <form id="pin-form" class="form">
+        <label>نام کاربری<input id="username" name="username" autocomplete="username" minlength="3" maxlength="32" required></label>
+        <label>رمز چهاررقمی<input id="pin" name="password" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">بررسی رمز و ارسال کد</button>
+      </form>
+      <form id="otp-form" class="form hidden">
+        <label>کد شش‌رقمی تلگرام<input id="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+        <button class="primary" type="submit">تأیید و ورود</button>
+        <button id="back-button" class="secondary" type="button">بازگشت</button>
+      </form>
+      <p id="message" class="message" role="status"></p>
+    </section>
+    <section id="dashboard" class="dashboard hidden">
+      <header><div><p class="eyebrow">FXI / MANAGER</p><h1>فضای مدیریت</h1><p id="manager-name" class="muted"></p></div><button id="logout" class="secondary">خروج امن</button></header>
+      <article class="card"><h2>دسترسی‌های حساب شما</h2><p class="muted">فقط قابلیت‌هایی که مالک فعال کرده است در این فهرست نمایش داده می‌شود.</p><div id="permissions" class="chips"></div></article>
+      <article class="card"><h2>وضعیت انتقال پنل</h2><p class="muted">احراز هویت و کنترل مجوزها فعال است. ابزارهای مدیریتی این پنل در مراحل بعدی مهاجرت متصل می‌شوند؛ تا آن زمان هیچ عملیات نمایشی یا ساختگی ارائه نمی‌شود.</p></article>
+    </section>
+  </main>
+  <script src="/admin.js" defer></script>
+</body>
+</html>
