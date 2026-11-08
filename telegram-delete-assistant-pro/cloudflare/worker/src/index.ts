@@ -171,6 +171,9 @@ export default {
     if (request.method === "GET" && ["/owner", "/owner/", "/owner/login"].includes(url.pathname)) {
       return env.ASSETS.fetch(new Request(new URL("/owner.html", request.url), request));
     }
+    if (request.method === "GET" && ["/admin", "/admin/", "/admin/login"].includes(url.pathname)) {
+      return env.ASSETS.fetch(new Request(new URL("/admin.html", request.url), request));
+    }
     if (request.method === "GET" && url.pathname.startsWith("/owner/")) {
       return env.ASSETS.fetch(request);
     }
