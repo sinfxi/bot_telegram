@@ -301,9 +301,9 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
       return json({ detail: "نام کاربری یا رمز چهاررقمی معتبر نیست." }, 400);
     }
     const manager = await env.DB.prepare(
-      "SELECT id, password_hash, is_active, session_version, failed_login_attempts, locked_until FROM managers WHERE username = ? COLLATE NOCASE",
+      "SELECT id, telegram_user_id, password_hash, is_active, session_version, failed_login_attempts, locked_until FROM managers WHERE username = ? COLLATE NOCASE",
     ).bind(username).first<{
-      id: number; password_hash: string | null; is_active: number; session_version: number;
+      id: number; telegram_user_id: number | null; password_hash: string | null; is_active: number; session_version: number;
       failed_login_attempts: number; locked_until: string | null;
     }>();
     if (!manager || manager.is_active !== 1) {
@@ -323,6 +323,23 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
     }
     await env.DB.prepare("UPDATE managers SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?")
       .bind(manager.id).run();
+    if (!manager.telegram_user_id) return json({ detail: "برای ورود امن، حساب مدیر باید به شناسه تلگرام متصل باشد." }, 403);
+    return createChallenge(env, "manager", String(manager.id), String(manager.telegram_user_id));
+  }
+  if (request.method === "POST" && url.pathname === "/auth/manager-verify") {
+    const body = await readJson<{ username?: string; code?: string }>(request);
+    const username = String(body?.username ?? "").trim().toLowerCase();
+    const code = String(body?.code ?? "");
+    if (!/^[a-z0-9_.-]{3,32}$/.test(username) || !/^\\d{6}$/.test(code)) {
+      return json({ detail: "نام کاربری یا کد یک‌بارمصرف معتبر نیست." }, 400);
+    }
+    const manager = await env.DB.prepare(
+      "SELECT id, is_active, session_version FROM managers WHERE username = ? COLLATE NOCASE",
+    ).bind(username).first<{ id:number; is_active:number; session_version:number }>();
+    if (!manager || manager.is_active !== 1 || !(await verifyOtp(env, "manager", String(manager.id), code))) {
+      await audit(env, "manager", username, "login_failed", request);
+      return json({ detail: "کد ورود معتبر نیست یا منقضی شده است." }, 401);
+    }
     const session = await issueSession(env, "manager", String(manager.id), manager.session_version);
     await audit(env, "manager", String(manager.id), "login_success", request);
     const response = json({ redirect: "/admin" });
