@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "types": "wrangler types",
     "deploy": "wrangler deploy",
-    "check": "wrangler types && tsc --noEmit"
+    "check": "wrangler types && tsc --noEmit && node --check public/owner.js"
   },
   "devDependencies": {
     "wrangler": "^4.0.0",
