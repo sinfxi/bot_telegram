@@ -106,8 +106,8 @@ async function createManager(request: Request, env: AuthEnv, actor: AuthActor): 
     await audit(env, actor, "manager_created", String(inserted.id), { username, telegram_user_id: telegramId, permissions });
     let notificationSent = false;
     if (env.TELEGRAM_BOT_TOKEN) {
-      const message = "🎉 حساب مدیریت FXI برای شما ساخته شد.\\nنام کاربری: " + username +
-        "\\nرمز اولیه: " + pin + "\\nاین رمز چهاررقمی را فقط برای ورود پنل استفاده کن.";
+      const message = "🎉 حساب مدیریت FXI برای شما ساخته شد.\nنام کاربری: " + username +
+        "\nرمز اولیه: " + pin + "\nاین رمز چهاررقمی را فقط برای ورود پنل استفاده کن.";
       const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/sendMessage", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: telegramId, text: message }),
