@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>پنل مالک FXI</title>
+  <link rel="stylesheet" href="/owner.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="login-view" class="login-wrap">
+      <div class="brand-mark">FXI</div>
+      <p class="eyebrow">CONTROL CENTER</p>
+      <h1>پنل مالک</h1>
+      <p class="muted">برای ورود، کد یک‌بارمصرف را به تلگرام مالک ارسال کن.</p>
+      <form id="request-code-form" class="stack">
+        <button class="primary" type="submit">ارسال کد ورود به تلگرام</button>
+      </form>
+      <form id="login-form" class="stack hidden">
+        <label for="owner-code">کد شش‌رقمی</label>
+        <input id="owner-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="••••••" required>
+        <button class="primary" type="submit">ورود امن</button>
+      </form>
+      <p id="login-message" class="notice" role="status"></p>
+    </section>
+
+    <section id="app-view" class="hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">FXI / OWNER CONSOLE</p>
+          <h1>مدیریت مدیران</h1>
+          <p class="muted">ساخت حساب، تعیین دسترسی و کنترل نشست‌ها</p>
+        </div>
+        <button id="logout-button" class="ghost" type="button">خروج امن</button>
+      </header>
+
+      <section class="stats-grid" aria-label="آمار مدیران">
+        <article class="stat-card"><span>کل مدیران</span><strong id="total-count">۰</strong></article>
+        <article class="stat-card"><span>مدیران فعال</span><strong id="active-count">۰</strong></article>
+        <article class="stat-card"><span>مدیران غیرفعال</span><strong id="inactive-count">۰</strong></article>
+      </section>
+
+      <section class="panel-card">
+        <div class="section-heading">
+          <div><p class="eyebrow">NEW ACCOUNT</p><h2>افزودن مدیر جدید</h2></div>
+          <span class="tag">فقط مالک</span>
+        </div>
+        <form id="create-manager-form" class="form-grid">
+          <label>نام کاربری
+            <input name="username" minlength="3" maxlength="32" pattern="[A-Za-z0-9_.-]{3,32}" placeholder="مثلاً fxi_manager" required>
+          </label>
+          <label>شناسه عددی تلگرام
+            <input name="telegram_user_id" inputmode="numeric" pattern="[0-9]{5,15}" placeholder="مثلاً 123456789" required>
+          </label>
+          <label>رمز اولیه چهاررقمی
+            <input name="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••" required>
+          </label>
+          <fieldset class="permissions-field">
+            <legend>دسترسی‌های مدیر</legend>
+            <div id="new-permissions" class="permission-grid"></div>
+          </fieldset>
+          <button class="primary form-submit" type="submit">ساخت حساب مدیر</button>
+        </form>
+        <p id="create-message" class="notice" role="status"></p>
+      </section>
+
+      <section class="panel-card">
+        <div class="section-heading">
+          <div><p class="eyebrow">ACCESS CONTROL</p><h2>مدیران ثبت‌شده</h2></div>
+          <button id="refresh-button" class="ghost" type="button">به‌روزرسانی</button>
+        </div>
+        <div id="manager-list" class="manager-list"><p class="muted">در حال دریافت اطلاعات...</p></div>
+        <p id="list-message" class="notice" role="status"></p>
+      </section>
+      <footer>FXI Security · دسترسی‌ها در سمت سرور بررسی می‌شوند.</footer>
+    </section>
+  </main>
+  <script src="/owner.js" defer></script>
+</body>
+</html>
