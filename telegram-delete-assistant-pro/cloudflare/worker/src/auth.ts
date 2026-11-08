@@ -17,6 +17,7 @@ export interface AuthActor {
 const COOKIE = "fxi_admin_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const OTP_SECONDS = 60;
+const MANAGER_PERMISSIONS = new Set(["dashboard", "providers", "users", "community", "conversations", "audit", "payments", "broadcast", "prompt", "system"]);
 const encoder = new TextEncoder();
 
 function json(body: unknown, status = 200): Response {
@@ -211,7 +212,8 @@ export async function resolveSession(request: Request, env: AuthEnv): Promise<Au
   const rows = await env.DB.prepare(
     "SELECT permission_key FROM manager_permissions WHERE manager_id = ?",
   ).bind(manager.id).all<{ permission_key: string }>();
-  const permissions = [...new Set((rows.results ?? []).map((row) => row.permission_key))];
+  const permissions = [...new Set((rows.results ?? []).map((row) => row.permission_key))]
+    .filter((permission) => MANAGER_PERMISSIONS.has(permission));
   return { role: "manager", subjectId: String(manager.id), username: manager.username, permissions, sessionIdHash: tokenHash };
 }
 export function permissionForPath(path: string): string {
