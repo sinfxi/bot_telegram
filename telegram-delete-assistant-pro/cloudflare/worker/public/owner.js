@@ -82,7 +82,7 @@
         const pin=window.prompt("رمز جدید چهاررقمی را وارد کن:");
         if(pin===null)return;
         if(!/^\d{4}$/.test(pin)){notice($("#list-message"),"رمز باید دقیقاً چهار رقم باشد.","error");return;}
-        try { await api("/owner/api/managers/"+manager.id,{method:"PATCH",body:JSON.stringify({password:pin})}); notice($("#list-message"),"رمز تغییر کرد و نشست‌های قبلی نامعتبر شدند.","success"); await loadManagers(); }
+        try { const result=await api("/owner/api/managers/"+manager.id,{method:"PATCH",body:JSON.stringify({password:pin})}); const message=result.notification_sent===true ? "رمز تغییر کرد؛ نشست‌های قبلی باطل و رمز جدید به تلگرام مدیر ارسال شد." : "رمز تغییر کرد و نشست‌های قبلی باطل شدند؛ ارسال پیام تلگرام تأیید نشد."; notice($("#list-message"),message,"success"); await loadManagers(); }
         catch(error){notice($("#list-message"),error.message,"error");}
       });
       revoke.addEventListener("click",async()=>{
