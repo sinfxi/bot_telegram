@@ -164,6 +164,21 @@ async function issueSession(
   ).bind(tokenHash, subjectType, subjectId, version).run();
   return { token, tokenHash };
 }
+async function verifyManagerPin(stored: string | null, pin: string): Promise<boolean> {
+  if (!stored) return false;
+  const parts = stored.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2-sha256") return false;
+  const iterations = Number(parts[1]);
+  const saltHex = parts[2];
+  const expectedHex = parts[3];
+  if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 500000 ||
+      !/^[a-f0-9]{32}$/.test(saltHex) || !/^[a-f0-9]{64}$/.test(expectedHex)) return false;
+  const salt = new Uint8Array(saltHex.match(/.{2}/g)!.map((v) => parseInt(v, 16)));
+  const key = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256);
+  const actualHex = [...new Uint8Array(bits)].map((v) => v.toString(16).padStart(2, "0")).join("");
+  return safeEqual(actualHex, expectedHex);
+}
 async function verifyOtp(
   env: AuthEnv, subjectType: "owner" | "manager", subjectId: string, code: string,
 ): Promise<boolean> {
@@ -276,32 +291,38 @@ export async function handleAuthRequest(request: Request, env: AuthEnv): Promise
     return response;
   }
   if (request.method === "POST" && url.pathname === "/auth/manager-request-code") {
-    const body = await readJson<{ username?: string }>(request);
-    const username = String(body?.username ?? "").trim().toLowerCase();
-    if (!/^[a-z0-9_.-]{3,64}$/.test(username)) return json({ detail: "نام کاربری معتبر نیست." }, 400);
-    const manager = await env.DB.prepare(
-      "SELECT id, telegram_user_id, is_active FROM managers WHERE username = ? COLLATE NOCASE",
-    ).bind(username).first<{ id: number; telegram_user_id: number | null; is_active: number }>();
-    if (!manager || manager.is_active !== 1 || !manager.telegram_user_id) {
-      await audit(env, "manager", username, "login_failed", request);
-      return json({ detail: "حساب مدیر فعال و متصل به تلگرام پیدا نشد." }, 401);
-    }
-    return createChallenge(env, "manager", String(manager.id), String(manager.telegram_user_id));
+    return json({ detail: "ورود مدیر با نام کاربری و رمز چهاررقمی انجام می‌شود." }, 410);
   }
   if (request.method === "POST" && url.pathname === "/auth/manager-login") {
-    const body = await readJson<{ username?: string; code?: string }>(request);
+    const body = await readJson<{ username?: string; password?: string; pin?: string }>(request);
     const username = String(body?.username ?? "").trim().toLowerCase();
-    const code = String(body?.code ?? "");
-    if (!/^[a-z0-9_.-]{3,64}$/.test(username) || !/^\d{6}$/.test(code)) {
-      return json({ detail: "نام کاربری یا کد ورود معتبر نیست." }, 400);
+    const pin = String(body?.password ?? body?.pin ?? "");
+    if (!/^[a-z0-9_.-]{3,32}$/.test(username) || !/^\d{4}$/.test(pin)) {
+      return json({ detail: "نام کاربری یا رمز چهاررقمی معتبر نیست." }, 400);
     }
     const manager = await env.DB.prepare(
-      "SELECT id, is_active, session_version FROM managers WHERE username = ? COLLATE NOCASE",
-    ).bind(username).first<{ id: number; is_active: number; session_version: number }>();
-    if (!manager || manager.is_active !== 1 || !(await verifyOtp(env, "manager", String(manager.id), code))) {
+      "SELECT id, password_hash, is_active, session_version, failed_login_attempts, locked_until FROM managers WHERE username = ? COLLATE NOCASE",
+    ).bind(username).first<{
+      id: number; password_hash: string | null; is_active: number; session_version: number;
+      failed_login_attempts: number; locked_until: string | null;
+    }>();
+    if (!manager || manager.is_active !== 1) {
       await audit(env, "manager", username, "login_failed", request);
-      return json({ detail: "نام کاربری یا کد ورود معتبر نیست." }, 401);
+      return json({ detail: "نام کاربری یا رمز ورود اشتباه است." }, 401);
     }
+    if (manager.locked_until && Date.parse(manager.locked_until + (manager.locked_until.endsWith("Z") ? "" : "Z")) > Date.now()) {
+      return json({ detail: "حساب موقتاً قفل شده است؛ کمی بعد دوباره تلاش کن." }, 423);
+    }
+    const valid = await verifyManagerPin(manager.password_hash, pin);
+    if (!valid) {
+      await env.DB.prepare(
+        "UPDATE managers SET failed_login_attempts = CASE WHEN locked_until IS NOT NULL AND locked_until <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') THEN 1 ELSE failed_login_attempts + 1 END, locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now') THEN 1 ELSE failed_login_attempts + 1 END) >= 5 THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+15 minutes') ELSE NULL END WHERE id = ?",
+      ).bind(manager.id).run();
+      await audit(env, "manager", String(manager.id), "login_failed", request);
+      return json({ detail: "نام کاربری یا رمز ورود اشتباه است." }, 401);
+    }
+    await env.DB.prepare("UPDATE managers SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?")
+      .bind(manager.id).run();
     const session = await issueSession(env, "manager", String(manager.id), manager.session_version);
     await audit(env, "manager", String(manager.id), "login_success", request);
     const response = json({ redirect: "/admin" });
