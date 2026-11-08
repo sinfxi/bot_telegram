@@ -191,10 +191,29 @@ async function revokeManager(env: AuthEnv, actor: AuthActor, managerId: number):
   await audit(env, actor, "manager_sessions_revoked", String(managerId), {});
   return json({ ok: true, message: "تمام نشست‌های این مدیر باطل شد." });
 }
+async function listAudit(env: AuthEnv): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `SELECT event_id, actor_type, actor_id, action, target_id, details_json, created_at
+       FROM (
+         SELECT 'operation:' || id AS event_id, actor_type, actor_id, action, target_id, details_json, created_at
+           FROM audit_log WHERE actor_type = 'owner' OR target_type = 'manager'
+         UNION ALL
+         SELECT 'auth:' || id AS event_id, subject_type AS actor_type, subject_id AS actor_id,
+                event_type AS action, NULL AS target_id, NULL AS details_json, created_at
+           FROM auth_events
+       )
+      ORDER BY created_at DESC LIMIT 100`,
+  ).all<{
+    event_id:string;actor_type:string;actor_id:string;action:string;
+    target_id:string|null;details_json:string|null;created_at:string;
+  }>();
+  return json({ events: rows.results ?? [] });
+}
 export async function handleOwnerManagerRequest(request: Request, env: AuthEnv, actor: AuthActor): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname;
   if (path === "/owner/api/managers" && request.method === "GET") return listManagers(env);
+  if (path === "/owner/api/audit" && request.method === "GET") return listAudit(env);
   if (path === "/owner/api/managers" && request.method === "POST") return createManager(request, env, actor);
   const match = path.match(/^\/owner\/api\/managers\/(\d+)(?:\/(revoke))?$/);
   if (!match) return null;
