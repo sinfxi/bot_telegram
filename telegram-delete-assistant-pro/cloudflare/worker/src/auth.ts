@@ -129,7 +129,7 @@ async function createChallenge(
   const digest = await codeDigest(subjectType + ":" + subjectId, salt, code, pepper);
   await env.DB.prepare(
     `INSERT INTO auth_challenges(id, subject_type, subject_id, code_hash, expires_at, attempts, consumed_at)
-     VALUES (?, ?, ?, ?, datetime('now', '+60 seconds'), 0, NULL)
+     VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+60 seconds'), 0, NULL)
      ON CONFLICT(id) DO UPDATE SET subject_type=excluded.subject_type,
        subject_id=excluded.subject_id, code_hash=excluded.code_hash,
        expires_at=excluded.expires_at, attempts=0, consumed_at=NULL,
@@ -149,7 +149,7 @@ async function issueSession(
   const token = randomToken(32);
   const tokenHash = await sha256(token);
   await env.DB.prepare(
-    "INSERT INTO sessions(session_id_hash, subject_type, subject_id, session_version, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+7 days'))",
+    "INSERT INTO sessions(session_id_hash, subject_type, subject_id, session_version, expires_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'))",
   ).bind(tokenHash, subjectType, subjectId, version).run();
   return { token, tokenHash };
 }
