@@ -101,9 +101,29 @@
     $("#inactive-count").textContent=state.managers.filter(x=>!x.is_active).length.toLocaleString("fa-IR");
     renderManagers();
   }
+  async function loadAudit() {
+    const result=await api("/owner/api/audit");
+    const list=$("#audit-list"); list.replaceChildren();
+    const events=result.events||[];
+    if(!events.length){list.append(el("p","muted","هنوز رویدادی ثبت نشده است."));return;}
+    const actionLabels={
+      manager_created:"ساخت حساب مدیر",manager_updated:"ویرایش حساب مدیر",
+      manager_sessions_revoked:"ابطال نشست‌های مدیر",login_success:"ورود موفق",
+      login_failed:"تلاش ورود ناموفق",logout:"خروج از پنل"
+    };
+    for(const event of events){
+      const item=el("article","audit-item");
+      const info=el("div","");
+      info.append(el("div","audit-action",actionLabels[event.action]||event.action));
+      info.append(el("div","audit-meta",(event.actor_type==="owner"?"مالک":"مدیر")+" · شناسه: "+event.actor_id+(event.target_id?" · هدف: "+event.target_id:"")));
+      item.append(info,el("time","audit-time",new Date(event.created_at).toLocaleString("fa-IR")));
+      list.append(item);
+    }
+  }
   async function showApp() {
     $("#login-view").classList.add("hidden"); $("#app-view").classList.remove("hidden");
     await loadManagers();
+    await loadAudit();
   }
   $("#request-code-form").addEventListener("submit",async(event)=>{
     event.preventDefault();
@@ -130,6 +150,7 @@
     } catch(error){notice($("#create-message"),error.message,"error");}
   });
   $("#refresh-button").addEventListener("click",async()=>{try{await loadManagers();notice($("#list-message"),"فهرست به‌روزرسانی شد.","success");}catch(error){notice($("#list-message"),error.message,"error");}});
+  $("#audit-refresh").addEventListener("click",async()=>{try{await loadAudit();}catch(error){notice($("#list-message"),error.message,"error");}});
   $("#logout-button").addEventListener("click",async()=>{try{await api("/auth/logout",{method:"POST",body:"{}"});}finally{location.reload();}});
   makePermissionInputs($("#new-permissions"),["dashboard","community"]);
   api("/auth/me").then((me)=>{if(me.role==="owner")return showApp();}).catch(()=>{});
