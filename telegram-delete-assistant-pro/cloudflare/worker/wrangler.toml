@@ -2,6 +2,12 @@ name = "fxi-telegram-community-manager"
 main = "src/index.ts"
 compatibility_date = "2026-11-07"
 
+# Static owner panel assets are served by the Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
 # No deployment target or paid products are configured here.
 [[d1_databases]]
 binding = "DB"
