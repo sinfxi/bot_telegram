@@ -1,5 +1,6 @@
 import { authorize, handleAuthRequest, permissionForPath } from "./auth";
 import { handleOwnerManagerRequest } from "./managers";
+import { handleCommunityUpdate } from "./community";
 
 export interface Env {
   DB: D1Database;
@@ -62,6 +63,7 @@ async function sendTelegramMessage(token: string, chatId: number, text: string):
   if (!response.ok) throw new Error("telegram_send_failed_" + response.status);
 }
 async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
+  if (await handleCommunityUpdate(update, env)) return;
   const message = update.message;
   if (!message || typeof message.text !== "string") return;
   const text = message.text.trim();
