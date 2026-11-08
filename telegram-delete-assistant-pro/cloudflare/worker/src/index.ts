@@ -1,4 +1,5 @@
 import { authorize, handleAuthRequest, permissionForPath } from "./auth";
+import { handleOwnerManagerRequest } from "./managers";
 
 export interface Env {
   DB: D1Database;
@@ -159,6 +160,8 @@ export default {
       const result = await authorize(request, env);
       if (result.response) return result.response;
       if (result.actor?.role !== "owner") return json({ detail: "فقط مالک اجازه این عملیات را دارد." }, 403);
+      const managerResponse = await handleOwnerManagerRequest(request, env, result.actor);
+      if (managerResponse) return managerResponse;
       return json({ detail: "این API هنوز در مرحله انتقال پیاده‌سازی نشده است." }, 501);
     }
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
