@@ -91,21 +91,30 @@ async function createManager(request: Request, env: AuthEnv, actor: AuthActor): 
   }
   const passwordHash = await hashPin(pin);
   try {
-    const inserted = await env.DB.prepare(
-      "INSERT INTO managers(username, telegram_user_id, password_hash, is_active) VALUES (?, ?, ?, 1) RETURNING id",
-    ).bind(username, telegramId, passwordHash).first<{id:number}>();
+    const statements = [
+      env.DB.prepare(
+        "INSERT INTO managers(username, telegram_user_id, password_hash, is_active) VALUES (?, ?, ?, 1)",
+      ).bind(username, telegramId, passwordHash),
+      ...permissions.map((permission) => env.DB.prepare(
+        "INSERT INTO manager_permissions(manager_id, permission_key) SELECT id, ? FROM managers WHERE username = ? COLLATE NOCASE",
+      ).bind(permission, username)),
+    ];
+    await env.DB.batch(statements);
+    const inserted = await env.DB.prepare("SELECT id FROM managers WHERE username = ? COLLATE NOCASE")
+      .bind(username).first<{id:number}>();
     if (!inserted?.id) return json({ detail: "ساخت حساب مدیر انجام نشد." }, 500);
-    await replacePermissions(env, inserted.id, permissions);
     await audit(env, actor, "manager_created", String(inserted.id), { username, telegram_user_id: telegramId, permissions });
+    let notificationSent = false;
     if (env.TELEGRAM_BOT_TOKEN) {
-      const message = "🎉 حساب مدیریت FXI برای شما ساخته شد.\nنام کاربری: " + username +
-        "\nرمز اولیه: " + pin + "\nپس از ورود، رمز را نزد خود نگه دار و آن را با کسی به اشتراک نگذار.";
-      await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/sendMessage", {
+      const message = "🎉 حساب مدیریت FXI برای شما ساخته شد.\\nنام کاربری: " + username +
+        "\\nرمز اولیه: " + pin + "\\nاین رمز چهاررقمی را فقط برای ورود پنل استفاده کن.";
+      const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/sendMessage", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: telegramId, text: message }),
-      }).catch(() => undefined);
+      }).catch(() => null);
+      notificationSent = response?.ok === true;
     }
-    return json({ ok: true, manager_id: inserted.id, message: "مدیر ساخته شد." }, 201);
+    return json({ ok: true, manager_id: inserted.id, notification_sent: notificationSent, message: "مدیر ساخته شد." }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message.includes("UNIQUE")) return json({ detail: "این نام کاربری یا شناسه تلگرام قبلاً ثبت شده است." }, 409);
