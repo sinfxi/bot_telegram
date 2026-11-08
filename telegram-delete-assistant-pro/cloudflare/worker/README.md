@@ -49,7 +49,7 @@
 
 5. اجرا:
 
-   `npm run dev``
+   `npm run dev`
 
 6. `GET /health` و `GET /ready` را بررسی کن. برای تست ورود، APP_ORIGIN باید دقیقاً با origin محیط آزمایش یکی باشد.
 
