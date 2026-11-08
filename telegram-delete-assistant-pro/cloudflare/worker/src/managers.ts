@@ -23,7 +23,7 @@ function cleanUsername(value: unknown): string | null {
 }
 function cleanTelegramId(value: unknown): number | null {
   const raw = typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "";
-  if (!/^\\d{5,15}$/.test(raw)) return null;
+  if (!/^\d{5,15}$/.test(raw)) return null;
   const id = Number(raw);
   return Number.isSafeInteger(id) ? id : null;
 }
