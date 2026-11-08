@@ -3,6 +3,7 @@ import { handleOwnerManagerRequest } from "./managers";
 
 export interface Env {
   DB: D1Database;
+  ASSETS: Fetcher;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   OWNER_TELEGRAM_ID?: string;
@@ -167,14 +168,12 @@ export default {
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
       return telegramWebhook(request, env);
     }
-    if ((url.pathname === "/owner" || url.pathname === "/admin") && request.method === "GET") {
-      const result = await authorize(request, env, "dashboard");
-      if (result.response) return result.response;
-      if (url.pathname === "/owner" && result.actor?.role !== "owner") {
-        return json({ detail: "این صفحه فقط برای مالک است." }, 403);
-      }
-      return json({ detail: "رابط پنل هنوز به Worker منتقل نشده است." }, 501);
+    if (request.method === "GET" && ["/owner", "/owner/", "/owner/login"].includes(url.pathname)) {
+      return env.ASSETS.fetch(new Request(new URL("/owner.html", request.url), request));
     }
-    return json({ ok: false, error: "not_found" }, 404);
+    if (request.method === "GET" && url.pathname.startsWith("/owner/")) {
+      return env.ASSETS.fetch(request);
+    }
+    return env.ASSETS.fetch(request);
   },
 };
