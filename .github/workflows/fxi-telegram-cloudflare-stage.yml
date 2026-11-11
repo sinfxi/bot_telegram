@@ -60,16 +60,16 @@ jobs:
       - uses: actions/checkout@v4
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
       - uses: actions/setup-python@v5
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v6
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
       - name: Install Workers SDK
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
         run: uv sync
         working-directory: telegram-delete-assistant-pro/cloudflare-python
       - name: Deploy staging Worker
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
         run: uv run pywrangler deploy
         working-directory: telegram-delete-assistant-pro/cloudflare-python
