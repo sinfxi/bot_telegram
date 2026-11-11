@@ -70,7 +70,16 @@ async def _load_application(env):
         os.environ["DATABASE_URL"] = ""
         os.environ.setdefault("ADMIN_PANEL_URL", "https://fxi-telegram-edge.fxi-media-engine.workers.dev")
 
-        module = importlib.import_module("zeus_bot")
+        _original_read_text = Path.read_text
+        def _worker_static_placeholder(self, *args, **kwargs):
+            if self == PROJECT_ROOT / "static" / "admin.html":
+                return ""
+            return _original_read_text(self, *args, **kwargs)
+        Path.read_text = _worker_static_placeholder
+        try:
+            module = importlib.import_module("zeus_bot")
+        finally:
+            Path.read_text = _original_read_text
         module.DATABASE_URL = ""
         module.DATABASE_READY = False
         module.asyncio = _AsyncioWorkerFacade()
@@ -111,9 +120,10 @@ async def _load_application(env):
                     answer = module.extract_answer(provider_id, data)
                     if not answer:
                         return "⚠️ سرویس OpenRouter پاسخ خالی برگرداند؛ مدل و تنظیمات API را بررسی کن."
+                    stamp = module.datetime.now(module.timezone.utc).isoformat()
                     history.extend([
-                        {"role": "user", "content": user_text},
-                        {"role": "assistant", "content": answer},
+                        {"role": "user", "content": user_text, "provider_id": provider_id, "created_at": stamp},
+                        {"role": "assistant", "content": answer, "provider_id": provider_id, "created_at": stamp},
                     ])
                     del history[:-module.MAX_HISTORY_MESSAGES]
                     module.histories[key] = history
@@ -127,8 +137,8 @@ async def _load_application(env):
 
         module.ask_ai = persistent_ask_ai
 
-        from fastapi import Request
-        from fastapi.responses import JSONResponse
+        from fastapi import Request, Depends
+        from fastapi.responses import JSONResponse, Response, HTMLResponse
         from fastapi.routing import APIRoute
         from aiogram import Bot
         from aiogram.client.default import DefaultBotProperties
@@ -178,6 +188,7 @@ async def _load_application(env):
                 module._cloudflare_d1 = db
                 await ensure_schema(db)
                 row = await db.prepare("SELECT data FROM fxi_bot_state WHERE id = 1").first()
+                state_missing = not bool(row)
                 if row and row["data"]:
                     try:
                         saved = json.loads(row["data"])
@@ -186,11 +197,8 @@ async def _load_application(env):
                             module.admin_data.update(saved)
                     except (TypeError, ValueError, json.JSONDecodeError):
                         return JSONResponse({"ok": False, "error": "state_record_invalid"}, status_code=503)
-                else:
-                    module._cloudflare_state_dirty = True
-
                 module.bot_enabled = bool(module.admin_data.get("bot_enabled", True))
-                module._cloudflare_state_dirty = False
+                module._cloudflare_state_dirty = state_missing
                 try:
                     response = await call_next(request)
                 except Exception:
@@ -286,6 +294,72 @@ async def _load_application(env):
                     "WHERE update_id = ?"
                 ).bind(type(exc).__name__, update_id).run()
                 return JSONResponse({"ok": False, "error": "update_processing_failed"}, status_code=500)
+
+        async def fetch_static(request: Request, asset_path: str):
+            if not asset_path or any(part in {"", ".", ".."} for part in asset_path.split("/")):
+                return JSONResponse({"ok": False, "error": "asset_not_found"}, status_code=404)
+            env_obj = request.scope.get("env")
+            assets = getattr(env_obj, "ASSETS", None) if env_obj is not None else None
+            if assets is None:
+                return JSONResponse({"ok": False, "error": "assets_binding_unavailable"}, status_code=503)
+            upstream = await assets.fetch("https://assets.local/" + asset_path)
+            body = await upstream.bytes()
+            headers = {}
+            for key in ("content-type", "cache-control", "etag", "last-modified"):
+                value = upstream.headers.get(key)
+                if value:
+                    headers[key] = value
+            return Response(content=body, status_code=upstream.status, headers=headers)
+
+        async def admin_page(request: Request):
+            return await fetch_static(request, "admin.html")
+
+        async def group_owner_page(request: Request):
+            return await fetch_static(request, "group-owner.html")
+
+        async def group_owner_login_page(request: Request):
+            return await fetch_static(request, "group-owner-login.html")
+
+        async def static_asset(request: Request, asset_path: str):
+            return await fetch_static(request, asset_path)
+
+        async def d1_conversations(_auth=Depends(module.require_admin)):
+            items = []
+            for key, messages in module.admin_data.get("chat_histories", {}).items():
+                if not isinstance(messages, list) or not messages:
+                    continue
+                try:
+                    user_id, provider_id = key.rsplit(":", 1)
+                    last = messages[-1]
+                    items.append({
+                        "user_id": int(user_id),
+                        "message_count": len(messages),
+                        "last_message": last.get("created_at"),
+                        "preview": str(last.get("content", ""))[:180],
+                    })
+                except (TypeError, ValueError, AttributeError):
+                    continue
+            items.sort(key=lambda item: item.get("last_message") or "", reverse=True)
+            return {"items": items[:100]}
+
+        async def d1_conversation(user_id: int, _auth=Depends(module.require_admin)):
+            messages = []
+            prefix = f"{int(user_id)}:"
+            for key, rows in module.admin_data.get("chat_histories", {}).items():
+                if not str(key).startswith(prefix) or not isinstance(rows, list):
+                    continue
+                messages.extend(rows)
+            messages.sort(key=lambda item: item.get("created_at") or "")
+            return {"messages": messages[-100:]}
+
+        # Cloudflare static assets replace local FileResponse reads in the Worker runtime.
+        module.app.router.routes.insert(0, APIRoute("/static/{asset_path:path}", static_asset, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/group-owner-login", group_owner_login_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/group-owner", group_owner_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/", admin_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin", admin_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/api/conversations/{user_id}", d1_conversation, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/api/conversations", d1_conversations, methods=["GET"]))
 
         # Put Cloudflare-specific routes before the legacy readiness/health handlers.
         module.app.router.routes.insert(0, APIRoute("/telegram/webhook", telegram_webhook, methods=["POST"]))
