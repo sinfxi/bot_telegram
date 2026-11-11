@@ -1,4 +1,4 @@
-name: FXI Cloudflare production smoke test
+name: FXI Cloudflare infrastructure smoke test
 
 on:
   push:
