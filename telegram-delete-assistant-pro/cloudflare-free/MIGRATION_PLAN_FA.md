@@ -24,8 +24,18 @@
 - [x] انتشار Worker مستقل `fxi-telegram-edge` از طریق Cloudflare API؛ Deployment ID: `45c9b634-5954-47aa-af0a-fcf4bfc04196`.
 - [x] فعال‌سازی زیردامنه عمومی `workers.dev` و اتصال binding دیتابیس D1.
 - [ ] افزودن Secretهای واقعی و اتصال webhook اصلی؛ در حال حاضر هیچ Secret روی Worker تعریف نشده و webhook تلگرام تغییر نکرده است.
+- [x] راه‌اندازی مجدد سرویس اصلی Render؛ Deploy `dep-dbq4jpbrjlhs73b7u5e0` با build موفق و شروع مجدد polling ربات به پایان رسید.
+- [x] افزودن Cron Trigger هر ۵ دقیقه به Worker برای درخواست `/health` سرویس Render و جلوگیری از خوابیدن سرویس رایگان به علت بی‌ترافیکی؛ این فقط راهکار موقت نگه‌داشتن سرویس فعلی است و جایگزین انتقال کامل runtime به Cloudflare نیست.
 - [ ] اتصال handlerهای واقعی aiogram، پنل‌ها و کارهای زمان‌بندی‌شده به runtime جدید.
 - [ ] انتقال داده‌های production؛ فعلاً داده‌ای از PostgreSQL به D1 منتقل نشده است.
+
+## وضعیت آنلاین‌بودن ربات — ۱۱ نوامبر ۲۰۲۶
+
+- سرویس `telegram-delete-assistant-pro` در Render پس از Deploy دستی دوباره بالا آمد.
+- لاگ‌های جدید: `Application startup complete`، `FXI Telegram polling started`، `Start polling` و `Run polling for bot @The_fxi_bot` در `2026-11-11T10:57:53Z`.
+- Render در `2026-11-11T10:58:03Z` وضعیت `Your service is live` را ثبت کرده است.
+- چون سرویس روی پلن رایگان Render قرار دارد و قبلاً پس از حدود ۱۴ دقیقه بی‌ترافیکی خاموش شده بود، Cron Trigger پنج‌دقیقه‌ای روی Worker برای درخواست `/health` تنظیم شد. این راهکار برای پایداری موقت سرویس فعلی است؛ تضمین SLA یا جایگزین پلن همیشه‌روشن نیست.
+- Worker هنوز پردازش‌کننده واقعی updateهای ربات نیست؛ ربات فعلاً با long polling روی Render کار می‌کند و D1 فقط زیرساخت آماده‌شده مهاجرت است.
 
 ## وضعیت انتشار آزمایشی Worker — ۱۱ نوامبر ۲۰۲۶
 
