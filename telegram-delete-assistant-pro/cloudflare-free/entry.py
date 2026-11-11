@@ -353,8 +353,60 @@ async def _load_application(env):
                     headers[key] = value
             return Response(content=body, status_code=upstream.status, headers=headers)
 
-        async def admin_page(request: Request):
-            return await fetch_static(request, "admin.html")
+        async def admin_page(request: Request, auth=Depends(module.require_admin)):
+            asset = await fetch_static(request, "admin.html")
+            if asset.status_code != 200:
+                return asset
+            html = asset.body.decode("utf-8", errors="replace")
+            meta = (
+                '<meta name="fxi-permissions" content="' + ",".join(auth["permissions"]) + '">'
+                '<meta name="fxi-panel-role" content="' + ("owner" if auth.get("auth_type") == "owner" else "manager") + '">'
+                '<meta name="fxi-panel-user" content="' + str(auth.get("manager", "مدیر")).replace('"', '&quot;') + '">'
+            )
+            return HTMLResponse(html.replace("</head>", meta + "</head>"),
+                                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+        async def manager_request_page():
+            page = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
+<title>درخواست مدیریت FXI</title><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1318;color:#edf5f2;font:15px Tahoma,Arial,sans-serif;padding:20px}
+main{width:min(460px,100%);padding:26px;border:1px solid #29443b;border-radius:20px;background:#122027;box-shadow:0 20px 70px #0005}
+h1{font-size:22px;margin:0 0 12px}p{color:#a9beb6;line-height:1.9}label{display:block;margin:18px 0 8px}
+input{width:100%;padding:13px;border-radius:11px;border:1px solid #35554a;background:#09151a;color:#fff;font:inherit}
+button,a{display:inline-block;margin-top:16px;padding:12px 18px;border:0;border-radius:11px;background:#a8e7c7;color:#13251b;font-weight:bold;text-decoration:none;cursor:pointer}
+#status{margin-top:14px;line-height:1.9;overflow-wrap:anywhere}.muted{font-size:12px;color:#8da79d}
+</style></head><body><main><h1>درخواست مدیریت FXI</h1>
+<p>نام کاربری دلخواهت را وارد کن. پس از ثبت درخواست، حساب تلگرامت را از طریق لینک اختصاصی متصل کن تا مالک بتواند درخواست را بررسی کند.</p>
+<form id="requestForm"><label for="username">نام کاربری پنل</label><input id="username" minlength="3" maxlength="64" pattern="[a-zA-Z0-9_.-]+" required autocomplete="username" placeholder="مثلاً fxi_manager"><button type="submit">ثبت درخواست</button></form>
+<div id="status" role="status" aria-live="polite"></div><p class="muted">کد دعوت فقط در همین مرورگر خوانده می‌شود و در آدرس درخواست یا گزارش ارجاع ارسال نمی‌شود.</p></main>
+<script>
+const statusBox=document.getElementById("status");
+const fragment=new URLSearchParams(location.hash.slice(1));
+const invite=fragment.get("invite")||"";
+history.replaceState(null,"",location.pathname);
+if(!invite){statusBox.textContent="کد دعوت در لینک پیدا نشد؛ از مالک لینک تازه بگیر.";}
+document.getElementById("requestForm").addEventListener("submit",async e=>{
+ e.preventDefault();if(!invite)return;
+ const button=e.submitter;button.disabled=true;statusBox.textContent="در حال ثبت درخواست…";
+ try{
+  const response=await fetch("/admin/api/manager-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invite_code:invite,username:document.getElementById("username").value.trim()})});
+  const data=await response.json();if(!response.ok)throw new Error(data.detail||"ثبت درخواست ناموفق بود.");
+  statusBox.textContent=data.message||"درخواست ثبت شد.";
+  const link=document.createElement("a");link.href=data.telegram_link;link.textContent="اتصال حساب تلگرام";link.rel="noopener noreferrer";statusBox.appendChild(document.createElement("br"));statusBox.appendChild(link);
+ }catch(error){statusBox.textContent=error.message||"خطا در ثبت درخواست.";}
+ finally{button.disabled=false;}
+});
+</script></body></html>"""
+            return HTMLResponse(page, headers={"Cache-Control": "no-store, max-age=0", "Referrer-Policy": "no-referrer"})
+
+        async def d1_metrics(request: Request, auth=Depends(module.require_admin)):
+            data = await module.admin_metrics(request, auth)
+            data["database_ready"] = True
+            if isinstance(data.get("operations"), dict):
+                data["operations"]["storage_backend"] = "cloudflare_d1"
+                data["operations"]["database_size_bytes"] = None
+            return data
 
         async def group_owner_page(request: Request):
             return await fetch_static(request, "group-owner.html")
@@ -397,9 +449,14 @@ async def _load_application(env):
         # Cloudflare static assets replace local FileResponse reads in the Worker runtime.
         module.app.router.routes.insert(0, APIRoute("/static/{asset_path:path}", static_asset, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/group-owner-login", group_owner_login_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/group-owner/login", group_owner_login_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/group-owner", group_owner_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/owner", group_owner_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/request", manager_request_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/login", admin_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin/", admin_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin", admin_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/api/metrics", d1_metrics, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin/api/conversations/{user_id}", d1_conversation, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin/api/conversations", d1_conversations, methods=["GET"]))
 
