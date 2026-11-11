@@ -178,7 +178,7 @@ async def _load_application(env):
         module.ask_ai = persistent_ask_ai
 
         from fastapi import Request, Depends
-        from fastapi.responses import JSONResponse, Response, HTMLResponse
+        from fastapi.responses import JSONResponse, Response, HTMLResponse, RedirectResponse
         from fastapi.routing import APIRoute
         from aiogram import Bot
         from aiogram.client.default import DefaultBotProperties
@@ -366,6 +366,9 @@ async def _load_application(env):
             return HTMLResponse(html.replace("</head>", meta + "</head>"),
                                 headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
+        async def admin_login_redirect():
+            return RedirectResponse(url="/admin", status_code=307)
+
         async def manager_request_page():
             page = """<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
@@ -453,7 +456,7 @@ document.getElementById("requestForm").addEventListener("submit",async e=>{
         module.app.router.routes.insert(0, APIRoute("/group-owner", group_owner_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/owner", group_owner_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin/request", manager_request_page, methods=["GET"]))
-        module.app.router.routes.insert(0, APIRoute("/admin/login", admin_page, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/admin/login", admin_login_redirect, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin/", admin_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin", admin_page, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/admin/api/metrics", d1_metrics, methods=["GET"]))
