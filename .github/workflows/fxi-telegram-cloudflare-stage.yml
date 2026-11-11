@@ -1,0 +1,71 @@
+name: FXI Telegram Cloudflare Python staging
+
+on:
+  push:
+    branches:
+      - feature/telegram-delete-assistant
+    paths:
+      - "telegram-delete-assistant-pro/cloudflare-python/**"
+      - ".github/workflows/fxi-telegram-cloudflare-stage.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate Python Worker and D1 migrations
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: telegram-delete-assistant-pro/cloudflare-python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install project and Workers SDK
+        run: uv sync
+      - name: Compile Worker
+        run: uv run python -m compileall -q src tests
+      - name: Run runtime contract tests
+        run: uv run pytest -q
+      - name: Validate complete D1 migration chain
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          db = sqlite3.connect(":memory:")
+          migrations = sorted(Path("migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"))
+          assert migrations, "No migrations found"
+          for migration in migrations:
+              print(f"Applying {migration.name}")
+              db.executescript(migration.read_text(encoding="utf-8"))
+          names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          expected = {"fxi_py_updates", "fxi_py_messages", "fxi_py_channel_posts"}
+          assert expected <= names, names
+          print(f"Validated {len(migrations)} ordered D1 migrations")
+          PY
+
+  deploy-staging:
+    name: Deploy isolated staging Worker
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Report missing Cloudflare credential
+        if: ${{ env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == '' }}
+        run: |
+          echo "::notice title=Staging deployment skipped::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to repository Actions secrets to enable staging deployment."
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Workers SDK
+        run: uv sync
+        working-directory: telegram-delete-assistant-pro/cloudflare-python
+      - name: Deploy staging Worker
+        if: ${{ env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+        run: uv run pywrangler deploy
+        working-directory: telegram-delete-assistant-pro/cloudflare-python
