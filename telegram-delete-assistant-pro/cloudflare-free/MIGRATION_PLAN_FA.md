@@ -18,6 +18,8 @@
 - [x] ایجاد اسکلت Worker مستقل `fxi-telegram-edge` در مسیر `cloudflare-free/worker/`؛ Workerهای موجود `bot-telegram` و `sinajs` دست‌نخورده باقی ماندند.
 - [x] افزودن endpointهای `/health` و `/ready` برای بررسی اتصال D1 و نسخه schema.
 - [x] افزودن ورودی webhook آزمایشی با اعتبارسنجی `X-Telegram-Bot-Api-Secret-Token`، محدودیت اندازه payload، کنترل `update_id` و ثبت idempotent در `telegram_updates`.
+- [x] افزودن لایه repository برای state اصلی، تاریخچه چت AI، و آرشیو پیام‌های گروه/کانال شامل ثبت، صفحه‌بندی، جستجو، دریافت، ویرایش پیام ربات و حذف.
+- [ ] اتصال repository به handlerهای واقعی و جایگزینی کامل تمام فراخوانی‌های PostgreSQL؛ این مرحله هنوز انجام نشده و باید همراه تست قرارداد پیش برود.
 - [ ] تطبیق runtime برنامه با D1؛ کد فعلی هنوز از `psycopg` و SQL اختصاصی PostgreSQL استفاده می‌کند و به D1 متصل نشده است.
 - [ ] اجرای Worker و افزودن Secret واقعی؛ Worker هنوز deploy نشده و webhook اصلی تلگرام به آن متصل نیست.
 - [ ] اتصال handlerهای واقعی aiogram، پنل‌ها و کارهای زمان‌بندی‌شده به runtime جدید.
@@ -30,6 +32,7 @@
 - `cloudflare-free/worker/src/index.ts`
 - `cloudflare-free/worker/wrangler.toml`
 - `cloudflare-free/worker/README.md`
+- `cloudflare-free/worker/src/store.ts`
 
 این Worker صرفاً دریافت پایدار update را پیاده می‌کند و هنوز handlerهای ربات را اجرا نمی‌کند. این مرز عمداً حفظ شده تا پیام‌های کاربران با پاسخ موفق Telegram گم نشوند و ربات اصلی پیش از آماده‌شدن مسیر کامل تغییر webhook ندهد.
 
