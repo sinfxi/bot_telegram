@@ -470,7 +470,7 @@ document.getElementById("requestForm").addEventListener("submit",async e=>{
         return module
 
 
-class Default(WorkerEntrypoint):
+class Default(WorkerEntrypoint):  # Free-tier-safe health routing
     async def fetch(self, request):
         # Keep the liveness probe independent from the heavyweight Aiogram/FastAPI imports.
         if request.method == "GET" and request.url.split("?", 1)[0].rstrip("/").endswith("/health"):
