@@ -52,9 +52,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    defaults:
-      run:
-        working-directory: telegram-delete-assistant-pro/cloudflare-python
     steps:
       - name: Report missing Cloudflare credential
         if: ${{ env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == '' }}
@@ -71,6 +68,8 @@ jobs:
       - name: Install Workers SDK
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: uv sync
+        working-directory: telegram-delete-assistant-pro/cloudflare-python
       - name: Deploy staging Worker
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: uv run pywrangler deploy
+        working-directory: telegram-delete-assistant-pro/cloudflare-python
