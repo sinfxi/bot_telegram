@@ -192,7 +192,7 @@ async def _load_application(env):
                 "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
             ).run()
             await db.prepare(
-                "CREATE TABLE IF NOT EXISTS telegram_updates "
+                "CREATE TABLE IF NOT EXISTS fxi_telegram_updates "
                 "(update_id INTEGER PRIMARY KEY, payload_json TEXT NOT NULL, "
                 "status TEXT NOT NULL DEFAULT 'received', attempts INTEGER NOT NULL DEFAULT 0, "
                 "received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TEXT, last_error TEXT)"
