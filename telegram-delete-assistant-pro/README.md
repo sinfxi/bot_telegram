@@ -51,6 +51,18 @@ uvicorn app:app --env-file .env --host 0.0.0.0 --port 8000
 
 برای پاسخ هوشمند و تحلیل تصویر رسید، `OPENROUTER_API_KEY` را تنظیم کن. قابلیت‌های قابل‌تنظیم از صفحهٔ «قابلیت‌های ربات» در پنل مدیریت ذخیره می‌شوند؛ پیام صوتی تا پیاده‌سازی سازگار با OpenRouter غیرفعال است.
 
+## مهاجرت رایگان Cloudflare Workers
+
+مسیر TypeScript مستقل برای مهاجرت امن و staging در `cloudflare-free/` قرار دارد:
+
+- برنامه مهاجرت: [cloudflare-free/MIGRATION_PLAN_FA.md](cloudflare-free/MIGRATION_PLAN_FA.md)
+- D1 schema: [cloudflare-free/schema.sql](cloudflare-free/schema.sql)
+- Worker آزمایشی: [cloudflare-free/worker/](cloudflare-free/worker/)
+- Workflow اعتبارسنجی: `.github/workflows/fxi-cloudflare-free-ci.yml`
+- Workflow انتشار دستی staging: `.github/workflows/fxi-cloudflare-free-staging.yml`
+
+این Worker فعلاً فقط webhook را به‌صورت امن در D1 ثبت می‌کند؛ هنوز handlerهای واقعی ربات و پنل‌ها به آن متصل نیستند. workflow انتشار فقط روی Worker و D1 آزمایشی اجرا می‌شود و webhook تولید، Workerهای دیگر، D1 عملیاتی و Render را تغییر نمی‌دهد. تا زمان تکمیل ماتریس قابلیت‌ها، ربات اصلی از مسیر فعلی خود استفاده می‌کند.
+
 ## وضعیت مهاجرت به Cloudflare
 
 مقصد استقرار این پروژه Cloudflare است. برای این مخزن هیچ استقرار جدیدی روی Render انجام ندهید.
