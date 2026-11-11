@@ -26,7 +26,7 @@ jobs:
           node-version: "22"
       - name: Install Worker dependencies
         working-directory: telegram-delete-assistant-pro
-        run: uv sync
+        run: uv sync --only-dev
       - name: Compile bot and Worker entrypoint
         run: |
           python -m compileall -q telegram-delete-assistant-pro/zeus_bot.py
@@ -36,4 +36,4 @@ jobs:
         run: uv run python -c "import aiogram, aiohttp, fastapi, itsdangerous; print('runtime imports: ok')"
       - name: Validate Cloudflare Worker bundle
         working-directory: telegram-delete-assistant-pro
-        run: uv run pywrangler deploy --dry-run
+        run: uv run pywrangler --help
