@@ -37,4 +37,4 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           wrangler d1 execute fxi-telegram-assistant-stage --remote --file=../schema.sql
-          wrangler deploy --outdir /tmp/fxi-worker-bundle
+          wrangler deploy
