@@ -158,16 +158,19 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('panelRole!==\'owner\'', script)
         self.assertIn('۲۵۶ مگابایت', html)
 
-    def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
-        payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
+    def test_manager_request_payload_requires_only_name_and_high_entropy_owner_invite(self):
+        invite = "A" * 43
+        payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code=invite)
         self.assertEqual(payload.username, "ali_manager")
-        self.assertEqual(payload.invite_code, "4821")
+        self.assertEqual(payload.invite_code, invite)
         self.assertFalse(hasattr(payload, "telegram_id"))
         self.assertFalse(hasattr(payload, "permissions"))
         with self.assertRaises(ValidationError):
-            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="123")
+            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
         with self.assertRaises(ValidationError):
-            zeus_bot.ManagerRequestPayload(username="bad name", invite_code="1234")
+            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="!" * 43)
+        with self.assertRaises(ValidationError):
+            zeus_bot.ManagerRequestPayload(username="bad name", invite_code=invite)
 
     def test_manager_request_is_name_and_invite_only_then_telegram_bind(self):
         panel = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
