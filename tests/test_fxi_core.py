@@ -233,6 +233,47 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/features"), "system")
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/new-unmapped-route"), "__unmapped__")
 
+    def test_every_registered_admin_api_route_has_an_explicit_permission(self):
+        route_permissions = {
+            "/admin/api/audit": "audit",
+            "/admin/api/users/export": "users",
+            "/admin/api/users/123/block": "users",
+            "/admin/api/users/123/unblock": "users",
+            "/admin/api/community": "community",
+            "/admin/api/community/123/settings": "community",
+            "/admin/api/community/123/leave": "community",
+            "/admin/api/status": "dashboard",
+            "/admin/api/conversations": "conversations",
+            "/admin/api/conversations/123": "conversations",
+            "/admin/api/manager-invites": "admins",
+            "/admin/api/manager-invites/revoke": "admins",
+            "/admin/api/manager-requests": "admins",
+            "/admin/api/manager-requests/123/approve": "admins",
+            "/admin/api/manager-requests/123/reject": "admins",
+            "/admin/api/managers/example": "admins",
+            "/admin/api/managers/example/permissions": "admins",
+            "/admin/api/admins/123/permissions": "admins",
+            "/admin/api/features": "system",
+            "/admin/api/bot-state": "system",
+            "/admin/api/broadcast": "broadcast",
+            "/admin/api/prompt": "prompt",
+            "/admin/api/payments": "payments",
+            "/admin/api/payments/123/approve": "payments",
+            "/admin/api/metrics": "dashboard",
+        }
+        for path, expected in route_permissions.items():
+            with self.subTest(path=path):
+                self.assertEqual(zeus_bot._permission_for_path(path), expected)
+
+        # Newly introduced or misspelled endpoints must remain denied by default.
+        for path in (
+            "/admin/api/export-all",
+            "/admin/api/owner-settings",
+            "/admin/api/unknown/action",
+        ):
+            with self.subTest(unmapped_path=path):
+                self.assertEqual(zeus_bot._permission_for_path(path), "__unmapped__")
+
 
 if __name__ == "__main__":
     unittest.main()
