@@ -1,0 +1,47 @@
+name: FXI Telegram Cloudflare Python staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/telegram-delete-assistant
+    paths:
+      - "telegram-delete-assistant-pro/cloudflare-python/**"
+      - ".github/workflows/fxi-telegram-cloudflare-stage.yml"
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: telegram-delete-assistant-pro/cloudflare-python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install project
+        run: uv sync
+      - name: Compile Worker
+        run: uv run python -m compileall -q src
+      - name: Validate migration SQL
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          db = sqlite3.connect(":memory:")
+          db.executescript(Path("migrations/0001_initial.sql").read_text(encoding="utf-8"))
+          names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          expected = {"fxi_py_updates", "fxi_py_messages", "fxi_py_channel_posts"}
+          assert expected <= names, names
+          print("D1 migration SQL syntax OK")
+          PY
+      - name: Deploy isolated staging Worker
+        if: github.event_name == 'workflow_dispatch' && secrets.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: uv run pywrangler deploy
+      - name: Explain missing Cloudflare credential
+        if: github.event_name == 'workflow_dispatch' && secrets.CLOUDFLARE_API_TOKEN == ''
+        run: echo "Skipped deploy: add CLOUDFLARE_API_TOKEN to repository Actions secrets."
