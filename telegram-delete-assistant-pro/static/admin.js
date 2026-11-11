@@ -238,6 +238,7 @@ async function refresh(){return withViewLoading(['overview'],refreshRequest)}
 applyPermissions();
 
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$('page-'+b.dataset.page).classList.add('active');$('title').textContent=b.textContent.trim();if(b.dataset.page==='conversations')loadConversations();if(b.dataset.page==='payments')loadPayments();if(b.dataset.page==='system')loadMetrics();if(b.dataset.page==='overview')loadMetrics();if(b.dataset.page==='community')loadCommunity();if(b.dataset.page==='audit')loadAudit();if(b.dataset.page==='users')refresh()});refresh();loadMetrics();setInterval(()=>{if(document.getElementById('page-users')?.classList.contains('active'))refresh()},20000);
+setInterval(()=>{if(autoRefreshEnabled&&!document.hidden&&document.getElementById('page-system')?.classList.contains('active'))loadMetrics()},30000);
 
 let activeCommunityChat=null,communityMessageCursor=null,communityMessageHasMore=false,communityMessageLoading=false;
 async function openCommunityMessages(chatId,title){activeCommunityChat=String(chatId);communityMessageCursor=null;$('communityMessageSearch').value='';$('communitySenderSearch').value='';$('communityModalTitle').textContent='مدیریت · '+title;$('communityModalMeta').textContent='شناسه گروه: '+chatId+' · تاریخچه صفحه‌بندی‌شده';$('communityMessageModal').hidden=false;await refreshCommunityMessages(true)}
