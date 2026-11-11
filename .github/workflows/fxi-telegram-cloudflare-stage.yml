@@ -38,10 +38,12 @@ jobs:
           print("D1 migration SQL syntax OK")
           PY
       - name: Deploy isolated staging Worker
-        if: github.event_name == 'workflow_dispatch' && env.CLOUDFLARE_API_TOKEN != ''
+        if: env.CLOUDFLARE_API_TOKEN != ''
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: uv run pywrangler deploy
       - name: Explain missing Cloudflare credential
         if: github.event_name == 'workflow_dispatch' && env.CLOUDFLARE_API_TOKEN == ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: echo "Skipped deploy: add CLOUDFLARE_API_TOKEN to repository Actions secrets."
