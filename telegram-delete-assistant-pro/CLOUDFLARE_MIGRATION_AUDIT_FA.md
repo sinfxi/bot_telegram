@@ -75,8 +75,27 @@
 - [x] شاخه و commit مبنا تأیید شد.
 - [x] ساختار برنامه، فایل‌های پنل و تست امنیتی بررسی شد.
 - [x] وابستگی‌ها و موانع اصلی انتقال مستقیم ثبت شد.
-- [ ] runtime کامل Cloudflare پیاده‌سازی نشده است.
+- [x] یک runtime مستقل Python Worker برای staging در مسیر `cloudflare-python/` اضافه شد؛ از import برنامه pollingمحور اصلی خودداری می‌کند.
+- [x] یک D1 مستقل با نام `fxi-telegram-assistant-stage` در منطقه EU ساخته شد؛ دیتابیس production با نام `fxi_bot_prod` تغییر نکرد.
+- [x] جدول‌های اولیهٔ staging شامل `fxi_py_updates`، `fxi_py_messages` و `fxi_py_channel_posts` ایجاد و با SQL واقعی بررسی شدند.
+- [x] GitHub Actions برای نصب Workers SDK، compile، اعتبارسنجی migration و Deploy محیط staging آماده شد.
+- [x] اجرای CI در commit `75f7efe81fc8819bc1544c455b469b6e7fc17529` مراحل نصب SDK، compile و اعتبارسنجی D1 را با موفقیت گذراند.
+- [ ] Worker staging هنوز منتشر نشده است؛ مقدار `CLOUDFLARE_API_TOKEN` در GitHub Actions موجود نیست و مرحلهٔ Deploy به همین دلیل اجرا نشده است.
+- [ ] Secretهای ربات در محیط staging تنظیم نشده‌اند؛ هیچ توکن یا کلیدی از Worker production خوانده یا کپی نشده است.
 - [ ] تمام قابلیت‌های ربات/پنل به Cloudflare منتقل نشده‌اند.
 - [ ] تست parity و cutover تولید انجام نشده است.
 
 **هشدار:** Worker ساده‌شده یا پاسخ‌گوی mock جایگزین این برنامه نیست. تا زمان تکمیل و تست parity، نسخه عملیاتی فعلی باید دست‌نخورده بماند.
+
+
+## گزارش اجرای staging در 2026-11-11
+
+- مسیر کد جدید: `telegram-delete-assistant-pro/cloudflare-python/`
+- Worker مقصد staging: `fxi-telegram-python-stage` (هنوز در حساب ساخته/منتشر نشده؛ بارگذاری مستقیم API به‌علت نبود SDK بسته‌بندی‌شده رد شد).
+- D1 staging: `fxi-telegram-assistant-stage`
+- D1 staging ID: `e702e0b0-3d89-4699-93e1-199b5c3c45be`
+- شناسه دیتابیس production `fxi_bot_prod` و Worker عملیاتی فعلی دست‌نخورده ماندند.
+- GitHub Actions run مربوط به commit `75f7efe81fc8819bc1544c455b469b6e7fc17529`: نصب وابستگی‌ها، compile و اعتبارسنجی SQL موفق؛ Deploy به‌علت خالی بودن secret لازم اجرا نشد.
+- برای ادامه، یک GitHub Actions repository secret با نام `CLOUDFLARE_API_TOKEN` و مجوز Worker Scripts:Edit لازم است. پس از افزودن آن، push بعدی یا اجرای دستی workflow انتشار staging را انجام می‌دهد.
+
+**وضعیت نهایی این مرحله: کد و دیتابیس آزمایشی آماده‌اند؛ Worker هنوز آنلاین نیست و webhook ربات اصلی تغییر نکرده است.**
