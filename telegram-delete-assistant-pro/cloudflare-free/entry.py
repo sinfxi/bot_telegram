@@ -39,6 +39,10 @@ _ENV_KEYS = (
     "ADMIN_PANEL_PASSWORD",
     "ADMIN_PANEL_USERNAME",
     "OPENROUTER_MODEL",
+    "OPENROUTER_SITE_URL",
+    "ADMIN_PANEL_URL",
+    "ADMIN_ALLOWED_ORIGINS",
+    "TELEGRAM_BOT_USERNAME",
     "AI_SYSTEM_PROMPT",
     "ZEUS_ADMIN_ID",
     "OWNER_TELEGRAM_ID",
@@ -91,6 +95,7 @@ async def _load_application(env):
             module.URLSafeTimedSerializer(bot_token, salt="fxi-web-session") if bot_token else None
         )
         module.ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://fxi-telegram-edge.fxi-media-engine.workers.dev").rstrip("/")
+        os.environ.setdefault("OPENROUTER_SITE_URL", module.ADMIN_PANEL_URL)
         module.ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
         module.ADMIN_PANEL_PASSWORD = _env_value(env, "ADMIN_PANEL_PASSWORD").strip()
         module.TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
@@ -239,6 +244,8 @@ async def _load_application(env):
                 except Exception:
                     await flush_state(db)
                     raise
+                if request.url.path == "/telegram/webhook" or request.url.path.startswith("/admin/api/"):
+                    module._cloudflare_state_dirty = True
                 await flush_state(db)
                 return response
 
@@ -305,10 +312,10 @@ async def _load_application(env):
 
             db = module._cloudflare_d1
             await db.prepare(
-                "INSERT OR IGNORE INTO telegram_updates (update_id, payload_json, status) VALUES (?, ?, 'received')"
+                "INSERT OR IGNORE INTO fxi_telegram_updates (update_id, payload_json, status) VALUES (?, ?, 'received')"
             ).bind(update_id, json.dumps(payload, ensure_ascii=False, separators=(",", ":"))).run()
             saved_update = await db.prepare(
-                "SELECT status FROM telegram_updates WHERE update_id = ?"
+                "SELECT status FROM fxi_telegram_updates WHERE update_id = ?"
             ).bind(update_id).first()
             if saved_update and saved_update["status"] == "processed":
                 return {"ok": True, "duplicate": True}
@@ -318,14 +325,14 @@ async def _load_application(env):
                 update = Update.model_validate(payload, context={"bot": module.bot})
                 await module.dp.feed_update(module.bot, update)
                 await db.prepare(
-                    "UPDATE telegram_updates SET status = 'processed', processed_at = CURRENT_TIMESTAMP, "
+                    "UPDATE fxi_telegram_updates SET status = 'processed', processed_at = CURRENT_TIMESTAMP, "
                     "last_error = NULL WHERE update_id = ?"
                 ).bind(update_id).run()
                 return {"ok": True, "processed": True}
             except Exception as exc:
                 module.log.exception("Telegram webhook update failed: update_id=%s", update_id)
                 await db.prepare(
-                    "UPDATE telegram_updates SET status = 'failed', attempts = attempts + 1, last_error = ? "
+                    "UPDATE fxi_telegram_updates SET status = 'failed', attempts = attempts + 1, last_error = ? "
                     "WHERE update_id = ?"
                 ).bind(type(exc).__name__, update_id).run()
                 return JSONResponse({"ok": False, "error": "update_processing_failed"}, status_code=500)
