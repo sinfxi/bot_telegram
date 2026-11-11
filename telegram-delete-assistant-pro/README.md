@@ -51,28 +51,37 @@ uvicorn app:app --env-file .env --host 0.0.0.0 --port 8000
 
 برای پاسخ هوشمند و تحلیل تصویر رسید، `OPENROUTER_API_KEY` را تنظیم کن. قابلیت‌های قابل‌تنظیم از صفحهٔ «قابلیت‌های ربات» در پنل مدیریت ذخیره می‌شوند؛ پیام صوتی تا پیاده‌سازی سازگار با OpenRouter غیرفعال است.
 
-## دیپلوی روی Render
+## وضعیت مهاجرت به Cloudflare
 
-Build command:
+مقصد استقرار این پروژه Cloudflare است. برای این مخزن هیچ استقرار جدیدی روی Render انجام ندهید.
+
+- کد runtime آزمایشی Python Worker: `cloudflare-python/`
+- پیکربندی Wrangler: `cloudflare-python/wrangler.toml`
+- دیتابیس D1 آزمایشی: `fxi-telegram-assistant-stage`
+- مسیر webhook آزمایشی: `POST /telegram/webhook`
+- مسیر بررسی زنده‌بودن: `GET /health`
+- مسیر آمادگی: `GET /ready`
+
+**هشدار:** runtime جدید هنوز parity کامل با نسخه فعلی ندارد. پنل مالک، پنل مدیران، پنل مالک گروه، مدیریت کامل جامعه، مجوزها، backup/restore و تمام APIها باید قبل از cutover منتقل و تست شوند. Worker فعلی production و webhook اصلی تا آن زمان دست‌نخورده می‌مانند.
+
+برای اجرای تست‌های runtime:
 
 ```bash
-pip install -r telegram-delete-assistant-pro/requirements.txt
+cd telegram-delete-assistant-pro/cloudflare-python
+uv sync
+uv run python -m compileall -q src tests
+uv run pytest -q
 ```
 
-Start command:
+برای استقرار staging، مقدار `CLOUDFLARE_API_TOKEN` را به‌صورت Repository Actions Secret در GitHub تنظیم و workflow زیر را اجرا کنید:
 
-```bash
-uvicorn app:app --app-dir telegram-delete-assistant-pro --host 0.0.0.0 --port $PORT
-```
+`Actions → FXI Telegram Cloudflare Python staging → Run workflow`
 
-تنظیمات ضروری را در متغیرهای محیطی (Environment) سرویس Render وارد کن. برای حفظ تاریخچه و وضعیت، PostgreSQL را از طریق `DATABASE_URL` متصل کن. فقط یک نمونهٔ polling برای هر توکن ربات اجرا کن؛ چند نمونهٔ هم‌زمان ممکن است خطای Telegram `getUpdates conflict` ایجاد کنند.
+برای جزئیات معماری و فهرست کامل routeها، فایل‌های زیر را ببینید:
 
-- پنل مالک اصلی: `https://telegram-delete-assistant-pro.onrender.com/owner` (دریافت کد یک‌بارمصرف در تلگرام مالک)
-- پنل مدیران ربات: `https://telegram-delete-assistant-pro.onrender.com/admin/login` (نام کاربری + کد یک‌بارمصرف ارسال‌شده در تلگرام)
-- مالک با `/login` و مدیران با `/admin/login` وارد می‌شوند. دستور `/admin` لینک پنل مالک و دستور `/modir` لینک ورود مدیر را می‌دهد؛ ورود مدیر فقط پس از تأیید درخواست مالک امکان‌پذیر است.
-- سلامت سرویس وب: `GET /health` پاسخ `200` می‌دهد وقتی فرایند وب پاسخ‌گوست؛ تنظیم نبودن یک ارائه‌دهندهٔ اختیاری هوش مصنوعی نباید Health Check را قرمز کند.
-- آمادگی اتصال‌ها: `GET /ready` پاسخ `200` یا `503` می‌دهد و فقط وضعیت کلی تلگرام، هوش مصنوعی و دیتابیس را بدون افشای نام ارائه‌دهنده‌ها برمی‌گرداند.
-- مخزن: `sinfxi/bot_telegram`
+- `CLOUDFLARE_MIGRATION_AUDIT_FA.md`
+- `CLOUDFLARE_FINAL_PARITY_MATRIX_FA.md`
+- `cloudflare-python/README.md`
 
 ## فرمان‌های متنی طبیعی و صوتی
 
