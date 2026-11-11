@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS fxi_py_updates (
     update_id INTEGER PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'received',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at TEXT,
     processed_at TEXT
 );
 
