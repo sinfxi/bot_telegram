@@ -4,7 +4,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
-INITIAL = (ROOT / "migrations" / "0001_initial.sql").read_text(encoding="utf-8")
+MIGRATIONS = ROOT / "migrations"
 
 
 def test_worker_is_webhook_driven_and_does_not_start_polling():
@@ -12,13 +12,13 @@ def test_worker_is_webhook_driven_and_does_not_start_polling():
     assert 'path == "/telegram/webhook"' in SOURCE
     assert "start_polling" not in SOURCE
     assert "getUpdates" not in SOURCE
-    assert not re.search(r"^\\s*(?:from\\s+zeus_bot|import\\s+zeus_bot)", SOURCE, re.MULTILINE)
+    assert not re.search(r"^\s*(?:from\s+zeus_bot|import\s+zeus_bot)", SOURCE, re.MULTILINE)
 
 
 def test_webhook_requires_telegram_secret_header():
-    assert 'x-telegram-bot-api-secret-token' in SOURCE
+    assert "x-telegram-bot-api-secret-token" in SOURCE
     assert "_constant_time_equal(supplied, expected)" in SOURCE
-    assert "return _json({\"ok\": False}, 401)" in SOURCE
+    assert 'return _json({"ok": False}, 401)' in SOURCE
 
 
 def test_update_claim_is_idempotent_and_retryable_after_failure():
@@ -29,9 +29,13 @@ def test_update_claim_is_idempotent_and_retryable_after_failure():
     assert "status='failed'" in SOURCE
 
 
-def test_initial_migration_has_expected_tables_and_claim_lease():
+def test_all_d1_migrations_apply_in_order_without_duplicate_columns():
     db = sqlite3.connect(":memory:")
-    db.executescript(INITIAL)
+    migration_files = sorted(MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    assert migration_files, "No D1 migrations found"
+    for migration in migration_files:
+        db.executescript(migration.read_text(encoding="utf-8"))
+
     tables = {
         row[0] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -44,7 +48,8 @@ def test_initial_migration_has_expected_tables_and_claim_lease():
     assert {"update_id", "status", "claimed_at", "processed_at"} <= columns
 
 
-def test_no_production_database_identifier_is_embedded_in_staging_config():
+def test_staging_config_is_isolated_from_production_database():
     config = (ROOT / "wrangler.toml").read_text(encoding="utf-8")
     assert "fxi-telegram-assistant-stage" in config
+    assert "e702e0b0-3d89-4699-93e1-199b5c3c45be" in config
     assert "c31fe782-6cc2-41ff-a9a3-3e7504d3f319" not in config
