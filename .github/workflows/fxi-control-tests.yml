@@ -43,5 +43,9 @@ jobs:
         run: uv sync
       - name: Compile Python modules
         run: uv run python -m compileall -q .
+      - name: Smoke-test Cloudflare Worker imports and Aiogram model validation
+        run: |
+          uv run python -c "import sys; sys.path.insert(0, 'cloudflare-free'); import entry"
+          uv run python -c "from aiogram import Bot; from aiogram.types import Update; bot=Bot('123456:ABCDEF'); Update.model_validate({'update_id': 1}, context={'bot': bot}); print('Aiogram/Pydantic Worker smoke test: ok')"
       - name: Run panel security tests
         run: uv run pytest -q
