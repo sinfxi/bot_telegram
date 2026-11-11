@@ -776,3 +776,62 @@ body{
  .page.active{animation:none}
  *,*:before,*:after{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
 }
+
+
+/* FXI 2026 restrained command UI — graphite + one mint accent */
+:root{color-scheme:dark;--bg:#0b1014;--panel:#11191f;--panel2:#172229;--line:#29383f;--text:#e8efec;--muted:#9aa9a3;--mint:#a9ddc1;--green:#82c9a2;--accent:#a9ddc1;--accent2:#a9ddc1;--fxi-glass:#11191f}
+html{scroll-behavior:smooth}
+body{background:#0b1014!important;color:var(--text)}
+body:before{display:none!important}
+.layout{max-width:1680px;grid-template-columns:252px minmax(0,1fr);gap:14px;padding:14px}
+.side,.main{background:#10181e!important;border:1px solid #29383f!important;border-radius:18px!important;box-shadow:0 18px 48px #0003!important;backdrop-filter:none!important}
+.side{padding:19px;top:14px;height:calc(100vh - 28px)}
+.brand{border-color:#29383f!important}
+.logo{background:#a9ddc1!important;color:#102019!important;box-shadow:none!important}
+.logo:after{display:none!important}
+.brand b{color:#edf4f0!important;background:none!important;-webkit-text-fill-color:currentColor!important;letter-spacing:.4px}
+.brand small,.navlabel{color:#879891!important;letter-spacing:.5px}
+.nav button{color:#aab8b2!important;border:1px solid transparent!important;transform:none!important}
+.nav button:before{display:none!important}
+.nav button:hover,.nav button.active{background:#1b2b27!important;color:#c5ead5!important;border-color:#31483d!important;box-shadow:inset -2px 0 #a9ddc1!important}
+.sidefoot{background:#17241f!important;border:1px solid #31483d!important;color:#bfe5ce!important;box-shadow:none!important}
+.sidefoot p{color:#91a49a!important}
+.top{background:#10181e!important;border-color:#29383f!important;padding:20px 24px}
+.top h1{color:#edf4f0!important}.top p{color:#9aa9a3!important}
+.status{background:#192820!important;border-color:#354b3d!important;color:#bfe5ce!important;box-shadow:none!important}
+.content{padding:24px}
+.hero{background:#17241f!important;border:1px solid #31483d!important;border-radius:17px!important;box-shadow:none!important;padding:23px!important}
+.hero:before,.hero:after{display:none!important}
+.hero small{color:#a9ddc1!important;letter-spacing:1px}
+.hero h2{color:#edf4f0!important;font-size:22px}
+.hero p{color:#b2c0b9!important}
+.card,.provider,.listitem,.mini-stat,.conv-item{background:#141f25!important;border:1px solid #2b3b42!important;box-shadow:none!important}
+.card{border-radius:15px!important;padding:17px}
+.card:before{display:none!important}
+.card label,.mini-stat span{color:#a4b2ac!important}
+.num,.mini-stat b{color:#e7f1eb!important;text-shadow:none!important;font-variant-numeric:tabular-nums}
+.btn{background:#a9ddc1!important;color:#102019!important;box-shadow:none!important;border:1px solid #a9ddc1!important}
+.btn:hover{filter:brightness(1.04);transform:translateY(-1px)}
+.btn.secondary{background:#1b2b27!important;border-color:#385346!important;color:#c5ead5!important}
+.btn.danger{background:#382326!important;border-color:#674047!important;color:#f0b9bd!important}
+.field{background:#0d151a!important;border-color:#304149!important;color:#e8efec!important}
+.field:focus{border-color:#a9ddc1!important;box-shadow:0 0 0 3px #a9ddc122!important}
+.field::placeholder{color:#71827a!important}
+.notice{background:#17231f!important;border-color:#31483d!important;color:#c5d6cc!important}
+.notice:before{color:#a9ddc1!important;text-shadow:none!important}
+.badge{background:#1b2b27!important;border-color:#385346!important;color:#c5ead5!important}
+.badge.off{background:#302326!important;border-color:#674047!important;color:#f0b9bd!important}
+.conv-item.active{background:#1b2b27!important;border-color:#547662!important}
+.conv-thread{background:#0e171c!important;border-color:#2b3b42!important}
+.conv-msg.user{background:#1c3028!important;border-color:#385346!important}
+.conv-msg.assistant{background:#172229!important;border-color:#304149!important}
+.conv-msg small{color:#b9e5ca!important}
+.modal-backdrop{background:#05090dcc!important;backdrop-filter:blur(5px)}
+.modal-card{background:#111b20!important;border-color:#34483d!important;box-shadow:0 24px 70px #0008!important}
+.permission-option{background:#172229!important;border-color:#304149!important}
+.permission-option:has(input:checked){background:#1b2b27!important;border-color:#668d75!important}
+.broadcast-image-preview{background:#141f25!important;border-color:#304149!important}
+button:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid #a9ddc1!important;outline-offset:3px}
+@media(max-width:900px){.side{height:auto;position:static}.top{position:static}.layout{padding:9px}.content{padding:15px}}
+@media(max-width:560px){.layout{padding:6px}.side,.main{border-radius:14px!important}.content{padding:11px}.hero{padding:17px!important}.hero h2{font-size:19px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

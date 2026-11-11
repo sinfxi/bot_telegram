@@ -24,6 +24,7 @@ os.environ["SESSION_SECRET"] = "ci-session-secret-not-for-production"
 sys.path.insert(0, str(_PROJECT_DIR))
 
 import zeus_bot  # noqa: E402
+import panel_auth  # noqa: E402
 
 
 class NaturalLanguageIntentTests(unittest.TestCase):
@@ -52,6 +53,32 @@ class NaturalLanguageIntentTests(unittest.TestCase):
         for phrase, expected in cases.items():
             with self.subTest(phrase=phrase):
                 self.assertEqual(zeus_bot._natural_intent(phrase), expected)
+
+
+    def test_flood_messages_stop_before_ai_reply(self):
+        source = (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8")
+        flood_block = source.split("# Conservative anti-flood:", 1)[1].split("# Natural group assistant:", 1)[0]
+        self.assertIn("A flood message must never continue into AI replies", flood_block)
+        self.assertGreater(flood_block.rfind("return"), flood_block.rfind("except Exception"))
+
+
+class ManagerPermissionNormalizationTests(unittest.TestCase):
+    def test_permissions_are_filtered_and_dashboard_is_always_present(self):
+        allowed = {"dashboard", "community", "users", "admins"}
+        permissions = panel_auth._normalize_manager_permissions(
+            {"permissions": ["community", "admins", "unknown", None, {"bad": "value"}]},
+            allowed,
+        )
+        self.assertEqual(permissions, {"dashboard", "community"})
+
+    def test_malformed_permission_container_fails_back_to_dashboard_only(self):
+        allowed = {"dashboard", "community", "users"}
+        for malformed in ("community", None, 42, {"nested": "value"}):
+            with self.subTest(value=malformed):
+                self.assertEqual(
+                    panel_auth._normalize_manager_permissions({"permissions": malformed}, allowed),
+                    {"dashboard"},
+                )
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -158,16 +185,19 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('panelRole!==\'owner\'', script)
         self.assertIn('۲۵۶ مگابایت', html)
 
-    def test_manager_request_payload_requires_only_name_and_owner_invite_code(self):
-        payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
+    def test_manager_request_payload_requires_only_name_and_high_entropy_owner_invite(self):
+        invite = "A" * 43
+        payload = zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code=invite)
         self.assertEqual(payload.username, "ali_manager")
-        self.assertEqual(payload.invite_code, "4821")
+        self.assertEqual(payload.invite_code, invite)
         self.assertFalse(hasattr(payload, "telegram_id"))
         self.assertFalse(hasattr(payload, "permissions"))
         with self.assertRaises(ValidationError):
-            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="123")
+            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="4821")
         with self.assertRaises(ValidationError):
-            zeus_bot.ManagerRequestPayload(username="bad name", invite_code="1234")
+            zeus_bot.ManagerRequestPayload(username="ali_manager", invite_code="!" * 43)
+        with self.assertRaises(ValidationError):
+            zeus_bot.ManagerRequestPayload(username="bad name", invite_code=invite)
 
     def test_manager_request_is_name_and_invite_only_then_telegram_bind(self):
         panel = (_PROJECT_DIR / "static" / "admin.html").read_text(encoding="utf-8")
@@ -202,6 +232,47 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/audit"), "audit")
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/features"), "system")
         self.assertEqual(zeus_bot._permission_for_path("/admin/api/new-unmapped-route"), "__unmapped__")
+
+    def test_every_registered_admin_api_route_has_an_explicit_permission(self):
+        route_permissions = {
+            "/admin/api/audit": "audit",
+            "/admin/api/users/export": "users",
+            "/admin/api/users/123/block": "users",
+            "/admin/api/users/123/unblock": "users",
+            "/admin/api/community": "community",
+            "/admin/api/community/123/settings": "community",
+            "/admin/api/community/123/leave": "community",
+            "/admin/api/status": "dashboard",
+            "/admin/api/conversations": "conversations",
+            "/admin/api/conversations/123": "conversations",
+            "/admin/api/manager-invites": "admins",
+            "/admin/api/manager-invites/revoke": "admins",
+            "/admin/api/manager-requests": "admins",
+            "/admin/api/manager-requests/123/approve": "admins",
+            "/admin/api/manager-requests/123/reject": "admins",
+            "/admin/api/managers/example": "admins",
+            "/admin/api/managers/example/permissions": "admins",
+            "/admin/api/admins/123/permissions": "admins",
+            "/admin/api/features": "system",
+            "/admin/api/bot-state": "system",
+            "/admin/api/broadcast": "broadcast",
+            "/admin/api/prompt": "prompt",
+            "/admin/api/payments": "payments",
+            "/admin/api/payments/123/approve": "payments",
+            "/admin/api/metrics": "dashboard",
+        }
+        for path, expected in route_permissions.items():
+            with self.subTest(path=path):
+                self.assertEqual(zeus_bot._permission_for_path(path), expected)
+
+        # Newly introduced or misspelled endpoints must remain denied by default.
+        for path in (
+            "/admin/api/export-all",
+            "/admin/api/owner-settings",
+            "/admin/api/unknown/action",
+        ):
+            with self.subTest(unmapped_path=path):
+                self.assertEqual(zeus_bot._permission_for_path(path), "__unmapped__")
 
 
 if __name__ == "__main__":
