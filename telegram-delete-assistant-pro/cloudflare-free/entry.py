@@ -17,6 +17,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Statically import the real bot so Pywrangler includes it in the Worker bundle.
+# The admin HTML itself is served through the Workers ASSETS binding.
+_original_path_read_text = Path.read_text
+def _static_html_placeholder(self, *args, **kwargs):
+    if self == PROJECT_ROOT / "static" / "admin.html":
+        return ""
+    return _original_path_read_text(self, *args, **kwargs)
+
+Path.read_text = _static_html_placeholder
+try:
+    import zeus_bot as _module
+finally:
+    Path.read_text = _original_path_read_text
+
 _ENV_KEYS = (
     "ZEUS_BOT_TOKEN",
     "TELEGRAM_WEBHOOK_SECRET",
@@ -70,16 +84,37 @@ async def _load_application(env):
         os.environ["DATABASE_URL"] = ""
         os.environ.setdefault("ADMIN_PANEL_URL", "https://fxi-telegram-edge.fxi-media-engine.workers.dev")
 
-        _original_read_text = Path.read_text
-        def _worker_static_placeholder(self, *args, **kwargs):
-            if self == PROJECT_ROOT / "static" / "admin.html":
-                return ""
-            return _original_read_text(self, *args, **kwargs)
-        Path.read_text = _worker_static_placeholder
-        try:
-            module = importlib.import_module("zeus_bot")
-        finally:
-            Path.read_text = _original_read_text
+        module = _module
+        bot_token = _env_value(env, "ZEUS_BOT_TOKEN")
+        module.BOT_TOKEN = bot_token
+        module.SESSION_SERIALIZER = (
+            module.URLSafeTimedSerializer(bot_token, salt="fxi-web-session") if bot_token else None
+        )
+        module.ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "https://fxi-telegram-edge.fxi-media-engine.workers.dev").rstrip("/")
+        module.ADMIN_PANEL_USERNAME = os.getenv("ADMIN_PANEL_USERNAME", "fxi-admin").strip()
+        module.ADMIN_PANEL_PASSWORD = _env_value(env, "ADMIN_PANEL_PASSWORD").strip()
+        module.TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "The_fxi_bot").strip().lstrip("@")
+        module.SYSTEM_PROMPT = os.getenv("AI_SYSTEM_PROMPT", module.SYSTEM_PROMPT)
+        module.ADMIN_IDS = {
+            int(part.strip())
+            for part in _env_value(env, "ADMIN_IDS").replace(";", ",").split(",")
+            if part.strip().isdigit()
+        }
+        owner_id = _env_value(env, "OWNER_TELEGRAM_ID") or _env_value(env, "ZEUS_ADMIN_ID")
+        if owner_id.isdigit():
+            module.ADMIN_IDS.add(int(owner_id))
+        for admin_id in module.ADMIN_IDS:
+            if admin_id not in module.admin_data.setdefault("admins", []):
+                module.admin_data["admins"].append(admin_id)
+        module.PROVIDERS["openrouter"]["key"] = _env_value(env, "OPENROUTER_API_KEY").strip()
+        module.PROVIDERS["openrouter"]["model"] = os.getenv("OPENROUTER_MODEL", "openrouter/free").strip()
+        allowed_origins = [module.ADMIN_PANEL_URL, *os.getenv("ADMIN_ALLOWED_ORIGINS", "").split(",")]
+        module.ADMIN_ALLOWED_ORIGINS = {
+            f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+            for value in allowed_origins if value.strip()
+            for parsed in [module.urlsplit(value.strip())]
+            if parsed.scheme.lower() in {"http", "https"} and parsed.netloc
+        }
         module.DATABASE_URL = ""
         module.DATABASE_READY = False
         module.asyncio = _AsyncioWorkerFacade()
