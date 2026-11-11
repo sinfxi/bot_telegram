@@ -19,6 +19,13 @@ MAX_TEXT = 3500
 BOT_USERNAME = "The_fxi_bot"
 
 
+def _field(value, key: str, default=None):
+    try:
+        return value[key]
+    except Exception:
+        return getattr(value, key, default)
+
+
 def _json(payload: dict, status: int = 200) -> Response:
     return Response.json(payload, status=status, headers={"cache-control": "no-store"})
 
@@ -90,8 +97,8 @@ async def _history(db, chat_id: str) -> list[dict]:
     result = await db.prepare(
         "SELECT role, content FROM fxi_py_messages WHERE chat_id = ? ORDER BY id DESC LIMIT 12"
     ).bind(chat_id).all()
-    rows = result.get("results", [])
-    return list(reversed(rows))
+    rows = _field(result, "results", []) or []
+    return [{"role": _field(row, "role", ""), "content": _field(row, "content", "")} for row in reversed(list(rows))]
 
 
 async def _ai_reply(env, history: list[dict], prompt: str) -> str:
@@ -229,7 +236,7 @@ class Default(WorkerEntrypoint):
             inserted = await self.env.DB.prepare(
                 "INSERT OR IGNORE INTO fxi_py_updates(update_id) VALUES(?)"
             ).bind(update_id).run()
-            if (inserted.get("meta") or {}).get("changes", 0) == 0:
+            if _field(_field(inserted, "meta", {}), "changes", 0) == 0:
                 return _json({"ok": True, "duplicate": True})
             try:
                 await _handle_update(update, self.env, self.env.DB)
