@@ -54,6 +54,13 @@ class NaturalLanguageIntentTests(unittest.TestCase):
                 self.assertEqual(zeus_bot._natural_intent(phrase), expected)
 
 
+    def test_flood_messages_stop_before_ai_reply(self):
+        source = (_PROJECT_DIR / "zeus_bot.py").read_text(encoding="utf-8")
+        flood_block = source.split("# Conservative anti-flood:", 1)[1].split("# Natural group assistant:", 1)[0]
+        self.assertIn("A flood message must never continue into AI replies", flood_block)
+        self.assertGreater(flood_block.rfind("return"), flood_block.rfind("except Exception"))
+
+
 class ConfigurationTests(unittest.TestCase):
     def test_database_url_accepts_render_postgres_scheme_and_normalizes_it(self):
         self.assertEqual(
