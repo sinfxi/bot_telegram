@@ -3,7 +3,8 @@ name: FXI Control security and syntax tests
 on:
   push:
     branches:
-      - feature/telegram-delete-assistant
+      - feature/cloudflare-python-webhook-runtime
+      - feature/fxi-admin-owner-redesign
     paths:
       - "telegram-delete-assistant-pro/**"
       - ".github/workflows/fxi-control-tests.yml"
@@ -12,21 +13,15 @@ on:
       - "telegram-delete-assistant-pro/**"
       - ".github/workflows/fxi-control-tests.yml"
   workflow_dispatch:
-    inputs:
-      force_redeploy:
-        description: "Run a controlled Render deployment even when the panel is healthy"
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
-  group: fxi-control-recovery-${{ github.ref }}
-  cancel-in-progress: false
+  group: fxi-control-tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: telegram-delete-assistant-pro
@@ -36,134 +31,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: telegram-delete-assistant-pro/requirements.txt
+          python-version: "3.13"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: telegram-delete-assistant-pro/pyproject.toml
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest httpx
+        run: uv sync
       - name: Compile Python modules
-        run: python -m compileall -q .
+        run: uv run python -m compileall -q .
       - name: Run panel security tests
-        run: pytest -q
-
-      - name: Check panel and redeploy automatically when offline
-        if: github.event_name != 'pull_request'
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: srv-dbhkdtmc6qcc73flckgg
-          PANEL_URL: https://telegram-delete-assistant-pro.onrender.com
-          FORCE_REDEPLOY: ${{ inputs.force_redeploy || false }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          check_panel() {
-            local health login
-            health="$(curl -sSL --connect-timeout 8 --max-time 20 -o /dev/null -w '%{http_code}' "$PANEL_URL/health" || true)"
-            login="$(curl -sSL --connect-timeout 8 --max-time 20 -o /dev/null -w '%{http_code}' "$PANEL_URL/login" || true)"
-            echo "Panel probe: health=$health login=$login"
-            [[ "$health" == "200" && "$login" == "200" ]]
-          }
-
-          wait_for_panel() {
-            local attempts="$1" delay="$2" attempt
-            for ((attempt=1; attempt<=attempts; attempt++)); do
-              echo "Panel availability check $attempt/$attempts"
-              if check_panel; then return 0; fi
-              if (( attempt < attempts )); then sleep "$delay"; fi
-            done
-            return 1
-          }
-
-          if [[ "$FORCE_REDEPLOY" != "true" ]] && wait_for_panel 3 10; then
-            echo "FXI Control is healthy; no redeploy required."
-            exit 0
-          fi
-
-          if [[ "$FORCE_REDEPLOY" == "true" ]]; then
-            echo "::notice::Controlled deployment requested manually."
-          else
-            echo "::warning::FXI Control did not respond after repeated probes."
-          fi
-
-          if [[ -z "${RENDER_API_KEY:-}" ]]; then
-            echo "::error::RENDER_API_KEY is missing. Add it as a repository Actions secret."
-            exit 1
-          fi
-
-          request_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          deploy_response_file="$(mktemp)"
-          http_code="$(curl -sS --connect-timeout 10 --max-time 45 \
-            -o "$deploy_response_file" -w '%{http_code}' -X POST \
-            "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-            -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Accept: application/json" -H "Content-Type: application/json" \
-            -d '{"clearCache":"do_not_clear","deployMode":"build_and_deploy"}' || true)"
-
-          case "$http_code" in
-            200|201)
-              deploy_id="$(jq -r '.id // empty' "$deploy_response_file")"
-              ;;
-            202)
-              echo "Render accepted the request but queued it behind another deployment."
-              deploy_id=""
-              ;;
-            *)
-              echo "::error::Render deploy request failed (HTTP $http_code). Response:"
-              cat "$deploy_response_file"
-              rm -f "$deploy_response_file"
-              exit 1
-              ;;
-          esac
-          rm -f "$deploy_response_file"
-
-          # A 202 response can be queued without returning a deploy ID.
-          # Resolve the new deployment from the service's deploy history.
-          if [[ -z "$deploy_id" ]]; then
-            for attempt in {1..6}; do
-              deploy_list="$(curl -fsS --connect-timeout 10 --max-time 30 --get \
-                --data-urlencode "createdAfter=$request_started_at" \
-                --data-urlencode "limit=10" \
-                "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys" \
-                -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" || true)"
-              deploy_id="$(jq -r '.[0].deploy.id // empty' <<< "${deploy_list:-[]}" 2>/dev/null || true)"
-              [[ -n "$deploy_id" ]] && break
-              sleep 5
-            done
-          fi
-
-          if [[ -z "$deploy_id" ]]; then
-            echo "::error::Render accepted the request, but the queued deployment ID could not be resolved."
-            exit 1
-          fi
-          echo "Tracking Render deployment: $deploy_id"
-
-          deadline=$((SECONDS + 1200))
-          while (( SECONDS < deadline )); do
-            deploy_response="$(curl -fsS --connect-timeout 10 --max-time 30 \
-              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys/$deploy_id" \
-              -H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json" || true)"
-            status="$(jq -r '.status // "unknown"' <<< "${deploy_response:-{}}" 2>/dev/null || echo unknown)"
-            echo "Render deployment status: $status"
-
-            case "$status" in
-              live)
-                if wait_for_panel 6 10; then
-                  echo "FXI Control deployment is live; /health and /login both return HTTP 200."
-                  exit 0
-                fi
-                echo "::warning::Deployment is live, but the panel endpoints are not healthy yet."
-                ;;
-              build_failed|update_failed|pre_deploy_failed|canceled|deactivated)
-                echo "::error::Render deployment ended with status: $status"
-                exit 1
-                ;;
-            esac
-            sleep 15
-          done
-
-          echo "::error::FXI Control did not recover within 20 minutes."
-          exit 1
+        run: uv run pytest -q
