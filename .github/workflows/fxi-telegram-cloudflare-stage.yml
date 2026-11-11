@@ -26,7 +26,9 @@ jobs:
       - name: Install project and Workers SDK
         run: uv sync
       - name: Compile Worker
-        run: uv run python -m compileall -q src
+        run: uv run python -m compileall -q src tests
+      - name: Run runtime contract tests
+        run: uv run pytest -q
       - name: Validate D1 migration SQL
         run: |
           python - <<'PY'
