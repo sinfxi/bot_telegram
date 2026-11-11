@@ -6,8 +6,18 @@
 - شاخه مبنا: `feature/telegram-delete-assistant`
 - شاخه مهاجرت: `feature/cloudflare-free-webhook-migration`
 - مسیر برنامه فعلی: `telegram-delete-assistant-pro/`
-- دیتابیس Cloudflare موجود: `fxi_bot_prod` (شناسه در تنظیمات حساب Cloudflare؛ فعلاً ۰ جدول)
+- دیتابیس Cloudflare موجود: `fxi_bot_prod` (`c31fe782-6cc2-41ff-a9a0-3e7504d3f319`، منطقه قضایی `eu`). مهاجرت `0001` اجرا شده و ساختار D1 شامل `fxi_bot_state`، `fxi_chat_messages`، `fxi_community_messages`، `telegram_updates` و `schema_migrations` به‌همراه ایندکس‌هاست. پیش از تغییر، bookmark بازیابی ثبت شد. دیتابیس قبل از ایجاد schema هیچ جدول کاربردی یا داده ربات نداشت.
 - Workerهای موجود `bot-telegram` و `sinajs` هستند و نباید بدون بررسی/اجازه جداگانه تغییر کنند.
+
+## پیشرفت واقعی تا ۱۱ نوامبر ۲۰۲۶
+
+- [x] بررسی مستقیم دیتابیس `fxi_bot_prod` از طریق Cloudflare API؛ پیش از تغییر فقط جدول سیستمی `_cf_KV` وجود داشت.
+- [x] ثبت bookmark پیش از اعمال schema برای امکان بازگشت زمانی.
+- [x] اجرای موفق migration `0001` و ثبت آن در `schema_migrations`.
+- [x] همسان‌سازی `schema.sql` با عملیات واقعی ذخیره‌سازی در `zeus_bot.py` و ثبت فایل در همین شاخه.
+- [ ] تطبیق runtime برنامه با D1؛ کد فعلی هنوز از `psycopg` و SQL اختصاصی PostgreSQL استفاده می‌کند و به D1 متصل نشده است.
+- [ ] پیاده‌سازی Worker/webhook و انتقال handlerها، پنل‌ها و کارهای زمان‌بندی‌شده.
+- [ ] انتقال داده‌های production؛ فعلاً داده‌ای از PostgreSQL به D1 منتقل نشده است.
 
 ## یافته‌های فنی
 
