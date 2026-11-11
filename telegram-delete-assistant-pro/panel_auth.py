@@ -16,6 +16,25 @@ from starlette.background import BackgroundTask
 from itsdangerous import URLSafeTimedSerializer
 
 
+def _normalize_manager_permissions(record, allowed_permissions):
+    """Return a safe, minimal manager permission set from persisted state."""
+    if not isinstance(record, dict):
+        return {"dashboard"}
+    raw_permissions = record.get("permissions", ["dashboard"])
+    if not isinstance(raw_permissions, (list, tuple, set)):
+        raw_permissions = ["dashboard"]
+    allowed = {
+        permission for permission in allowed_permissions
+        if isinstance(permission, str) and permission != "admins"
+    }
+    permissions = {
+        permission for permission in raw_permissions
+        if isinstance(permission, str) and permission in allowed
+    }
+    permissions.add("dashboard")
+    return permissions
+
+
 def install_panel_auth(app, bot):
     secret = os.getenv("SESSION_SECRET", "").strip() or bot.BOT_TOKEN
     signer = URLSafeTimedSerializer(secret, salt="fxi-panel-session") if secret else None
@@ -30,7 +49,15 @@ def install_panel_auth(app, bot):
         stored = bot.admin_data.get("owner_telegram_id")
         if str(stored or "").isdigit() and int(stored) > 0:
             return int(stored)
-        configured = sorted(int(value) for value in getattr(bot, "ADMIN_IDS", set()) if int(value) > 0)
+        configured = set()
+        for value in getattr(bot, "ADMIN_IDS", set()):
+            try:
+                account_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if account_id > 0:
+                configured.add(account_id)
+        configured = sorted(configured)
         return configured[0] if len(configured) == 1 else 0
 
     login_attempts = defaultdict(list)
@@ -72,18 +99,18 @@ def install_panel_auth(app, bot):
                 "auth_type": "owner",
                 "permissions": sorted(bot.ADMIN_PERMISSIONS),
             }
-        token = request.cookies.get("fxi_admin_session", "")
-        session = decode(token)
-        if session.get("role") == "manager":
-            manager_name = str(session.get("manager", "")).strip().lower()
-            record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-            if manager_name and isinstance(record, dict) and record.get("enabled", True) and int(session.get("version", 0)) == int(record.get("session_version", 1)):
-                perms = set(record.get("permissions", ["dashboard"])).intersection(bot.ADMIN_PERMISSIONS) - {"admins"}
-                needed = bot._permission_for_path(request.url.path)
-                if needed not in perms:
-                    raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
-                return {"user_id": 0, "manager": manager_name, "auth_type": "manager_account", "permissions": sorted(perms)}
-        raise HTTPException(401, "ابتدا مدیر ربات وارد شود.")
+        manager_name, permissions = manager_record_for_request(request)
+        if not manager_name:
+            raise HTTPException(401, "ابتدا مدیر ربات وارد شود.")
+        needed = bot._permission_for_path(request.url.path)
+        if needed == "__unmapped__" or needed not in permissions:
+            raise HTTPException(403, "این قابلیت در سطح دسترسی فعلی شما فعال نیست.")
+        return {
+            "user_id": 0,
+            "manager": manager_name,
+            "auth_type": "manager_account",
+            "permissions": sorted(permissions),
+        }
 
     def require_owner(request: Request):
         if not is_root(request):
@@ -97,18 +124,8 @@ def install_panel_auth(app, bot):
     app.dependency_overrides[bot.require_admin] = require_admin
 
     def active_manager_name(request):
-        session = decode(request.cookies.get("fxi_admin_session", ""))
-        if session.get("role") != "manager":
-            return ""
-        manager_name = str(session.get("manager", "")).strip().lower()
-        record = bot.admin_data.get("panel_managers", {}).get(manager_name, {})
-        try:
-            valid_version = int(session.get("version", 0)) == int(record.get("session_version", 1))
-        except (TypeError, ValueError, AttributeError):
-            return ""
-        if manager_name and isinstance(record, dict) and record.get("enabled", True) and valid_version:
-            return manager_name
-        return ""
+        manager_name, _ = manager_record_for_request(request)
+        return manager_name or ""
 
     def manager_record_for_request(request):
         session = decode(request.cookies.get("fxi_admin_session", ""))
@@ -123,11 +140,7 @@ def install_panel_auth(app, bot):
                 return None, None
         except (TypeError, ValueError):
             return None, None
-        raw_permissions = record.get("permissions", ["dashboard"])
-        if not isinstance(raw_permissions, (list, tuple, set)):
-            raw_permissions = ["dashboard"]
-        permissions = set(raw_permissions).intersection(bot.ADMIN_PERMISSIONS) - {"admins"}
-        permissions.add("dashboard")
+        permissions = _normalize_manager_permissions(record, bot.ADMIN_PERMISSIONS)
         return manager_name, permissions
 
     @app.middleware("http")
