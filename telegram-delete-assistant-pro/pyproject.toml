@@ -15,4 +15,6 @@ dependencies = [
 dev = [
     "workers-py",
     "workers-runtime-sdk",
+    "pytest>=8,<9",
+    "httpx>=0.27,<1",
 ]
