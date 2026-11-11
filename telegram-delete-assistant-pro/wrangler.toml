@@ -2,6 +2,7 @@ name = "fxi-telegram-edge"
 main = "cloudflare-free/entry.py"
 compatibility_date = "2026-11-11"
 compatibility_flags = ["python_workers"]
+keep_vars = true
 
 [[d1_databases]]
 binding = "DB"
@@ -13,3 +14,11 @@ enabled = true
 
 [observability.traces]
 enabled = true
+
+[assets]
+directory = "./static"
+binding = "ASSETS"
+run_worker_first = true
+
+[python_modules]
+excludes = ["**/*.pyc", "**/__pycache__"]
