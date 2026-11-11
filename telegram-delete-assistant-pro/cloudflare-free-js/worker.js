@@ -159,6 +159,7 @@ export default {
         const me = await telegram(env, "getMe");
         const info = await telegram(env, "getWebhookInfo");
         const expectedUrl = new URL("/telegram/webhook", url.origin).toString();
+        if (info.url !== expectedUrl) { await telegram(env, "setWebhook", { url: expectedUrl, secret_token: env.TELEGRAM_WEBHOOK_SECRET, allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post"], drop_pending_updates: false }); }
         return json({ ready: true, telegram: "authenticated", bot_username: me.username || null, webhook: info.url === expectedUrl ? "configured" : "not_configured", pending_updates: info.pending_update_count ?? null, database: "connected", ai_configured: Boolean(env.OPENROUTER_API_KEY) });
       } catch (error) {
         console.error("readiness_failed", String(error));
