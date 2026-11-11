@@ -8,7 +8,7 @@ The Cloudflare runtime now has a Python Worker entrypoint that imports the exist
 - `POST /telegram/webhook` validates Telegram's secret header, deduplicates updates in D1, and calls `Dispatcher.feed_update()`.
 - `GET /ready` authenticates the bot with Telegram, checks D1, and configures the webhook only after the handler is loaded.
 - The bot's admin state and bounded AI conversation history are persisted as JSON in `fxi_bot_state` in D1. Community message logs remain bounded in that state document.
-- The existing PostgreSQL-only indexed archive endpoints are not enabled in this D1 runtime; the admin conversation views require D1-specific routes before they can be considered complete.
+- Admin conversation list/detail views read the D1-backed chat-history snapshot. The legacy PostgreSQL-indexed community archive/search endpoints are not yet fully ported; community logs currently use bounded D1-backed state records.
 - No Render polling, Render keepalive, or Cron Trigger is used.
 
 ## Build and deploy
