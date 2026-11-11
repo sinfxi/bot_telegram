@@ -10,26 +10,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-import asgi
 from workers import WorkerEntrypoint
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-# Statically import the real bot so Pywrangler includes it in the Worker bundle.
-# The admin HTML itself is served through the Workers ASSETS binding.
-_original_path_read_text = Path.read_text
-def _static_html_placeholder(self, *args, **kwargs):
-    if self.name == "admin.html" and self.parent.name == "static":
-        return ""
-    return _original_path_read_text(self, *args, **kwargs)
-
-Path.read_text = _static_html_placeholder
-try:
-    import zeus_bot as _module
-finally:
-    Path.read_text = _original_path_read_text
 
 _ENV_KEYS = (
     "ZEUS_BOT_TOKEN",
@@ -49,7 +34,7 @@ _ENV_KEYS = (
 )
 _bootstrap_lock = asyncio.Lock()
 _request_lock = asyncio.Lock()
-_module = None
+_bot_module = None
 
 
 class _AsyncioWorkerFacade:
@@ -71,13 +56,13 @@ def _env_value(env, key: str) -> str:
 
 
 async def _load_application(env):
-    global _module
-    if _module is not None:
-        return _module
+    global _bot_module
+    if _bot_module is not None:
+        return _bot_module
 
     async with _bootstrap_lock:
-        if _module is not None:
-            return _module
+        if _bot_module is not None:
+            return _bot_module
 
         for key in _ENV_KEYS:
             value = _env_value(env, key)
@@ -88,7 +73,21 @@ async def _load_application(env):
         os.environ["DATABASE_URL"] = ""
         os.environ.setdefault("ADMIN_PANEL_URL", "https://fxi-telegram-edge.fxi-media-engine.workers.dev")
 
-        module = _module
+        module_dir = str(Path(__file__).resolve().parent)
+        if module_dir not in sys.path:
+            sys.path.insert(0, module_dir)
+        original_read_text = Path.read_text
+
+        def static_html_placeholder(self, *args, **kwargs):
+            if self.name == "admin.html" and self.parent.name == "static":
+                return ""
+            return original_read_text(self, *args, **kwargs)
+
+        Path.read_text = static_html_placeholder
+        try:
+            module = importlib.import_module("zeus_bot")
+        finally:
+            Path.read_text = original_read_text
         bot_token = _env_value(env, "ZEUS_BOT_TOKEN")
         module.BOT_TOKEN = bot_token
         module.SESSION_SERIALIZER = (
@@ -468,11 +467,12 @@ document.getElementById("requestForm").addEventListener("submit",async e=>{
         module.app.router.routes.insert(0, APIRoute("/ready", readiness, methods=["GET"]))
         module.app.router.routes.insert(0, APIRoute("/health", health, methods=["GET"]))
 
-        _module = module
+        _bot_module = module
         return module
 
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
         app_module = await _load_application(self.env)
+        import asgi
         return await asgi.fetch(app_module.app, request, self.env)
