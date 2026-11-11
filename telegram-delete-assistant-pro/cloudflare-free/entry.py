@@ -178,7 +178,7 @@ async def _load_application(env):
                 module._cloudflare_d1 = db
                 await ensure_schema(db)
                 row = await db.prepare("SELECT data FROM fxi_bot_state WHERE id = 1").first()
-                if row and row.get("data"):
+                if row and row["data"]:
                     try:
                         saved = json.loads(row["data"])
                         if isinstance(saved, dict):
@@ -267,7 +267,7 @@ async def _load_application(env):
             saved_update = await db.prepare(
                 "SELECT status FROM telegram_updates WHERE update_id = ?"
             ).bind(update_id).first()
-            if saved_update and saved_update.get("status") == "processed":
+            if saved_update and saved_update["status"] == "processed":
                 return {"ok": True, "duplicate": True}
 
             try:
