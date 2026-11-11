@@ -6,6 +6,7 @@ on:
       - feature/cloudflare-python-webhook-runtime
     paths:
       - ".github/workflows/cloudflare-smoke.yml"
+      - "telegram-delete-assistant-pro/cloudflare-free/entry.py"
   workflow_dispatch:
 
 concurrency:
