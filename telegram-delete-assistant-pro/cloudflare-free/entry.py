@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # The admin HTML itself is served through the Workers ASSETS binding.
 _original_path_read_text = Path.read_text
 def _static_html_placeholder(self, *args, **kwargs):
-    if self == PROJECT_ROOT / "static" / "admin.html":
+    if self.name == "admin.html" and self.parent.name == "static" and self.parent.parent == PROJECT_ROOT:
         return ""
     return _original_path_read_text(self, *args, **kwargs)
 
