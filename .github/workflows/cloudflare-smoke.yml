@@ -1,0 +1,36 @@
+name: FXI Cloudflare production smoke test
+
+on:
+  push:
+    branches:
+      - feature/cloudflare-python-webhook-runtime
+    paths:
+      - ".github/workflows/cloudflare-smoke.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: fxi-cloudflare-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WORKER_URL: https://fxi-telegram-edge.fxi-media-engine.workers.dev
+    steps:
+      - name: Check Worker and D1 health
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --retry 10 --retry-delay 5 --retry-connrefused "$WORKER_URL/health"
+          echo
+      - name: Authenticate bot and register Telegram webhook
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --retry 5 --retry-delay 3 --retry-connrefused "$WORKER_URL/ready"
+          echo
+      - name: Verify health after webhook registration
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent "$WORKER_URL/health"
+          echo
