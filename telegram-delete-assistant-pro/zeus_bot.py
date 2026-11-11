@@ -2157,6 +2157,8 @@ async def collect_community_message(message: Message):
                 save_admin_data()
             except Exception:
                 log.warning("Anti-flood could not delete/restrict message in chat=%s", message.chat.id)
+            # A flood message must never continue into AI replies or other handlers.
+            return
 
     # Natural group assistant: respond only when explicitly addressed, never to every message.
     if message.chat.type in {"group", "supergroup"} and message.from_user and not message.from_user.is_bot and text_value:
