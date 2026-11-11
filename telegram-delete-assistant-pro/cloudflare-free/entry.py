@@ -1,0 +1,302 @@
+from __future__ import annotations
+
+import asyncio
+import hmac
+import importlib
+import json
+import os
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+import asgi
+from workers import WorkerEntrypoint
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+_ENV_KEYS = (
+    "ZEUS_BOT_TOKEN",
+    "TELEGRAM_WEBHOOK_SECRET",
+    "OPENROUTER_API_KEY",
+    "ADMIN_IDS",
+    "ADMIN_PANEL_PASSWORD",
+    "ADMIN_PANEL_USERNAME",
+    "OPENROUTER_MODEL",
+    "AI_SYSTEM_PROMPT",
+    "ZEUS_ADMIN_ID",
+    "OWNER_TELEGRAM_ID",
+)
+_bootstrap_lock = asyncio.Lock()
+_request_lock = asyncio.Lock()
+_module = None
+
+
+class _AsyncioWorkerFacade:
+    """Replace thread offloading with inline calls; Workers Python has no usable threads."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(asyncio, name)
+
+    async def to_thread(self, func, /, *args, **kwargs):
+        return func(*args, **kwargs)
+
+
+def _env_value(env, key: str) -> str:
+    try:
+        value = getattr(env, key)
+    except Exception:
+        value = None
+    return str(value) if value is not None else ""
+
+
+async def _load_application(env):
+    global _module
+    if _module is not None:
+        return _module
+
+    async with _bootstrap_lock:
+        if _module is not None:
+            return _module
+
+        for key in _ENV_KEYS:
+            value = _env_value(env, key)
+            if value:
+                os.environ[key] = value
+
+        os.environ["FXI_DEPLOYMENT_PLATFORM"] = "Cloudflare Workers"
+        os.environ["DATABASE_URL"] = ""
+        os.environ.setdefault("ADMIN_PANEL_URL", "https://fxi-telegram-edge.fxi-media-engine.workers.dev")
+
+        module = importlib.import_module("zeus_bot")
+        module.DATABASE_URL = ""
+        module.DATABASE_READY = False
+        module.asyncio = _AsyncioWorkerFacade()
+        module._cloudflare_state_dirty = False
+        module._cloudflare_d1 = None
+
+        def mark_state_dirty() -> None:
+            module.prune_ephemeral_admin_state()
+            module._cloudflare_state_dirty = True
+
+        module.save_admin_data = mark_state_dirty
+
+        @asynccontextmanager
+        async def no_process_lifespan(_app):
+            # Cloudflare Workers are request-driven; never start Aiogram polling or
+            # long-running watchdog tasks. Telegram updates enter through feed_update.
+            yield
+
+        module.app.router.lifespan_context = no_process_lifespan
+
+        async def persistent_ask_ai(user_id: int, provider_id: str, user_text: str) -> str:
+            if provider_id != "openrouter" or provider_id not in module.PROVIDERS:
+                return "⚠️ در این نسخه فقط OpenRouter قابل استفاده است."
+            if not module.feature_enabled("ai_chat"):
+                return "⛔ پاسخ‌گویی هوشمند توسط مدیر غیرفعال شده است."
+            if not module.provider_ready(provider_id):
+                return "🔒 OpenRouter فعال نیست؛ مدیر باید OPENROUTER_API_KEY را تنظیم کند."
+
+            key = (int(user_id), provider_id)
+            async with module.history_locks[key]:
+                history_key = f"{int(user_id)}:{provider_id}"
+                all_histories = module.admin_data.setdefault("chat_histories", {})
+                history = all_histories.setdefault(history_key, [])
+                try:
+                    status, data = await module.ask_compatible(provider_id, history, user_text)
+                    if status >= 400:
+                        return module.api_error(provider_id, status, data)
+                    answer = module.extract_answer(provider_id, data)
+                    if not answer:
+                        return "⚠️ سرویس OpenRouter پاسخ خالی برگرداند؛ مدل و تنظیمات API را بررسی کن."
+                    history.extend([
+                        {"role": "user", "content": user_text},
+                        {"role": "assistant", "content": answer},
+                    ])
+                    del history[:-module.MAX_HISTORY_MESSAGES]
+                    module.histories[key] = history
+                    module.save_admin_data()
+                    return answer
+                except asyncio.TimeoutError:
+                    return "⏳ سرویس OpenRouter پاسخ نداد؛ دوباره تلاش کن."
+                except Exception:
+                    module.log.exception("Cloudflare persistent AI request failed")
+                    return "⚠️ هنگام استفاده از OpenRouter خطایی رخ داد؛ کمی بعد دوباره تلاش کن."
+
+        module.ask_ai = persistent_ask_ai
+
+        from fastapi import Request
+        from fastapi.responses import JSONResponse
+        from fastapi.routing import APIRoute
+        from aiogram import Bot
+        from aiogram.client.default import DefaultBotProperties
+        from aiogram.types import Update
+        import aiohttp
+
+        async def ensure_schema(db) -> None:
+            await db.prepare(
+                "CREATE TABLE IF NOT EXISTS fxi_bot_state "
+                "(id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            ).run()
+            await db.prepare(
+                "CREATE TABLE IF NOT EXISTS telegram_updates "
+                "(update_id INTEGER PRIMARY KEY, payload_json TEXT NOT NULL, "
+                "status TEXT NOT NULL DEFAULT 'received', attempts INTEGER NOT NULL DEFAULT 0, "
+                "received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TEXT, last_error TEXT)"
+            ).run()
+
+        async def ensure_bot() -> None:
+            if module.bot is not None:
+                return
+            token = module.BOT_TOKEN
+            if not token:
+                raise RuntimeError("ZEUS_BOT_TOKEN is not configured")
+            module.bot = Bot(token, default=DefaultBotProperties(parse_mode=None))
+            me = await module.bot.get_me()
+            if me.username:
+                module.TELEGRAM_BOT_USERNAME = me.username.lstrip("@")
+            if module.HTTP_SESSION is None or module.HTTP_SESSION.closed:
+                module.HTTP_SESSION = aiohttp.ClientSession(timeout=module.REQUEST_TIMEOUT)
+            # The existing admin metrics endpoint uses this polling-task sentinel.
+            class WebhookActive:
+                @staticmethod
+                def done():
+                    return False
+            module.polling_task = WebhookActive()
+
+        @module.app.middleware("http")
+        async def persist_d1_state(request: Request, call_next):
+            env_obj = request.scope.get("env")
+            db = getattr(env_obj, "DB", None) if env_obj is not None else None
+            if db is None:
+                return JSONResponse({"ok": False, "error": "d1_binding_unavailable"}, status_code=503)
+
+            async with _request_lock:
+                module._cloudflare_d1 = db
+                await ensure_schema(db)
+                row = await db.prepare("SELECT data FROM fxi_bot_state WHERE id = 1").first()
+                if row and row.get("data"):
+                    try:
+                        saved = json.loads(row["data"])
+                        if isinstance(saved, dict):
+                            module.admin_data.clear()
+                            module.admin_data.update(saved)
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        return JSONResponse({"ok": False, "error": "state_record_invalid"}, status_code=503)
+                else:
+                    module._cloudflare_state_dirty = True
+
+                module.bot_enabled = bool(module.admin_data.get("bot_enabled", True))
+                module._cloudflare_state_dirty = False
+                try:
+                    response = await call_next(request)
+                except Exception:
+                    await flush_state(db)
+                    raise
+                await flush_state(db)
+                return response
+
+        async def flush_state(db) -> None:
+            if not module._cloudflare_state_dirty:
+                return
+            serialized = json.dumps(module.admin_data, ensure_ascii=False, separators=(",", ":"), default=str)
+            await db.prepare(
+                "INSERT INTO fxi_bot_state (id, data, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = CURRENT_TIMESTAMP"
+            ).bind(serialized).run()
+            module._cloudflare_state_dirty = False
+
+        async def health(_request: Request):
+            try:
+                await module._cloudflare_d1.prepare("SELECT 1 AS ok").first()
+                return {"ok": True, "service": "fxi-telegram-edge", "database": "connected"}
+            except Exception:
+                return JSONResponse({"ok": False, "database": "unavailable"}, status_code=503)
+
+        async def readiness(request: Request):
+            try:
+                await ensure_bot()
+                db = module._cloudflare_d1
+                await db.prepare("SELECT 1 AS ok").first()
+                secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+                if not secret:
+                    raise RuntimeError("TELEGRAM_WEBHOOK_SECRET is not configured")
+                webhook_url = str(request.base_url).rstrip("/") + "/telegram/webhook"
+                await module.bot.set_webhook(
+                    url=webhook_url,
+                    secret_token=secret,
+                    allowed_updates=module.dp.resolve_used_update_types(),
+                    drop_pending_updates=False,
+                )
+                return {
+                    "ok": True,
+                    "ready": True,
+                    "telegram": "authenticated",
+                    "webhook": "configured",
+                    "database": "connected",
+                    "ai_configured": module.provider_ready("openrouter"),
+                }
+            except Exception as exc:
+                module.log.exception("Cloudflare readiness check failed")
+                return JSONResponse(
+                    {"ok": False, "ready": False, "reason": type(exc).__name__},
+                    status_code=503,
+                )
+
+        async def telegram_webhook(request: Request):
+            expected = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+            supplied = request.headers.get("x-telegram-bot-api-secret-token", "")
+            if not expected or not hmac.compare_digest(supplied, expected):
+                return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+
+            try:
+                payload = await request.json()
+            except Exception:
+                return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+            update_id = payload.get("update_id") if isinstance(payload, dict) else None
+            if not isinstance(update_id, int) or update_id < 0:
+                return JSONResponse({"ok": False, "error": "invalid_update_id"}, status_code=400)
+
+            db = module._cloudflare_d1
+            await db.prepare(
+                "INSERT OR IGNORE INTO telegram_updates (update_id, payload_json, status) VALUES (?, ?, 'received')"
+            ).bind(update_id, json.dumps(payload, ensure_ascii=False, separators=(",", ":"))).run()
+            saved_update = await db.prepare(
+                "SELECT status FROM telegram_updates WHERE update_id = ?"
+            ).bind(update_id).first()
+            if saved_update and saved_update.get("status") == "processed":
+                return {"ok": True, "duplicate": True}
+
+            try:
+                await ensure_bot()
+                update = Update.model_validate(payload, context={"bot": module.bot})
+                await module.dp.feed_update(module.bot, update)
+                await db.prepare(
+                    "UPDATE telegram_updates SET status = 'processed', processed_at = CURRENT_TIMESTAMP, "
+                    "last_error = NULL WHERE update_id = ?"
+                ).bind(update_id).run()
+                return {"ok": True, "processed": True}
+            except Exception as exc:
+                module.log.exception("Telegram webhook update failed: update_id=%s", update_id)
+                await db.prepare(
+                    "UPDATE telegram_updates SET status = 'failed', attempts = attempts + 1, last_error = ? "
+                    "WHERE update_id = ?"
+                ).bind(type(exc).__name__, update_id).run()
+                return JSONResponse({"ok": False, "error": "update_processing_failed"}, status_code=500)
+
+        # Put Cloudflare-specific routes before the legacy readiness/health handlers.
+        module.app.router.routes.insert(0, APIRoute("/telegram/webhook", telegram_webhook, methods=["POST"]))
+        module.app.router.routes.insert(0, APIRoute("/ready", readiness, methods=["GET"]))
+        module.app.router.routes.insert(0, APIRoute("/health", health, methods=["GET"]))
+
+        _module = module
+        return module
+
+
+class Default(WorkerEntrypoint):
+    async def fetch(self, request):
+        app_module = await _load_application(self.env)
+        return await asgi.fetch(app_module.app, request, self.env)
