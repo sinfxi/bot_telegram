@@ -24,6 +24,7 @@ os.environ["SESSION_SECRET"] = "ci-session-secret-not-for-production"
 sys.path.insert(0, str(_PROJECT_DIR))
 
 import zeus_bot  # noqa: E402
+import panel_auth  # noqa: E402
 
 
 class NaturalLanguageIntentTests(unittest.TestCase):
@@ -59,6 +60,25 @@ class NaturalLanguageIntentTests(unittest.TestCase):
         flood_block = source.split("# Conservative anti-flood:", 1)[1].split("# Natural group assistant:", 1)[0]
         self.assertIn("A flood message must never continue into AI replies", flood_block)
         self.assertGreater(flood_block.rfind("return"), flood_block.rfind("except Exception"))
+
+
+class ManagerPermissionNormalizationTests(unittest.TestCase):
+    def test_permissions_are_filtered_and_dashboard_is_always_present(self):
+        allowed = {"dashboard", "community", "users", "admins"}
+        permissions = panel_auth._normalize_manager_permissions(
+            {"permissions": ["community", "admins", "unknown", None, {"bad": "value"}]},
+            allowed,
+        )
+        self.assertEqual(permissions, {"dashboard", "community"})
+
+    def test_malformed_permission_container_fails_back_to_dashboard_only(self):
+        allowed = {"dashboard", "community", "users"}
+        for malformed in ("community", None, 42, {"nested": "value"}):
+            with self.subTest(value=malformed):
+                self.assertEqual(
+                    panel_auth._normalize_manager_permissions({"permissions": malformed}, allowed),
+                    {"dashboard"},
+                )
 
 
 class ConfigurationTests(unittest.TestCase):
