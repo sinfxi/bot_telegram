@@ -476,10 +476,10 @@ class Default(WorkerEntrypoint):
         if request.method == "GET" and request.url.split("?", 1)[0].rstrip("/").endswith("/health"):
             try:
                 await self.env.DB.prepare("SELECT 1 AS ok").first()
-                payload = {"ok": True, "service": "fxi-telegram-edge", "database": "connected"}
+                payload = {"ok": True, "status": "infrastructure_only", "bot_ready": False, "service": "fxi-telegram-edge", "database": "connected"}
                 return Response(json.dumps(payload), headers={"content-type": "application/json", "cache-control": "no-store"})
             except Exception:
-                payload = {"ok": False, "database": "unavailable"}
+                payload = {"ok": False, "status": "unavailable", "bot_ready": False, "database": "unavailable"}
                 return Response(json.dumps(payload), status=503, headers={"content-type": "application/json", "cache-control": "no-store"})
 
         app_module = await _load_application(self.env)
