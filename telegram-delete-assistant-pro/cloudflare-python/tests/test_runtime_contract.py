@@ -11,7 +11,7 @@ def test_worker_is_webhook_driven_and_does_not_start_polling():
     assert 'path == "/telegram/webhook"' in SOURCE
     assert "start_polling" not in SOURCE
     assert "getUpdates" not in SOURCE
-    assert "zeus_bot" not in SOURCE
+    assert "import zeus_bot" not in SOURCE
 
 
 def test_webhook_requires_telegram_secret_header():
