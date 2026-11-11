@@ -1,5 +1,6 @@
 from pathlib import Path
 import sqlite3
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
@@ -11,7 +12,7 @@ def test_worker_is_webhook_driven_and_does_not_start_polling():
     assert 'path == "/telegram/webhook"' in SOURCE
     assert "start_polling" not in SOURCE
     assert "getUpdates" not in SOURCE
-    assert "import zeus_bot" not in SOURCE
+    assert not re.search(r"^\\s*(?:from\\s+zeus_bot|import\\s+zeus_bot)", SOURCE, re.MULTILINE)
 
 
 def test_webhook_requires_telegram_secret_header():
