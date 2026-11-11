@@ -79,8 +79,16 @@ async function answerWithAI(env, history, userText, chatType) {
   return cleanText(data.choices?.[0]?.message?.content || "الان نتونستم پاسخ مناسبی بسازم.", 3800);
 }
 async function handleMessage(update, env, db) {
-  const message = update.message ?? update.edited_message;
-  if (!message?.chat || !message.from || message.from.is_bot) return;
+  const message = update.message ?? update.edited_message ?? update.channel_post ?? update.edited_channel_post;
+  if (!message?.chat || message.from?.is_bot) return;
+  if (update.channel_post || update.edited_channel_post) {
+    const channelText = cleanText(message.text ?? message.caption);
+    if (channelText) {
+      await db.prepare("CREATE TABLE IF NOT EXISTS fxi_js_channel_posts (chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, content TEXT NOT NULL, posted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(chat_id,message_id))").run();
+      await db.prepare("INSERT INTO fxi_js_channel_posts(chat_id,message_id,content) VALUES(?,?,?) ON CONFLICT(chat_id,message_id) DO UPDATE SET content=excluded.content").bind(String(message.chat.id), message.message_id, channelText).run();
+    }
+    return;
+  }
   const text = cleanText(message.text ?? message.caption);
   if (!text) return;
   const chatId = message.chat.id;
@@ -147,20 +155,28 @@ export default {
     if (request.method === "GET" && url.pathname === "/ready") {
       try {
         if (!env.ZEUS_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) throw new Error("telegram_secrets_missing");
-        await ensureSchema(env.DB);
+        await env.DB.prepare("SELECT 1").first();
         const me = await telegram(env, "getMe");
-        const webhookUrl = new URL("/telegram/webhook", url.origin).toString();
-        await telegram(env, "setWebhook", {
-          url: webhookUrl,
-          secret_token: env.TELEGRAM_WEBHOOK_SECRET,
-          allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post"],
-          drop_pending_updates: false
-        });
-        return json({ ready: true, telegram: "authenticated", bot_username: me.username || null,
-          webhook: "configured", database: "connected", ai_configured: Boolean(env.OPENROUTER_API_KEY) });
+        const info = await telegram(env, "getWebhookInfo");
+        const expectedUrl = new URL("/telegram/webhook", url.origin).toString();
+        return json({ ready: true, telegram: "authenticated", bot_username: me.username || null, webhook: info.url === expectedUrl ? "configured" : "not_configured", pending_updates: info.pending_update_count ?? null, database: "connected", ai_configured: Boolean(env.OPENROUTER_API_KEY) });
       } catch (error) {
         console.error("readiness_failed", String(error));
         return json({ ready: false, reason: String(error).includes("telegram_secrets_missing") ? "telegram_secrets_missing" : "telegram_or_database_unavailable" }, 503);
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/admin/register-webhook") {
+      const expected = env.ADMIN_PANEL_PASSWORD || "";
+      if (!expected || request.headers.get("authorization") !== "Bearer " + expected) return json({ ok: false }, 401);
+      try {
+        await ensureSchema(env.DB);
+        const me = await telegram(env, "getMe");
+        const webhookUrl = new URL("/telegram/webhook", url.origin).toString();
+        await telegram(env, "setWebhook", { url: webhookUrl, secret_token: env.TELEGRAM_WEBHOOK_SECRET, allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post"], drop_pending_updates: false });
+        return json({ ok: true, bot_username: me.username || null, webhook: "configured" });
+      } catch (error) {
+        console.error("webhook_registration_failed", String(error));
+        return json({ ok: false, error: "registration_failed" }, 503);
       }
     }
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
