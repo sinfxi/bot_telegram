@@ -10,28 +10,19 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: fxi-cloudflare-production-smoke
+  group: fxi-cloudflare-infrastructure-smoke
   cancel-in-progress: false
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     env:
       WORKER_URL: https://fxi-telegram-edge.fxi-media-engine.workers.dev
     steps:
-      - name: Check Worker and D1 health
+      - name: Check Worker and D1 health (bot remains explicitly not-ready)
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --max-time 20 --max-time 45 --retry 2 --retry-delay 3 --retry-connrefused "$WORKER_URL/health"
-          echo
-      - name: Authenticate bot and register Telegram webhook
-        run: |
-          set -euo pipefail
-          curl --fail --show-error --silent --retry 5 --retry-delay 3 --retry-connrefused "$WORKER_URL/ready"
-          echo
-      - name: Verify health after webhook registration
-        run: |
-          set -euo pipefail
-          curl --fail --show-error --silent "$WORKER_URL/health"
-          echo
+          response="$(curl --fail --show-error --silent --max-time 20 --retry 5 --retry-delay 3 --retry-connrefused "$WORKER_URL/health")"
+          echo "$response"
+          echo "$response" | jq -e '.ok == true and .database == "connected" and .bot_ready == false and .status == "infrastructure_only"'
