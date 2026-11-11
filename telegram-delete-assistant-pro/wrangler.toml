@@ -1,6 +1,6 @@
 name = "fxi-telegram-edge"
 main = "cloudflare-free/entry.py"
-compatibility_date = "2026-11-11"
+compatibility_date = "2026-09-07"
 compatibility_flags = ["python_workers"]
 keep_vars = true
 
