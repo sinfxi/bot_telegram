@@ -20,5 +20,8 @@ directory = "./static"
 binding = "ASSETS"
 run_worker_first = true
 
+[limits]
+cpu_ms = 30000
+
 [python_modules]
 excludes = ["**/*.pyc", "**/__pycache__"]
