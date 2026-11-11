@@ -15,9 +15,23 @@
 - [x] ثبت bookmark پیش از اعمال schema برای امکان بازگشت زمانی.
 - [x] اجرای موفق migration `0001` و ثبت آن در `schema_migrations`.
 - [x] همسان‌سازی `schema.sql` با عملیات واقعی ذخیره‌سازی در `zeus_bot.py` و ثبت فایل در همین شاخه.
+- [x] ایجاد اسکلت Worker مستقل `fxi-telegram-edge` در مسیر `cloudflare-free/worker/`؛ Workerهای موجود `bot-telegram` و `sinajs` دست‌نخورده باقی ماندند.
+- [x] افزودن endpointهای `/health` و `/ready` برای بررسی اتصال D1 و نسخه schema.
+- [x] افزودن ورودی webhook آزمایشی با اعتبارسنجی `X-Telegram-Bot-Api-Secret-Token`، محدودیت اندازه payload، کنترل `update_id` و ثبت idempotent در `telegram_updates`.
 - [ ] تطبیق runtime برنامه با D1؛ کد فعلی هنوز از `psycopg` و SQL اختصاصی PostgreSQL استفاده می‌کند و به D1 متصل نشده است.
-- [ ] پیاده‌سازی Worker/webhook و انتقال handlerها، پنل‌ها و کارهای زمان‌بندی‌شده.
+- [ ] اجرای Worker و افزودن Secret واقعی؛ Worker هنوز deploy نشده و webhook اصلی تلگرام به آن متصل نیست.
+- [ ] اتصال handlerهای واقعی aiogram، پنل‌ها و کارهای زمان‌بندی‌شده به runtime جدید.
 - [ ] انتقال داده‌های production؛ فعلاً داده‌ای از PostgreSQL به D1 منتقل نشده است.
+
+## پیشرفت مرحله بعد — Worker پایه
+
+فایل‌های جدید در شاخه مهاجرت:
+
+- `cloudflare-free/worker/src/index.ts`
+- `cloudflare-free/worker/wrangler.toml`
+- `cloudflare-free/worker/README.md`
+
+این Worker صرفاً دریافت پایدار update را پیاده می‌کند و هنوز handlerهای ربات را اجرا نمی‌کند. این مرز عمداً حفظ شده تا پیام‌های کاربران با پاسخ موفق Telegram گم نشوند و ربات اصلی پیش از آماده‌شدن مسیر کامل تغییر webhook ندهد.
 
 ## یافته‌های فنی
 
