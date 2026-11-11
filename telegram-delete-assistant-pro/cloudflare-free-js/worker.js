@@ -145,8 +145,23 @@ export default {
       }
     }
     if (request.method === "GET" && url.pathname === "/ready") {
-      const configured = Boolean(env.ZEUS_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET && env.OPENROUTER_API_KEY);
-      return json({ ready: configured, telegram_configured: Boolean(env.ZEUS_BOT_TOKEN), ai_configured: Boolean(env.OPENROUTER_API_KEY), webhook_configured: false }, configured ? 200 : 503);
+      try {
+        if (!env.ZEUS_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) throw new Error("telegram_secrets_missing");
+        await ensureSchema(env.DB);
+        const me = await telegram(env, "getMe");
+        const webhookUrl = new URL("/telegram/webhook", url.origin).toString();
+        await telegram(env, "setWebhook", {
+          url: webhookUrl,
+          secret_token: env.TELEGRAM_WEBHOOK_SECRET,
+          allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post"],
+          drop_pending_updates: false
+        });
+        return json({ ready: true, telegram: "authenticated", bot_username: me.username || null,
+          webhook: "configured", database: "connected", ai_configured: Boolean(env.OPENROUTER_API_KEY) });
+      } catch (error) {
+        console.error("readiness_failed", String(error));
+        return json({ ready: false, reason: String(error).includes("telegram_secrets_missing") ? "telegram_secrets_missing" : "telegram_or_database_unavailable" }, 503);
+      }
     }
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
       const expected = env.TELEGRAM_WEBHOOK_SECRET || "";
