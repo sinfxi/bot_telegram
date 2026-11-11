@@ -64,3 +64,6 @@ uv run pywrangler deploy
 - `CLOUDFLARE_ACCOUNT_ID`: شناسه حساب Cloudflare که Worker staging در آن ساخته می‌شود.
 
 خطای Wrangler با کد `10000` در اجرای CI قبلی نشان داد توکن فعلی برای درخواست metadata/deploy مجوز کافی ندارد یا حساب را نمی‌تواند resolve کند. توکن را در چت یا Git ثبت نکنید؛ فقط در GitHub Actions Secrets ذخیره کنید. پس از اصلاح مجوزها، workflow را دوباره اجرا کنید.
+
+
+<!-- staging validation trigger: 2026-11-11 -->
