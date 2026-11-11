@@ -204,6 +204,22 @@ export default {
       }
     }
     return json({ error: "not_found" }, 404);
+  },
+  async scheduled(_controller, env) {
+    try {
+      if (!env.ZEUS_BOT_TOKEN || !env.TELEGRAM_WEBHOOK_SECRET) throw new Error("telegram_secrets_missing");
+      await ensureSchema(env.DB);
+      await telegram(env, "getMe");
+      await telegram(env, "setWebhook", {
+        url: "https://fxi-telegram-edge.fxi-media-engine.workers.dev/telegram/webhook",
+        secret_token: env.TELEGRAM_WEBHOOK_SECRET,
+        allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post"],
+        drop_pending_updates: false
+      });
+      console.log("telegram_webhook_reconciled");
+    } catch (error) {
+      console.error("scheduled_webhook_reconcile_failed", String(error));
+    }
   }
 };
 async function timingSafeEqual(a, b) {
