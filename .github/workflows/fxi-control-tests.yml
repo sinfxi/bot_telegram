@@ -38,7 +38,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: telegram-delete-assistant-pro/pyproject.toml
       - name: Select Cloudflare runtime manifest
-        run: cp pyproject-cloudflare.toml pyproject.toml
+        run: cp zeus_bot.py cloudflare-free/zeus_bot.py && cp panel_security.py cloudflare-free/panel_security.py && cp pyproject-cloudflare.toml pyproject.toml
       - name: Install dependencies
         run: uv sync
       - name: Compile Python modules
