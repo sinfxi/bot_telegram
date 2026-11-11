@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import os
+import platform as runtime_platform
 import json
 import secrets
 import io
@@ -36,6 +37,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 log = logging.getLogger("fxi-telegram-community-manager")
+PROCESS_STARTED_AT = time.time()
 
 BOT_TOKEN = os.getenv("ZEUS_BOT_TOKEN", "").strip()
 SYSTEM_PROMPT = os.getenv(
@@ -3774,7 +3776,7 @@ def _community_storage_diagnostics_sync() -> dict:
 
 
 @app.get("/admin/api/metrics")
-async def admin_metrics(auth=Depends(require_admin)):
+async def admin_metrics(request: Request, auth=Depends(require_admin)):
     permissions = set(auth.get("permissions", []))
     users = admin_data.get("users", [])
     payments = list(admin_data.get("payments", {}).values())
@@ -3807,6 +3809,25 @@ async def admin_metrics(auth=Depends(require_admin)):
             "community_top_posts": sum(len(item.get("top_posts", [])) for item in chats.values()),
         })
     if "system" in permissions:
+        ray_id = request.headers.get("cf-ray", "")
+        colo = ray_id.rsplit("-", 1)[-1] if "-" in ray_id else None
+        configured_platform = os.getenv("FXI_DEPLOYMENT_PLATFORM", "").strip()
+        detected_platform = (
+            configured_platform
+            or ("Cloudflare Workers" if ray_id else ("Render" if os.getenv("RENDER") else "نامشخص"))
+        )
+        region = colo or os.getenv("RENDER_REGION") or os.getenv("FLY_REGION") or None
+        result["server"] = {
+            "platform": detected_platform,
+            "runtime": runtime_platform.python_implementation(),
+            "python_version": runtime_platform.python_version(),
+            "region": region,
+            "region_source": "Cloudflare colo" if colo else ("host environment" if region else None),
+            "process_uptime_seconds": max(0, int(time.time() - PROCESS_STARTED_AT)),
+            "deployment_id": os.getenv("CF_VERSION_METADATA_ID") or os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT_SHA") or None,
+            "serverless": bool(ray_id),
+            "hardware_metrics": "unavailable_on_serverless" if ray_id else "not_exposed",
+        }
         try:
             result["operations"] = await asyncio.to_thread(_community_storage_diagnostics_sync)
         except Exception as exc:
