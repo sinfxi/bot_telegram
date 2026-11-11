@@ -8,6 +8,3 @@ binding = "DB"
 database_name = "fxi-telegram-assistant-stage"
 database_id = "e702e0b0-3d89-4699-93e1-199b5c3c45be"
 
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = []
