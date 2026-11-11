@@ -51,3 +51,16 @@ uv run pywrangler deploy
 4. مهاجرت schema و داده‌ها با ابزار export/import قابل تکرار؛ بدون حذف PostgreSQL منبع.
 5. تست parity کامل در گروه و کانال آزمایشی.
 6. cutover فقط پس از تأیید readiness و rollback plan.
+
+
+## مجوز لازم برای GitHub Actions
+
+برای انتشار staging، دو Repository Secret زیر باید در
+`Settings → Secrets and variables → Actions` موجود باشند:
+
+- `CLOUDFLARE_API_TOKEN`: توکن API با scope همان Account و دسترسی‌های:
+  - `Account Settings: Read`
+  - `Workers Scripts: Edit`
+- `CLOUDFLARE_ACCOUNT_ID`: شناسه حساب Cloudflare که Worker staging در آن ساخته می‌شود.
+
+خطای Wrangler با کد `10000` در اجرای CI قبلی نشان داد توکن فعلی برای درخواست metadata/deploy مجوز کافی ندارد یا حساب را نمی‌تواند resolve کند. توکن را در چت یا Git ثبت نکنید؛ فقط در GitHub Actions Secrets ذخیره کنید. پس از اصلاح مجوزها، workflow را دوباره اجرا کنید.
