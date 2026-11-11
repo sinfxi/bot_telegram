@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from workers import WorkerEntrypoint
+from workers import WorkerEntrypoint, Response
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -472,6 +472,16 @@ document.getElementById("requestForm").addEventListener("submit",async e=>{
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
+        # Keep the liveness probe independent from the heavyweight Aiogram/FastAPI imports.
+        if request.method == "GET" and request.url.split("?", 1)[0].rstrip("/").endswith("/health"):
+            try:
+                await self.env.DB.prepare("SELECT 1 AS ok").first()
+                payload = {"ok": True, "service": "fxi-telegram-edge", "database": "connected"}
+                return Response(json.dumps(payload), headers={"content-type": "application/json", "cache-control": "no-store"})
+            except Exception:
+                payload = {"ok": False, "database": "unavailable"}
+                return Response(json.dumps(payload), status=503, headers={"content-type": "application/json", "cache-control": "no-store"})
+
         app_module = await _load_application(self.env)
         import asgi
         return await asgi.fetch(app_module.app, request, self.env)
