@@ -232,22 +232,30 @@ class Default(WorkerEntrypoint):
             if not isinstance(update_id, int) or update_id < 0:
                 return _json({"error": "invalid_update_id"}, 400)
 
-            await _ensure_schema(self.env.DB)
-            inserted = await self.env.DB.prepare(
+            # Schema is deployed through versioned D1 migrations, never per webhook.
+            await self.env.DB.prepare(
                 "INSERT OR IGNORE INTO fxi_py_updates(update_id) VALUES(?)"
             ).bind(update_id).run()
-            if _field(_field(inserted, "meta", {}), "changes", 0) == 0:
+            claim = await self.env.DB.prepare(
+                """UPDATE fxi_py_updates
+                   SET status='processing', claimed_at=CURRENT_TIMESTAMP
+                   WHERE update_id=? AND (
+                     status IN ('received','failed') OR
+                     (status='processing' AND claimed_at < datetime('now','-2 minutes'))
+                   )"""
+            ).bind(update_id).run()
+            if _field(_field(claim, "meta", {}), "changes", 0) != 1:
                 return _json({"ok": True, "duplicate": True})
             try:
                 await _handle_update(update, self.env, self.env.DB)
                 await self.env.DB.prepare(
-                    "UPDATE fxi_py_updates SET status='processed', processed_at=CURRENT_TIMESTAMP WHERE update_id=?"
+                    "UPDATE fxi_py_updates SET status='processed', processed_at=CURRENT_TIMESTAMP, claimed_at=NULL WHERE update_id=?"
                 ).bind(update_id).run()
                 return _json({"ok": True, "processed": True})
             except Exception:
                 LOG.exception("telegram_update_failed")
                 await self.env.DB.prepare(
-                    "UPDATE fxi_py_updates SET status='failed' WHERE update_id=?"
+                    "UPDATE fxi_py_updates SET status='failed', claimed_at=NULL WHERE update_id=?"
                 ).bind(update_id).run()
                 return _json({"ok": False, "error": "processing_failed"}, 500)
 
