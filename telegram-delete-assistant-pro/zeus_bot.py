@@ -11,6 +11,9 @@ import base64
 import hashlib
 import hmac
 import time
+import platform
+import shutil
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -122,6 +125,7 @@ def _normalize_database_url(value: str | None) -> str:
 
 DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", ""))
 DATABASE_READY = False
+_PROCESS_STARTED_AT = time.monotonic()
 admin_security = HTTPBasic(auto_error=False)
 admin_auth_failures: dict[str, list[float]] = defaultdict(list)
 ADMIN_AUTH_WINDOW_SECONDS = 60
@@ -3773,6 +3777,81 @@ def _community_storage_diagnostics_sync() -> dict:
     }
 
 
+
+def _server_runtime_diagnostics_sync() -> dict:
+    """Collect safe, aggregate runtime metrics; never expose secrets or host identifiers."""
+    result = {
+        "uptime_seconds": max(0, int(time.monotonic() - _PROCESS_STARTED_AT)),
+        "os": platform.system() or "unknown",
+        "os_release": platform.release() or "unknown",
+        "python_version": platform.python_version(),
+        "cpu_cores": os.cpu_count(),
+        "cpu_load_1m": None,
+        "memory_total_mb": None,
+        "memory_available_mb": None,
+        "process_memory_mb": None,
+        "disk_total_mb": None,
+        "disk_free_mb": None,
+        "database_latency_ms": None,
+    }
+    try:
+        if hasattr(os, "getloadavg"):
+            result["cpu_load_1m"] = round(float(os.getloadavg()[0]), 2)
+    except (OSError, ValueError):
+        pass
+    try:
+        memory = {}
+        with open("/proc/meminfo", "r", encoding="ascii") as stream:
+            for line in stream:
+                key, value = line.split(":", 1)
+                parts = value.strip().split()
+                if parts and parts[0].isdigit():
+                    memory[key] = int(parts[0]) * 1024
+        total = memory.get("MemTotal")
+        available = memory.get("MemAvailable")
+        # Prefer container-aware cgroup v2 values when available.
+        try:
+            limit_raw = Path("/sys/fs/cgroup/memory.max").read_text(encoding="ascii").strip()
+            current_raw = Path("/sys/fs/cgroup/memory.current").read_text(encoding="ascii").strip()
+            if limit_raw.isdigit() and current_raw.isdigit():
+                limit, current = int(limit_raw), int(current_raw)
+                if 0 < limit < (1 << 60):
+                    total, available = limit, max(0, limit - current)
+        except (OSError, ValueError):
+            pass
+        if total is not None:
+            result["memory_total_mb"] = round(total / 1048576, 1)
+        if available is not None:
+            result["memory_available_mb"] = round(available / 1048576, 1)
+    except (OSError, ValueError):
+        pass
+    try:
+        with open("/proc/self/status", "r", encoding="ascii") as stream:
+            for line in stream:
+                if line.startswith("VmRSS:"):
+                    result["process_memory_mb"] = round(int(line.split()[1]) / 1024, 1)
+                    break
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        usage = shutil.disk_usage(Path(__file__).resolve().anchor or "/")
+        result["disk_total_mb"] = round(usage.total / 1048576, 1)
+        result["disk_free_mb"] = round(usage.free / 1048576, 1)
+    except OSError:
+        pass
+    if DATABASE_URL and DATABASE_READY:
+        started = time.monotonic()
+        try:
+            with _db_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+            result["database_latency_ms"] = round((time.monotonic() - started) * 1000, 1)
+        except Exception:
+            # Do not send connection strings or driver errors to the browser.
+            result["database_latency_ms"] = None
+    return result
+
 @app.get("/admin/api/metrics")
 async def admin_metrics(auth=Depends(require_admin)):
     permissions = set(auth.get("permissions", []))
@@ -3817,6 +3896,11 @@ async def admin_metrics(auth=Depends(require_admin)):
                 "database_size_bytes": None,
                 "diagnostics_error": type(exc).__name__,
             }
+        try:
+            result["server"] = await asyncio.to_thread(_server_runtime_diagnostics_sync)
+        except Exception as exc:
+            log.exception("Could not collect server diagnostics")
+            result["server"] = {"diagnostics_error": type(exc).__name__}
     return result
 
 @app.get("/health")
