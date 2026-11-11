@@ -2,6 +2,14 @@
 
 This is the first runtime slice for the Cloudflare migration.
 
+## Published preview
+
+- URL: `https://fxi-telegram-edge.fxi-media-engine.workers.dev`
+- D1 binding: `fxi_bot_prod` (`DB`)
+- Deployment ID: `45c9b634-5954-47aa-af0a-fcf4bfc04196`
+
+This is a publicly reachable preview/health endpoint, **not the production Telegram bot**. No Telegram or OpenRouter secrets are bound and the production webhook has not been changed.
+
 ## Current scope
 - `GET /health`: checks D1 connectivity.
 - `GET /ready`: verifies migration 0001 is present.
