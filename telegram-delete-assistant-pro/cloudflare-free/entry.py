@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import importlib
 import json
 import os
 import sys
@@ -85,7 +84,7 @@ async def _load_application(env):
 
         Path.read_text = static_html_placeholder
         try:
-            module = importlib.import_module("zeus_bot")
+            import zeus_bot as module
         finally:
             Path.read_text = original_read_text
         bot_token = _env_value(env, "ZEUS_BOT_TOKEN")
