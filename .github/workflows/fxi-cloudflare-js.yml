@@ -1,0 +1,33 @@
+name: FXI Cloudflare JavaScript runtime checks
+on:
+  push:
+    branches: [feature/fxi-cloudflare-js-runtime]
+    paths:
+      - "telegram-delete-assistant-pro/cloudflare-free-js/**"
+      - ".github/workflows/fxi-cloudflare-js.yml"
+  pull_request:
+    paths:
+      - "telegram-delete-assistant-pro/cloudflare-free-js/**"
+      - ".github/workflows/fxi-cloudflare-js.yml"
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: telegram-delete-assistant-pro/cloudflare-free-js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax check
+        run: node --check worker.js
+      - name: Verify required runtime routes and safety gates
+        run: |
+          grep -q '"/telegram/webhook"' worker.js
+          grep -q 'x-telegram-bot-api-secret-token' worker.js
+          grep -q 'INSERT OR IGNORE INTO fxi_js_updates' worker.js
+          grep -q 'setWebhook' worker.js
+          grep -q 'OPENROUTER_API_KEY' worker.js
+          echo "Cloudflare JavaScript runtime static checks passed."

@@ -1,0 +1,11 @@
+name = "fxi-telegram-edge"
+main = "worker.js"
+compatibility_date = "2026-11-11"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fxi_bot_prod"
+database_id = "c31fe782-6cc2-41ff-a9a0-3e7504d3f319"
+
+[observability]
+enabled = true
