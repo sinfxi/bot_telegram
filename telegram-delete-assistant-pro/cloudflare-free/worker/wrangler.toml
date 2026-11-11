@@ -1,0 +1,13 @@
+name = "fxi-telegram-edge-stage"
+main = "src/index.ts"
+compatibility_date = "2026-11-11"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fxi-telegram-assistant-stage"
+database_id = "e702e0b0-3d89-4699-93e1-199b5c3c45be"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = []
