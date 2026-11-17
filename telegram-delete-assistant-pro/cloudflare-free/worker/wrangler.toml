@@ -1,9 +1,12 @@
-name = "fxi-telegram-edge"
+# SAFE STAGING-ONLY CONFIGURATION.
+# The all-zero D1 ID is an intentional guard. Replace it ONLY with the ID of
+# a newly-created staging database. Never copy the production database ID here.
+name = "fxi-telegram-edge-staging"
 main = "src/index.ts"
-compatibility_date = "2026-11-11"
+compatibility_date = "2026-11-17"
 workers_dev = true
 
 [[d1_databases]]
 binding = "DB"
-database_name = "fxi_bot_prod"
-database_id = "c31fe782-6cc2-41ff-a9a0-3e7504d3f319"
+database_name = "fxi_bot_stage"
+database_id = "00000000-0000-0000-0000-000000000000"
