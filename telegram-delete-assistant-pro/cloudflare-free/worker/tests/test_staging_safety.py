@@ -1,4 +1,4 @@
-import pathlib, sqlite3, tomllib, unittest
+import pathlib, re, sqlite3, tomllib, unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONFIG = tomllib.loads((ROOT / "wrangler.toml").read_text(encoding="utf-8"))
 WORKER = (ROOT / "src" / "index.ts").read_text(encoding="utf-8")
@@ -14,7 +14,8 @@ class StagingConfigTests(unittest.TestCase):
   self.assertEqual(CONFIG["name"], "fxi-telegram-edge-staging")
   binding=CONFIG["d1_databases"][0]
   self.assertEqual(binding["database_name"], "fxi_bot_stage")
-  self.assertEqual(binding["database_id"], "00000000-0000-0000-0000-000000000000")
+  self.assertRegex(binding["database_id"], r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+  self.assertNotEqual(binding["database_id"], "00000000-0000-0000-0000-000000000000")
   self.assertNotEqual(binding["database_id"], "c31fe782-6cc2-41ff-a9a0-3e7504d3f319")
  def test_no_cron_or_production_routes(self):
   self.assertNotIn("triggers", CONFIG); self.assertNotIn("routes", CONFIG)
