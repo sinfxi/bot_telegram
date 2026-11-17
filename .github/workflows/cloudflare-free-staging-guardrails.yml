@@ -17,5 +17,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Validate staging config, webhook guards and retry behavior
         run: python -m unittest discover -s tests -v
+      - name: Install Wrangler
+        run: npm install
+      - name: Compile Worker without deploying
+        run: npx wrangler deploy --dry-run --outdir=dist
