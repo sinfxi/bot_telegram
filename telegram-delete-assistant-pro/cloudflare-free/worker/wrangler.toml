@@ -1,9 +1,10 @@
-name = "fxi-telegram-edge"
+# Dedicated staging resources only. Never point this file at production D1.
+name = "fxi-telegram-edge-staging"
 main = "src/index.ts"
-compatibility_date = "2026-11-11"
+compatibility_date = "2026-11-17"
 workers_dev = true
 
 [[d1_databases]]
 binding = "DB"
-database_name = "fxi_bot_prod"
-database_id = "c31fe782-6cc2-41ff-a9a0-3e7504d3f319"
+database_name = "fxi_bot_stage"
+database_id = "7ac3351e-c630-4c87-a6ea-da695194fde2"

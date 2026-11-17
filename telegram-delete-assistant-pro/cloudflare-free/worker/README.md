@@ -1,36 +1,59 @@
-# FXI Telegram Edge (Cloudflare Worker)
+# FXI Telegram Edge — isolated staging environment
 
-This is the first runtime slice for the Cloudflare migration.
+This branch now has a deployed **staging-only** Worker and a separate EU D1 database. This is not a production cutover.
 
-## Published preview
+## Deployment status
+- Worker: `fxi-telegram-edge-staging`
+- Public staging origin: `https://fxi-telegram-edge-staging.99lq9ohj-kfshcd.workers.dev`
+- Usage model: `standard` (Workers Free-compatible; no paid plan enabled).
+- D1 binding: `DB` → `fxi_bot_stage` only.
+- Deployment created on 2026-11-17 from the Wrangler dry-run compiled bundle. The uploaded script exports a `fetch` handler.
+- The `workers.dev` subdomain is enabled for this staging Worker only.
+- Cloudflare API read-back confirms the deployed script, standard usage model, D1 binding, deployment version, and subdomain setting.
+- Runtime HTTP probes of `/health` and `/ready` could not be completed from the current integration environment. Open those URLs directly to confirm live responses before using the endpoint for any Telegram traffic.
 
-- URL: `https://fxi-telegram-edge.fxi-media-engine.workers.dev`
-- D1 binding: `fxi_bot_prod` (`DB`)
-- Deployment ID: `45c9b634-5954-47aa-af0a-fcf4bfc04196`
+## Safety boundary
+- Worker target: `fxi-telegram-edge-staging`, separate from all existing Workers.
+- D1 target: `fxi_bot_stage`, a new EU-jurisdiction database.
+- `wrangler.toml` points only to this staging database. Never replace it with the production D1 ID.
+- No production Worker, production D1, Render service, Telegram webhook, or user data was changed.
+- No Telegram webhook was registered or redirected.
+- No production credentials or secrets were copied. The staging Worker currently has **no secrets configured**, so webhook requests remain unauthorized until a staging-only `TELEGRAM_WEBHOOK_SECRET` is set securely.
 
-This is a publicly reachable preview/health endpoint, **not the production Telegram bot**. No Telegram or OpenRouter secrets are bound and the production webhook has not been changed.
+## Staging D1 verification
+Migration `0001 / fxi_core_d1_schema` was applied to the new staging D1. A read-only verification confirmed:
+- `schema_migrations`, `fxi_bot_state`, `fxi_chat_messages`, `fxi_community_messages`, and `telegram_updates` exist.
+- Migration version `0001` is recorded.
+- `PRAGMA foreign_key_check` returned no violations.
+- The database contains schema only; no production user data was copied.
 
-## Current scope
+## Current Worker behavior
 - `GET /health`: checks D1 connectivity.
-- `GET /ready`: verifies migration 0001 is present.
-- `POST /telegram/webhook`: validates Telegram's webhook secret header and durably records each update in D1 using `update_id` idempotency.
-- `src/store.ts`: D1 repository methods for bot state, AI chat history, and community message archive (list/search/get/edit/delete).
+- `GET /ready`: verifies migration 0001 and the expected tables.
+- `POST /telegram/webhook`: validates Telegram's secret header, reads the request body with a streaming 1 MB byte cap, validates the JSON object and update ID, and stores updates durably.
+- Duplicate updates remain idempotent. A duplicate whose prior status is `failed` is reset to `received`, increments its retry counter, and clears the previous error.
+- This is still **durable ingestion only**. It does not execute production aiogram handlers, moderation, AI replies, admin panels, broadcasts, or scheduled jobs. A background consumer and dead-letter/retry policy are still required.
 
-## Important limitation
-This worker currently performs **durable update ingestion only**. The D1 repository methods are implemented as an adapter layer but are not yet wired into the existing bot handlers. It does not yet execute the existing aiogram handlers, moderation, AI replies, admin panels, broadcasts, or scheduled jobs. Do not point the production Telegram bot webhook at it until the handler bridge and end-to-end tests are complete.
+## Tests and build
+- GitHub Actions run #13 passed the Python safety/retry tests and Wrangler dry-run compile.
+- GitHub Actions run #15 passed the same checks and uploaded the compiled staging bundle as a short-lived artifact.
+- The Worker was uploaded from the compiled bundle, not raw TypeScript.
+- The current workflow keeps a one-day artifact for controlled staging uploads.
 
-## Local validation
-Install Wrangler and run:
+Run from this directory:
 ```sh
-npx wrangler dev
+python -m unittest discover -s tests -v
+npm install
+npx wrangler deploy --dry-run --outdir=dist
 ```
 
-Set the secret locally or in Cloudflare:
-```sh
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
-```
+## Remaining before Telegram staging tests
+1. Open `/health` and `/ready` and confirm both return `200` with D1 connected and schema `0001`.
+2. Add a staging-only `TELEGRAM_WEBHOOK_SECRET` through Cloudflare's Worker Secrets UI. Do not paste it into chat or reuse production credentials.
+3. Use a dedicated test bot to verify authorized webhook ingestion, duplicate handling, invalid payload rejection, and payload-size limits.
+4. Implement and test a background consumer, handler bridge, retry/backoff, and dead-letter behavior.
+5. Migrate and validate the admin panel and its authorization model.
+6. Keep Render, production D1, and the production Telegram webhook unchanged until a full rollback-tested cutover is separately approved.
 
-Deploy only after reviewing the account binding and adding the secret:
-```sh
-npx wrangler deploy
-```
+## Free-plan guardrails
+The Worker uses the standard usage model and D1 only. No Workers Paid, Containers, paid add-ons, Cron keep-alive, or production traffic is configured. Monitor Workers request/CPU and D1 row-read/write limits before onboarding real traffic.
