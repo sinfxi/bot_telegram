@@ -1,0 +1,21 @@
+name: Cloudflare Free Staging Guardrails
+on:
+  push:
+    branches: [feature/cloudflare-free-staging-isolation]
+  pull_request:
+    branches: [feature/cloudflare-free-webhook-migration, main]
+permissions:
+  contents: read
+jobs:
+  staging-safety-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: telegram-delete-assistant-pro/cloudflare-free/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate staging config, webhook guards and retry behavior
+        run: python -m unittest discover -s tests -v
