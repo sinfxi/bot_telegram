@@ -25,9 +25,14 @@ class WebhookGuardTests(unittest.TestCase):
   self.assertIn("x-telegram-bot-api-secret-token", WORKER)
   self.assertIn("safeEqual(suppliedSecret, env.TELEGRAM_WEBHOOK_SECRET)", WORKER)
  def test_payload_limit_and_update_validation(self):
-  self.assertIn("1_000_000", WORKER)
+  self.assertIn("MAX_WEBHOOK_BYTES = 1_000_000", WORKER)
+  self.assertIn("request.body?.getReader()", WORKER)
+  self.assertIn("value.byteLength", WORKER)
+  self.assertIn('new TextDecoder("utf-8", { fatal: true })', WORKER)
   self.assertIn("Number.isSafeInteger(update.update_id)", WORKER)
   self.assertIn("temporary_storage_failure", WORKER)
+ def test_rejects_non_object_json(self):
+  self.assertIn("typeof parsed !== \"object\" || Array.isArray(parsed)", WORKER)
  def test_no_webhook_mutation_api(self):
   self.assertNotIn("setWebhook", WORKER); self.assertNotIn("deleteWebhook", WORKER)
 class RetrySemanticsTests(unittest.TestCase):
