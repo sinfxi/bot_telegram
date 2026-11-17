@@ -1,36 +1,31 @@
-# FXI Telegram Edge (Cloudflare Worker)
+# FXI Telegram Edge — isolated staging scaffold
 
-This is the first runtime slice for the Cloudflare migration.
+This branch is a **GitHub-only preparation change**. It has not been deployed.
 
-## Published preview
+## Safety boundary
+- Worker name: `fxi-telegram-edge-staging`, separate from the existing Worker.
+- D1 database name: `fxi_bot_stage`.
+- The D1 ID in `wrangler.toml` is deliberately an all-zero placeholder. Deployment is not ready until a separate staging D1 database is created and its ID is inserted here.
+- Never replace the placeholder with the production D1 ID.
+- No production Worker, production D1 database, Render service, Telegram webhook, or user data is changed by this branch.
+- Do not run `wrangler deploy` until a dedicated staging database exists and the configuration has been reviewed.
 
-- URL: `https://fxi-telegram-edge.fxi-media-engine.workers.dev`
-- D1 binding: `fxi_bot_prod` (`DB`)
-- Deployment ID: `45c9b634-5954-47aa-af0a-fcf4bfc04196`
-
-This is a publicly reachable preview/health endpoint, **not the production Telegram bot**. No Telegram or OpenRouter secrets are bound and the production webhook has not been changed.
-
-## Current scope
+## Current behavior
 - `GET /health`: checks D1 connectivity.
 - `GET /ready`: verifies migration 0001 is present.
-- `POST /telegram/webhook`: validates Telegram's webhook secret header and durably records each update in D1 using `update_id` idempotency.
-- `src/store.ts`: D1 repository methods for bot state, AI chat history, and community message archive (list/search/get/edit/delete).
+- `POST /telegram/webhook`: validates Telegram's secret header, enforces a 1 MB payload cap, and stores updates durably.
+- Duplicate updates remain idempotent. A duplicate whose prior status is `failed` is reset to `received`, increments its retry counter, and clears the previous error.
+- This is still **durable ingestion only**. It does not execute production aiogram handlers, moderation, AI replies, admin panels, broadcasts, or scheduled jobs. Re-queueing a failed update is not a complete background processing worker.
 
-## Important limitation
-This worker currently performs **durable update ingestion only**. The D1 repository methods are implemented as an adapter layer but are not yet wired into the existing bot handlers. It does not yet execute the existing aiogram handlers, moderation, AI replies, admin panels, broadcasts, or scheduled jobs. Do not point the production Telegram bot webhook at it until the handler bridge and end-to-end tests are complete.
+## Local tests
+Run from this directory: `python -m unittest discover -s tests -v`.
+Tests use Python's standard library and an in-memory SQLite database. They do not deploy or contact Cloudflare/Telegram.
 
-## Local validation
-Install Wrangler and run:
-```sh
-npx wrangler dev
-```
-
-Set the secret locally or in Cloudflare:
-```sh
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
-```
-
-Deploy only after reviewing the account binding and adding the secret:
-```sh
-npx wrangler deploy
-```
+## Before any staging deployment
+1. Create a new D1 database named `fxi_bot_stage` explicitly in Cloudflare.
+2. Apply the migration to that staging database only.
+3. Replace the all-zero placeholder with that staging database's ID.
+4. Review the Worker name and D1 binding again.
+5. Add staging-only secrets; never copy production secrets into staging.
+6. Run local tests and a staging-only end-to-end test.
+7. Keep the production webhook unchanged until the full handler bridge and rollback plan are proven.
