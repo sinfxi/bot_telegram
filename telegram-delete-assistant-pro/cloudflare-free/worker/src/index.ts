@@ -1,5 +1,6 @@
 export interface Env { DB: D1Database; TELEGRAM_WEBHOOK_SECRET: string; }
 interface TelegramUpdate { update_id: number; [key: string]: unknown; }
+const MAX_WEBHOOK_BYTES = 1_000_000;
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), {
   status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
 });
@@ -24,16 +25,46 @@ async function readiness(env: Env): Promise<Response> {
     return json({ ok: true, ready: true, schema: "0001", webhook_processing: "durable_ingest_only" });
   } catch { return json({ ok: false, ready: false, reason: "database_schema_unavailable" }, 503); }
 }
+async function readBoundedBody(request: Request): Promise<string | null> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_WEBHOOK_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } finally {
+    reader.releaseLock();
+  }
+}
 async function receiveTelegramUpdate(request: Request, env: Env): Promise<Response> {
   const suppliedSecret = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
   if (!safeEqual(suppliedSecret, env.TELEGRAM_WEBHOOK_SECRET)) return json({ ok: false, error: "unauthorized" }, 401);
   const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (declaredLength > 1_000_000) return json({ ok: false, error: "payload_too_large" }, 413);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_WEBHOOK_BYTES) return json({ ok: false, error: "payload_too_large" }, 413);
+  let raw: string;
+  try {
+    const body = await readBoundedBody(request);
+    if (body === null) return json({ ok: false, error: "payload_too_large" }, 413);
+    raw = body;
+  } catch { return json({ ok: false, error: "invalid_body_encoding" }, 400); }
   let update: TelegramUpdate;
   try {
-    const raw = await request.text();
-    if (raw.length > 1_000_000) return json({ ok: false, error: "payload_too_large" }, 413);
-    update = JSON.parse(raw) as TelegramUpdate;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return json({ ok: false, error: "invalid_update" }, 400);
+    update = parsed as TelegramUpdate;
   } catch { return json({ ok: false, error: "invalid_json" }, 400); }
   if (!Number.isSafeInteger(update.update_id) || update.update_id < 0) return json({ ok: false, error: "invalid_update_id" }, 400);
   try {
